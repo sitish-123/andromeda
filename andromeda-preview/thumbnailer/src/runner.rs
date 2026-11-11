@@ -148,14 +148,14 @@ impl Runner {
                 c
             }
             Some((_, writer)) => {
-                let mut c = bwrap(&args, input, &work, Some(STATUS_FD));
-                let mapped = writer.try_clone().ok().map(OwnedFd::from).map(|fd| {
-                    c.fd_mappings(vec![FdMapping { parent_fd: fd, child_fd: STATUS_FD }]).is_ok()
-                });
-                if mapped != Some(true) {
-                    return Outcome::Setup("status pipe".into());
+                let status = match writer.try_clone() {
+                    Ok(fd) => OwnedFd::from(fd),
+                    Err(e) => return Outcome::Setup(e.to_string()),
+                };
+                match bwrap(&args, input, &work, Some(status)) {
+                    Ok(c) => c,
+                    Err(why) => return Outcome::Setup(why),
                 }
-                c
             }
         };
         command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
@@ -206,12 +206,9 @@ impl Runner {
             Sandbox::None => true,
             Sandbox::Bwrap => {
                 let probe = std::env::temp_dir();
-                bwrap(&[OsString::from("/usr/bin/true")], &probe, &probe, None)
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .is_ok_and(|s| s.success())
+                bwrap(&[OsString::from("/usr/bin/true")], &probe, &probe, None).is_ok_and(|mut c| {
+                    c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
+                })
             }
         }
     }
@@ -273,13 +270,156 @@ fn rand_suffix() -> u64 {
     RandomState::new().hash_one(Instant::now())
 }
 
-/// The thumbnailer sees /usr, fonts, a private /tmp, its input read-only and its work directory; no network,
-/// no other home files, no D-Bus or Wayland socket. The scope puts it in background.slice.
-/// The child's fd for bwrap's JSON status.
+/// The child's fds for bwrap's JSON status and its seccomp program.
 const STATUS_FD: i32 = 3;
+const SECCOMP_FD: i32 = 4;
 
-fn bwrap(args: &[OsString], input: &Path, work: &Path, status_fd: Option<i32>) -> Command {
+/// Syscalls a decoder never needs that widen the kernel surface: debugging other processes, kernel modules and
+/// images, eBPF, perf, userfaultfd, keyrings, mounts and namespaces, io_uring, clock and system state.
+const DENIED: &[libc::c_long] = &[
+    libc::SYS_ptrace,
+    libc::SYS_process_vm_readv,
+    libc::SYS_process_vm_writev,
+    libc::SYS_kexec_load,
+    libc::SYS_kexec_file_load,
+    libc::SYS_init_module,
+    libc::SYS_finit_module,
+    libc::SYS_delete_module,
+    libc::SYS_bpf,
+    libc::SYS_perf_event_open,
+    libc::SYS_userfaultfd,
+    libc::SYS_keyctl,
+    libc::SYS_add_key,
+    libc::SYS_request_key,
+    libc::SYS_mount,
+    libc::SYS_umount2,
+    libc::SYS_pivot_root,
+    libc::SYS_unshare,
+    libc::SYS_setns,
+    libc::SYS_open_tree,
+    libc::SYS_move_mount,
+    libc::SYS_fsopen,
+    libc::SYS_fsconfig,
+    libc::SYS_fsmount,
+    libc::SYS_fspick,
+    libc::SYS_mount_setattr,
+    libc::SYS_io_uring_setup,
+    libc::SYS_io_uring_enter,
+    libc::SYS_io_uring_register,
+    libc::SYS_personality,
+    libc::SYS_acct,
+    libc::SYS_swapon,
+    libc::SYS_swapoff,
+    libc::SYS_reboot,
+    libc::SYS_clock_settime,
+    libc::SYS_clock_adjtime,
+    libc::SYS_settimeofday,
+    libc::SYS_adjtimex,
+    libc::SYS_syslog,
+    libc::SYS_quotactl,
+    libc::SYS_open_by_handle_at,
+    libc::SYS_name_to_handle_at,
+    #[cfg(target_arch = "x86_64")]
+    libc::SYS_ioperm,
+    #[cfg(target_arch = "x86_64")]
+    libc::SYS_iopl,
+];
+
+const NAMESPACE_FLAGS: u32 = (libc::CLONE_NEWNS
+    | libc::CLONE_NEWCGROUP
+    | libc::CLONE_NEWUTS
+    | libc::CLONE_NEWIPC
+    | libc::CLONE_NEWUSER
+    | libc::CLONE_NEWPID
+    | libc::CLONE_NEWNET
+    | libc::CLONE_NEWTIME) as u32;
+
+/// The seccomp program for bwrap's `--seccomp`: raw `struct sock_filter` entries in native byte order.
+/// Denied syscalls and clone with a namespace flag return EPERM; clone3 returns ENOSYS, so libc falls back to
+/// clone, whose flags a filter can read. Another architecture, or an x32 call, kills the process.
+/// None on an architecture this filter does not know.
+fn seccomp_program() -> Option<Vec<u8>> {
+    const LD_W_ABS: u16 = 0x20;
+    const JEQ_K: u16 = 0x15;
+    const JGE_K: u16 = 0x35;
+    const JSET_K: u16 = 0x45;
+    const RET_K: u16 = 0x06;
+    const ALLOW: u32 = 0x7fff_0000;
+    const ERRNO: u32 = 0x0005_0000;
+    const KILL_PROCESS: u32 = 0x8000_0000;
+    const OFFSET_NR: u32 = 0;
+    const OFFSET_ARCH: u32 = 4;
+    // Low 32 bits of args[0].
+    const OFFSET_ARG0: u32 = if cfg!(target_endian = "little") { 16 } else { 20 };
+    const X32_BIT: u32 = 0x4000_0000;
+    let arch: u32 = match std::env::consts::ARCH {
+        "x86_64" => 62 | 0x8000_0000 | 0x4000_0000,
+        "aarch64" => 183 | 0x8000_0000 | 0x4000_0000,
+        _ => return None,
+    };
+    let nr = |n: libc::c_long| u32::try_from(n).ok();
+    let (clone, clone3) = (nr(libc::SYS_clone)?, nr(libc::SYS_clone3)?);
+    let denied: Vec<u32> = DENIED.iter().map(|&n| nr(n)).collect::<Option<_>>()?;
+
+    // Head: arch check, load nr, x32 check. Then one jump per denied syscall, clone3 and clone. Tail at the end.
+    let head = 4;
+    let checks = denied.len() + 2;
+    let tail = head + checks;
+    let (clone_args, eperm, enosys, kill) = (tail + 1, tail + 4, tail + 5, tail + 6);
+    let mut prog: Vec<(u16, u8, u8, u32)> = Vec::with_capacity(tail + 7);
+    // Jump offsets count from the next instruction and only go forward.
+    let to = |from: usize, target: usize| u8::try_from(target - from - 1).ok();
+    prog.push((LD_W_ABS, 0, 0, OFFSET_ARCH));
+    prog.push((JEQ_K, 0, to(1, kill)?, arch));
+    prog.push((LD_W_ABS, 0, 0, OFFSET_NR));
+    let x32 = if cfg!(target_arch = "x86_64") { X32_BIT } else { u32::MAX };
+    prog.push((JGE_K, to(3, kill)?, 0, x32));
+    for &n in &denied {
+        let at = prog.len();
+        prog.push((JEQ_K, to(at, eperm)?, 0, n));
+    }
+    let at = prog.len();
+    prog.push((JEQ_K, to(at, enosys)?, 0, clone3));
+    let at = prog.len();
+    prog.push((JEQ_K, to(at, clone_args)?, 0, clone));
+    prog.push((RET_K, 0, 0, ALLOW));
+    prog.push((LD_W_ABS, 0, 0, OFFSET_ARG0));
+    prog.push((JSET_K, 1, 0, NAMESPACE_FLAGS));
+    prog.push((RET_K, 0, 0, ALLOW));
+    prog.push((RET_K, 0, 0, ERRNO | libc::EPERM as u32));
+    prog.push((RET_K, 0, 0, ERRNO | libc::ENOSYS as u32));
+    prog.push((RET_K, 0, 0, KILL_PROCESS));
+    debug_assert_eq!(prog.len(), kill + 1);
+    let mut bytes = Vec::with_capacity(prog.len() * 8);
+    for (code, jt, jf, k) in prog {
+        bytes.extend_from_slice(&code.to_ne_bytes());
+        bytes.extend_from_slice(&[jt, jf]);
+        bytes.extend_from_slice(&k.to_ne_bytes());
+    }
+    Some(bytes)
+}
+
+/// A pipe that holds the seccomp program; the program stays far below the pipe buffer, so the write never blocks.
+fn seccomp_fd() -> Result<OwnedFd, String> {
+    let program = seccomp_program().ok_or("no seccomp filter for this architecture")?;
+    let (reader, mut writer) = std::io::pipe().map_err(|e| e.to_string())?;
+    writer.write_all(&program).map_err(|e| e.to_string())?;
+    Ok(OwnedFd::from(reader))
+}
+
+/// The thumbnailer sees /usr, fonts, a private /tmp, its input read-only and its work directory; no network,
+/// no other home files, no D-Bus or Wayland socket, and a seccomp filter. The scope puts it in background.slice.
+///
+/// # Errors
+/// The seccomp program or the fd mapping cannot be set up; the thumbnailer must then not run.
+fn bwrap(args: &[OsString], input: &Path, work: &Path, status: Option<OwnedFd>) -> Result<Command, String> {
+    let mut fds = vec![FdMapping { parent_fd: seccomp_fd()?, child_fd: SECCOMP_FD }];
+    let status_fd = status.map(|fd| {
+        fds.push(FdMapping { parent_fd: fd, child_fd: STATUS_FD });
+        STATUS_FD
+    });
     let mut c = Command::new("systemd-run");
+    c.fd_mappings(fds).map_err(|_| "fd mapping".to_string())?;
     c.args(["--user", "--scope", "--quiet", "--collect", "--slice=background.slice"]);
     // A hostile file can make a decoder balloon or fork: cap memory (no swap) and tasks per thumbnail.
     c.args(["-p", "MemoryMax=512M", "-p", "MemorySwapMax=0", "-p", "TasksMax=32", "--"]);
@@ -287,6 +427,7 @@ fn bwrap(args: &[OsString], input: &Path, work: &Path, status_fd: Option<i32>) -
     if let Some(fd) = status_fd {
         c.args(["--json-status-fd", &fd.to_string()]);
     }
+    c.args(["--seccomp", &SECCOMP_FD.to_string()]);
     c.args(["--setenv", "PATH", "/usr/bin", "--setenv", "HOME", "/tmp"]);
     c.args(["--ro-bind", "/usr", "/usr", "--symlink", "usr/bin", "/bin", "--symlink", "usr/lib", "/lib"]);
     c.args(["--symlink", "usr/lib", "/lib64", "--symlink", "usr/bin", "/sbin"]);
@@ -297,7 +438,7 @@ fn bwrap(args: &[OsString], input: &Path, work: &Path, status_fd: Option<i32>) -
     c.arg("--ro-bind").arg(input).arg(input);
     c.arg("--bind").arg(work).arg(work);
     c.arg("--").args(args);
-    c
+    Ok(c)
 }
 
 #[cfg(test)]
@@ -327,5 +468,24 @@ mod tests {
         let missing = dir.path().join("missing");
         assert!(matches!(r.run(&program("/usr/bin/true"), "file:///x", &missing, Flavor::Normal), Outcome::Setup(_)));
         assert!(matches!(r.run(&program("/usr/bin/false"), "file:///x", &input, Flavor::Normal), Outcome::ThumbnailerFailed));
+    }
+
+    /// A decoder inside the sandbox cannot make a namespace: the seccomp filter answers EPERM.
+    #[test]
+    fn sandbox_denies_namespace_syscalls() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = runner(dir.path());
+        if !r.sandbox_works() {
+            eprintln!("skipped: no working sandbox");
+            return;
+        }
+        let input = dir.path().join("input.png");
+        std::fs::write(&input, png::marker(&[])).unwrap();
+        let script = "unshare -U /usr/bin/true 2>&1 | grep -q 'Operation not permitted' && cp \"$1\" \"$2\"";
+        let probe = Thumbnailer {
+            name: "probe".into(),
+            exec: ["/usr/bin/sh", "-c", script, "sh", "%i", "%o"].map(String::from).to_vec(),
+        };
+        assert!(matches!(r.run(&probe, "file:///x", &input, Flavor::Normal), Outcome::Made(_)));
     }
 }
