@@ -336,7 +336,8 @@ toplevel_drag_c = custom_target(
   command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
 )
 
-xdg_session_xml = wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging/xdg-session-management/xdg-session-management-v1.xml'
+# Vendored from wayland-protocols 1.50 (staging, MIT): Ubuntu 26.04 and Debian testing ship older wayland-protocols without it.
+xdg_session_xml = files('protocols/xdg-session-management-v1.xml')
 xdg_session_server_h = custom_target(
   'xdg-session-management-v1-protocol.h',
   input: xdg_session_xml,
