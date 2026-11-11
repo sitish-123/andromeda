@@ -1195,6 +1195,7 @@ if build_tests
     'image_source_log',
     'inotify',
     'island_queue',
+    'island_morph',
     'osd_reveal',
     'input_area',
     'input_bidi',

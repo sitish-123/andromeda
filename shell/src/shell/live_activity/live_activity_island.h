@@ -6,6 +6,7 @@
 #include "render/scene/input_dispatcher.h"
 #include "notification/notification.h"
 #include "shell/bar/center_island_space.h"
+#include "shell/live_activity/island_morph.h"
 #include "shell/live_activity/island_queue.h"
 #include "system/icon_resolver.h"
 #include "shell/osd/osd_overlay.h"
@@ -124,6 +125,7 @@ private:
 
   enum class Face : std::uint8_t { Rest, HoverMedia, HoverIdle, Osd, Banner, Live };
   static constexpr std::size_t kFaceCount = 6;
+  using Morph = IslandMorph<Face, Rect, AnimationManager::Id>;
 
   struct Instance {
     wl_output* output = nullptr;
@@ -204,13 +206,11 @@ private:
     std::array<Button*, 3> bannerActions{};
     std::string artUrl;
     std::string hoverArtUrl;
-    Face face = Face::Rest;
-    Face prevFace = Face::Rest;
+    Morph morph{Face::Rest};
     bool hovered = false;
     bool hoverMedia = false; // latched when the hover starts, so a pause does not swap the face under the pointer
     Timer collapse;
     float reveal = 1.0F; // 0..1 from `from` to `to`
-    AnimationManager::Id revealAnimId = 0;
     float osdProgress = 0.0F;
     float dragOffset = 0.0F; // banner swipe: surface translate, px (negative = up)
     float dragStartY = 0.0F;
@@ -230,16 +230,11 @@ private:
     bool shapeInit = false;
     std::optional<Rect> dskTarget;
     // Mirror of the compositor's clip and radius springs (x, y, w, h, radius), started by the `started` event, so
-    // `cur`, the face fades, the blur and the input region follow the clip frame for frame. Off without a compositor
-    // or with reduced motion.
+    // `cur`, the face fades, the blur and the input region follow the clip frame for frame. Followed while `morph`
+    // runs with a compositor.
     struct Mirror {
       std::array<desk::motion::Spring, 5> shape;
       desk::motion::Spring fade; // 0..1 from the last face change
-      bool active = false;
-      bool waiting = false;     // requested, no `started` yet: values hold
-      bool fadePending = false; // the next `started` also starts `fade`
-      bool retarget = false;    // the compositor keeps a running spring: its first tick already steps one frame
-      std::uint32_t generation = 0;
       std::uint32_t lastStepMs = 0;
       std::uint32_t frameMs = 16; // last measured step interval
       std::uint32_t startMs = 0;
@@ -248,7 +243,9 @@ private:
       double fadeSec = 0.0;
       std::chrono::steady_clock::time_point requested;
     } mirror;
-    Timer mirrorStop;
+    // Drivers ended from inside their own tick: AnimationManager cannot cancel there, so they go on the next turn.
+    std::vector<AnimationManager::Id> endedDrivers;
+    Timer driverReaper;
     double dskLevel = 0.0; // last elevation level sent (protocol version 4)
     bool compositorTint = false; // the compositor draws the glass tint; the fills paint nothing
   };
@@ -280,7 +277,7 @@ private:
   void bannerAction(Instance& inst, std::size_t index);
   void applyContent(Instance& inst);
   void applyReveal(Instance& inst, float reveal);
-  void animateReveal(Instance& inst, float velocity);
+  void animateReveal(Instance& inst, Face face, float velocity);
   void bannerDragStart(Instance& inst, float y);
   void bannerDragMove(Instance& inst, float y);
   void bannerDragEnd(Instance& inst);
@@ -296,13 +293,19 @@ private:
   [[nodiscard]] bool hidesBanner(const Instance& inst) const;
   // The activity hides the banner on every island, so the banner timer pauses.
   [[nodiscard]] bool bannerCovered() const;
-  void syncDsk(Instance& inst, bool animate);
+  // True when the clip moved (animated or jumped); `continueMirror`: a mirrored morph was running before this change.
+  bool syncDsk(Instance& inst, bool animate, bool continueMirror);
   // The glass tint of `face`: the pill material at rest, the sheet tint expanded; alpha 0 when the shell paints it.
   [[nodiscard]] static DskSurfaceClient::Value islandTint(const Instance& inst, Face face);
-  void startMirror(Instance& inst, const Rect& target, bool grow, bool waitForStart);
+  void startMirror(Instance& inst, const Rect& target, bool grow, bool continueFrom);
   void stepMirror(Instance& inst);
-  void ensureMirrorDriver(Instance& inst);
+  [[nodiscard]] AnimationManager::Id startMirrorDriver(Instance& inst);
+  // A driver that ended on its own ends its morph at the target.
+  void driverDone(Instance& inst, AnimationManager::Id driver);
+  // Cancels a driver from inside its own tick.
+  static void cancelLater(Instance& inst, AnimationManager::Id driver);
   [[nodiscard]] static bool mirrored(const Instance& inst);
+  // The morph just settled: the layer, elevation and swipe offset of the shown face.
   void finishReveal(Instance& inst);
   [[nodiscard]] float surfaceHeight(float scale) const;
   [[nodiscard]] static std::int32_t surfaceMargin(const CenterIslandSpace& space);
@@ -310,6 +313,8 @@ private:
   [[nodiscard]] static std::int32_t endMargin();
   [[nodiscard]] static float endPad(const Instance& inst);
   [[nodiscard]] Rect faceRect(const Instance& inst, Face face) const;
+  // faceRect, but the outgoing face of a running morph keeps the card it had when the morph began.
+  [[nodiscard]] Rect cardRect(const Instance& inst, Face face) const;
   void hoverEnter(Instance& inst);
   void hoverLeave(Instance& inst);
   void loadArt(Instance& inst, Renderer& renderer, const std::string& artUrl);
