@@ -269,6 +269,7 @@ package_noctalia-desktop-git() {
   optdepends=('ddcutil: monitor brightness control' 'fprintd: fingerprint unlock and fingerprint for admin prompts')
   provides=(noctalia)
   conflicts=(noctalia)
+  backup=(etc/pam.d/andromeda-lock)
   meson install -C build-shell --destdir "$pkgdir"
   install -Dm644 desktop/session/andromeda-shell.service "$pkgdir/usr/lib/systemd/user/andromeda-shell.service"
   ln -s andromeda-shell.service "$pkgdir/usr/lib/systemd/user/noctalia.service"

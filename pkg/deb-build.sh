@@ -68,9 +68,9 @@ case ${1:-} in
       # Debian keeps licences in debian/copyright.
       rm -rf "$pkgdir/usr/share/licenses"
     done
-    # Debian PAM stacks: common-* replace Arch's system-login.
+    # Debian PAM stacks: common-* replace Arch's system-login, system-local-login and system-auth.
     sed -Ei 's/^(account|password|session)\s+include\s+system-login$/@include common-\1/' "$root"/debian/*/etc/pam.d/*
-    sed -Ei 's/^(auth|account|password|session)\s+include\s+system-local-login$/@include common-\1/' \
+    sed -Ei 's/^(auth|account|password|session)\s+include\s+system-(local-login|auth)$/@include common-\1/' \
       "$root"/debian/*/etc/pam.d/*
     # The pacman hook's apt equal is the dpkg trigger in debian/andromeda-system.triggers.
     rm -r "$root/debian/andromeda-system/usr/share/libalpm"
