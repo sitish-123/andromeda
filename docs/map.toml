@@ -1,0 +1,1251 @@
+# Feature map: where each feature lives. One [[feature]] per feature.
+# Fields: name, keywords (list), module, entry (1-5 main file paths, repo-relative),
+# test (test name, file or dir; "" if none), build (compositor|shell|greeter|system|link),
+# notes (optional, one line).
+# Check: tools/tests/map_test.sh. Search: tools/where.sh <word>.
+
+# ---------- compositor ----------
+
+[[feature]]
+name = "input: keyboard"
+keywords = ["keyboard", "key", "keymap", "xkb", "keys"]
+module = "compositor"
+entry = ["compositor/src/input/keyboard.cpp", "compositor/src/input/key_pipeline.cpp", "compositor/src/input/keyboard_layout.cpp"]
+test = "compositor/tests/harness"
+build = "compositor"
+
+[[feature]]
+name = "input: pointer and cursor"
+keywords = ["pointer", "cursor", "mouse", "hotspot"]
+module = "compositor"
+entry = ["compositor/src/input/cursor.cpp", "compositor/src/input/cursor_grab.cpp", "compositor/src/input/cursor_constraint.cpp"]
+test = "compositor/tests/harness"
+build = "compositor"
+
+[[feature]]
+name = "input: touch"
+keywords = ["touch", "touchscreen", "finger"]
+module = "compositor"
+entry = ["compositor/src/input/cursor_touch.cpp"]
+test = "compositor/tests/harness"
+build = "compositor"
+
+[[feature]]
+name = "input: gestures"
+keywords = ["gesture", "swipe", "pinch", "touchpad", "gestures"]
+module = "compositor"
+entry = ["compositor/src/input/gestures.cpp", "compositor/src/input/gesture_physics.h"]
+test = ""
+build = "compositor"
+
+[[feature]]
+name = "input capture and EIS"
+keywords = ["input capture", "eis", "emulated input", "capture", "remote input"]
+module = "compositor"
+entry = ["compositor/src/input/input_capture.cpp", "compositor/src/input/eis.cpp", "compositor/src/input/input_capture_permissions.cpp"]
+test = "compositor/tests/input_capture.sh"
+build = "compositor"
+
+[[feature]]
+name = "output and DRM: outputs, modes, enable"
+keywords = ["output", "drm", "display", "monitor", "mode", "modeset", "outputs", "enable"]
+module = "compositor"
+entry = ["compositor/src/output/output.cpp", "compositor/src/output/mode_selection.cpp", "compositor/src/output/display_store.cpp"]
+test = "tests/e2e/output_apply.cpp"
+build = "compositor"
+
+[[feature]]
+name = "output: DRM backend policy"
+keywords = ["drm policy", "backend", "kms", "scanout policy"]
+module = "compositor"
+entry = ["compositor/src/server/drm_policy.cpp", "compositor/src/server/backend_manager.cpp"]
+test = ""
+build = "compositor"
+
+[[feature]]
+name = "output: HDR and SDR formats"
+keywords = ["hdr", "sdr", "format", "color space", "hdr metadata", "tone"]
+module = "compositor"
+entry = ["compositor/src/output/hdr_metadata.cpp", "compositor/src/output/hdr_format.h", "compositor/src/output/format_sequence.cpp"]
+test = ""
+build = "compositor"
+
+[[feature]]
+name = "output: color management (ICC, LCMS)"
+keywords = ["color", "icc", "lcms", "color manager", "color management", "gamma"]
+module = "compositor"
+entry = ["compositor/src/server/color_manager.cpp", "compositor/andromedafx/render/color_lcms2.c", "compositor/src/output/gamma_transition.cpp"]
+test = ""
+build = "compositor"
+
+[[feature]]
+name = "output: mirror"
+keywords = ["mirror", "mirroring", "clone display"]
+module = "compositor"
+entry = ["compositor/src/output/mirror.cpp"]
+test = "tests/e2e/mirror.sh"
+build = "compositor"
+
+[[feature]]
+name = "rendering: frame loop and renderer"
+keywords = ["render", "rendering", "frame", "frame loop", "renderer", "gpu", "egl", "andromedafx"]
+module = "compositor"
+entry = ["compositor/andromedafx/render/egl.c", "compositor/andromedafx/render/fx_renderer", "compositor/src/core/main_loop_worker.cpp"]
+test = "tests/glass-live.sh"
+build = "compositor"
+notes = "andromedafx is the effect renderer; fx_renderer is a directory."
+
+[[feature]]
+name = "rendering: glass material"
+keywords = ["glass", "glass material", "frosted", "translucent", "glass panel"]
+module = "compositor"
+entry = ["compositor/src/scene/glass_panel.cpp", "compositor/src/scene/glass_mask.cpp", "compositor/src/scene/effect_registry.cpp"]
+test = "tests/glass-live.sh"
+build = "compositor"
+notes = "Every glass surface reads one API: protocol/glass_material.h."
+
+[[feature]]
+name = "blur (surface and background)"
+keywords = ["blur", "background blur", "surface blur", "backdrop", "background effect"]
+module = "compositor"
+entry = ["compositor/src/scene/surface_blur.cpp", "compositor/src/server/background_effect.cpp", "compositor/src/view/effects.cpp"]
+test = "tests/e2e/glass_matrix.sh"
+build = "compositor"
+
+[[feature]]
+name = "shadows and borders"
+keywords = ["shadow", "border", "border ring", "outline", "surface shadow"]
+module = "compositor"
+entry = ["compositor/src/scene/surface_shadow.cpp", "compositor/src/view/border_ring.cpp"]
+test = ""
+build = "compositor"
+
+[[feature]]
+name = "server-side decorations (SSD)"
+keywords = ["decoration", "ssd", "titlebar", "title bar", "window frame"]
+module = "compositor"
+entry = ["compositor/src/scene/ssd_frame.cpp", "compositor/src/view/decoration.cpp"]
+test = "tests/e2e/snap_title_shots.sh"
+build = "compositor"
+
+[[feature]]
+name = "tab bar (window tabs)"
+keywords = ["tab", "tabs", "tab bar", "tabbed"]
+module = "compositor"
+entry = ["compositor/src/scene/tab_bar.cpp", "compositor/src/workspace/tab_presenter.cpp"]
+test = "compositor/tests/harness/title_bar.sh"
+build = "compositor"
+
+[[feature]]
+name = "FPS overlay"
+keywords = ["fps", "fps overlay", "frame rate", "frames"]
+module = "compositor"
+entry = ["compositor/src/scene/fps_overlay.cpp"]
+test = "tests/e2e/fps_overlay.sh"
+build = "compositor"
+
+[[feature]]
+name = "animations"
+keywords = ["animation", "animate", "easing", "motion", "tween", "spring"]
+module = "compositor"
+entry = ["compositor/src/core/animation.cpp", "compositor/src/motion/desk_motion.cpp", "compositor/src/layout/layout_motion.cpp"]
+test = ""
+build = "compositor"
+notes = "Looping decorative animation runs in the frame loop, not on timers."
+
+[[feature]]
+name = "layout: tiling (dwindle, master, scrolling)"
+keywords = ["tiling", "dwindle", "master", "scrolling", "layout", "tile"]
+module = "compositor"
+entry = ["compositor/src/layout/layout.cpp", "compositor/src/layout/dwindle.cpp", "compositor/src/layout/master.cpp", "compositor/src/layout/scrolling.cpp"]
+test = ""
+build = "compositor"
+
+[[feature]]
+name = "snap and snap assist"
+keywords = ["snap", "snap assist", "snap flyout", "tile snap", "half"]
+module = "compositor"
+entry = ["compositor/src/view/snap.cpp", "compositor/src/view/snap_assist.cpp", "compositor/src/view/snap_flyout.cpp"]
+test = "tests/e2e/snap_title_shots.sh"
+build = "compositor"
+
+[[feature]]
+name = "drag and drop: window drop targets"
+keywords = ["drop target", "drag", "drop", "dnd"]
+module = "compositor"
+entry = ["compositor/src/layout/drop_target.cpp", "compositor/src/input/cursor_data_drag.cpp"]
+test = "tests/e2e/desktop_dnd.sh"
+build = "compositor"
+
+[[feature]]
+name = "views: window lifecycle and attachment"
+keywords = ["view", "window", "toplevel", "window lifecycle", "view lifecycle"]
+module = "compositor"
+entry = ["compositor/src/view/view.cpp", "compositor/src/view/registry.cpp"]
+test = ""
+build = "compositor"
+
+[[feature]]
+name = "workspaces"
+keywords = ["workspace", "workspaces", "desktop switch", "virtual desktop"]
+module = "compositor"
+entry = ["compositor/src/workspace/workspace.cpp", "compositor/src/workspace/slide_mode.h"]
+test = "tests/e2e/island_bars_workspace.sh"
+build = "compositor"
+
+[[feature]]
+name = "overview (window grid)"
+keywords = ["overview", "expose", "grid", "window grid", "mission control"]
+module = "compositor"
+entry = ["compositor/src/overview/overview.cpp", "compositor/src/overview/overview_input.cpp", "compositor/src/overview/overview_cards.cpp"]
+test = ""
+build = "compositor"
+
+[[feature]]
+name = "layer shell surfaces"
+keywords = ["layer", "layer shell", "panel surface", "wlr-layer", "exclusive zone"]
+module = "compositor"
+entry = ["compositor/src/layer/layer_surface.cpp"]
+test = ""
+build = "compositor"
+
+[[feature]]
+name = "session lock (compositor side)"
+keywords = ["lock", "session lock", "screen lock", "ext-session-lock", "locked"]
+module = "compositor"
+entry = ["compositor/src/lock/session_lock.cpp", "compositor/src/lock/session_lock.h"]
+test = "tests/e2e/lock_output_replug.sh"
+build = "compositor"
+
+[[feature]]
+name = "xdg session management"
+keywords = ["xdg session", "session restore", "session management", "restore"]
+module = "compositor"
+entry = ["compositor/src/server/xdg_session.cpp", "compositor/src/server/xdg_session_state.cpp"]
+test = "tests/e2e/app_state_restore.sh"
+build = "compositor"
+
+[[feature]]
+name = "XWayland"
+keywords = ["xwayland", "x11", "xwm", "xwindow", "x server"]
+module = "compositor"
+entry = ["compositor/src/xwayland/xwayland.cpp", "compositor/src/xwayland/window.cpp", "compositor/src/xwayland/xsettings.cpp"]
+test = "compositor/tests/harness/xwayland_focus_lib.sh"
+build = "compositor"
+
+[[feature]]
+name = "IPC commands (compositor)"
+keywords = ["ipc", "command", "commands", "socket", "control socket", "cli"]
+module = "compositor"
+entry = ["compositor/src/server/ipc.cpp", "compositor/src/server/ipc_commands.cpp", "compositor/src/cli/ipc_client.cpp"]
+test = "compositor/tests/cli_update_bus.py"
+build = "compositor"
+
+[[feature]]
+name = "config: parser, schema and fields"
+keywords = ["config", "configuration", "settings", "schema", "toml", "fields"]
+module = "compositor"
+entry = ["compositor/src/config/config.cpp", "compositor/src/config/schema.cpp", "compositor/src/config/fields.h"]
+test = ""
+build = "compositor"
+
+[[feature]]
+name = "keybinds (compositor)"
+keywords = ["keybind", "keybinding", "shortcut", "hotkey", "binds"]
+module = "compositor"
+entry = ["compositor/src/config/keybind_parse.cpp", "compositor/src/server/server_keybinds.cpp", "compositor/src/config/action_groups.cpp"]
+test = "tests/e2e/global_shortcuts.sh"
+build = "compositor"
+
+[[feature]]
+name = "window rules"
+keywords = ["window rule", "rules", "match", "for_window"]
+module = "compositor"
+entry = ["compositor/src/config/fields_rules.cpp", "compositor/src/view/effects_rules.cpp"]
+test = ""
+build = "compositor"
+
+[[feature]]
+name = "QoS: CPU and power tiers"
+keywords = ["qos", "quality of service", "priority", "cpu tier", "tiers", "power policy"]
+module = "compositor"
+entry = ["compositor/src/qos/policy.cpp", "compositor/src/qos/controller.cpp", "compositor/src/qos/holds.cpp"]
+test = "tests/e2e/qos_tiers.sh"
+build = "compositor"
+
+[[feature]]
+name = "greeter mode (compositor side)"
+keywords = ["greeter mode", "greeter", "login screen", "greetd", "greeting"]
+module = "compositor"
+entry = ["compositor/src/server/greeter_mode.h", "compositor/src/main.cpp"]
+test = "tests/e2e/greeter_mode_session.sh"
+build = "compositor"
+
+[[feature]]
+name = "screen capture protocols (compositor)"
+keywords = ["screencast", "screencopy", "screen capture", "capture", "screen share", "pipewire"]
+module = "compositor"
+entry = ["compositor/src/output/output.cpp", "compositor/src/server/server_outputs.cpp"]
+test = "tests/e2e/screen_record.sh"
+build = "compositor"
+notes = "Client capture side is shell/src/capture; the portal is portal/."
+
+# ---------- shell ----------
+
+[[feature]]
+name = "bar (panel bar)"
+keywords = ["bar", "panel", "top bar", "status bar", "topbar"]
+module = "shell"
+entry = ["shell/src/shell/bar/bar.cpp", "shell/src/shell/bar/bar_islands.cpp", "shell/src/shell/bar/bar_widget_host.cpp"]
+test = "tests/e2e/island_bars_workspace.sh"
+build = "shell"
+
+[[feature]]
+name = "bar widgets"
+keywords = ["widget", "bar widget", "clock", "battery widget", "widgets"]
+module = "shell"
+entry = ["shell/src/shell/bar/widget_action.cpp", "shell/src/shell/settings/bar_widget_editor.cpp"]
+test = "tests/e2e/island_bars_workspace.sh"
+build = "shell"
+
+[[feature]]
+name = "islands and live activity"
+keywords = ["island", "live activity", "dynamic island", "activity island", "morph"]
+module = "shell"
+entry = ["shell/src/shell/live_activity/live_activity_island.cpp", "shell/src/shell/live_activity/island_queue.h", "shell/src/shell/live_activity/island_morph.h"]
+test = "tests/e2e/island_bars_workspace.sh"
+build = "shell"
+
+[[feature]]
+name = "control center"
+keywords = ["control center", "quick settings", "controlcenter", "quick panel"]
+module = "shell"
+entry = ["shell/src/shell/control_center/control_center_panel.cpp", "shell/src/shell/control_center/control_center_services.h"]
+test = "tests/e2e/control_center_v2.sh"
+build = "shell"
+
+[[feature]]
+name = "dock"
+keywords = ["dock", "taskbar", "task bar", "app dock", "pinned apps"]
+module = "shell"
+entry = ["shell/src/shell/dock/dock.cpp", "shell/src/shell/dock/dock_model.cpp", "shell/src/shell/dock/pinned_apps.cpp"]
+test = "tests/e2e/taskbar_show_desktop.sh"
+build = "shell"
+
+[[feature]]
+name = "launcher (app launcher)"
+keywords = ["launcher", "app launcher", "search", "apps menu", "start menu", "run"]
+module = "shell"
+entry = ["shell/src/shell/launcher/launcher_panel.cpp", "shell/src/shell/launcher/launcher_panel_modes.cpp", "shell/src/shell/launcher/launcher_panel_input.cpp"]
+test = "tests/e2e/launcher_launch.sh"
+build = "shell"
+
+[[feature]]
+name = "launcher: file search"
+keywords = ["launcher files", "file search", "search files", "index search"]
+module = "shell"
+entry = ["shell/src/shell/launcher/launcher_adapters.h", "shell/src/shell/launcher/launcher_panel_modes.cpp"]
+test = "tests/e2e/launcher_files.sh"
+build = "shell"
+
+[[feature]]
+name = "notifications"
+keywords = ["notification", "notifications", "toast", "notify", "notification center"]
+module = "shell"
+entry = ["shell/src/notification/notification_manager.cpp", "shell/src/notification/notification_filter.cpp", "shell/src/notification/notification_history_store.cpp"]
+test = "tests/e2e/notifications_tab_actions.sh"
+build = "shell"
+
+[[feature]]
+name = "notification focus and do not disturb"
+keywords = ["focus", "do not disturb", "dnd", "focus mode", "quiet"]
+module = "shell"
+entry = ["shell/src/notification/focus.cpp", "shell/src/notification/notification_filter.cpp"]
+test = "tests/e2e/desktop_dnd.sh"
+build = "shell"
+
+[[feature]]
+name = "lock screen"
+keywords = ["lock screen", "lockscreen", "lock", "login box", "password", "unlock"]
+module = "shell"
+entry = ["shell/src/shell/lockscreen/lock_screen.cpp", "shell/src/shell/lockscreen/lock_client.cpp", "shell/src/shell/lockscreen/lockscreen_login_box.cpp"]
+test = "tests/e2e/face_lock.sh"
+build = "shell"
+
+[[feature]]
+name = "lock screen editor (appearance)"
+keywords = ["lock editor", "lock appearance", "lock wallpaper", "lock gallery", "lock style"]
+module = "shell"
+entry = ["shell/src/shell/lockscreen/lock_editor.cpp", "shell/src/shell/lockscreen/lock_editor_gallery.cpp", "shell/src/shell/lockscreen/lock_editor_wallpaper.cpp"]
+test = "tests/e2e/lock_editor.sh"
+build = "shell"
+
+[[feature]]
+name = "lock screen helper process"
+keywords = ["lock helper", "lock process", "lock crash", "helper"]
+module = "shell"
+entry = ["shell/src/shell/lockscreen/lock_helper_process.cpp", "shell/src/shell/lockscreen/lock_helper.cpp"]
+test = "tests/e2e/lock_helper_crash.sh"
+build = "shell"
+
+[[feature]]
+name = "lock screen notices and phone row"
+keywords = ["lock notice", "lock notices", "lock phone", "lock call"]
+module = "shell"
+entry = ["shell/src/dbus/andromeda/lock_notice_client.cpp", "shell/src/shell/lockscreen/lock_phone_row.cpp", "shell/src/shell/lockscreen/lock_call_card.cpp"]
+test = "tests/e2e/shell_lock_notices.sh"
+build = "shell"
+
+[[feature]]
+name = "greeter mode (shell side)"
+keywords = ["greeter", "greetd", "greeter mode", "login greeter"]
+module = "shell"
+entry = ["shell/src/greeter/greetd_client.cpp", "shell/src/greeter/greeter_host.cpp", "shell/src/shell/greeter/greeter_appearance_sync.cpp"]
+test = "shell/tests/greeter_appearance_sync_test.cpp"
+build = "shell"
+
+[[feature]]
+name = "settings window"
+keywords = ["settings", "settings window", "preferences", "settings app", "settings sidebar"]
+module = "shell"
+entry = ["shell/src/shell/settings/settings_window.cpp", "shell/src/shell/settings/settings_registry.cpp", "shell/src/shell/settings/settings_sidebar.cpp"]
+test = "tests/e2e/settings_dialog.sh"
+build = "shell"
+
+[[feature]]
+name = "settings search"
+keywords = ["settings search", "find setting", "search settings"]
+module = "shell"
+entry = ["shell/src/shell/settings/settings_search.cpp", "shell/src/shell/settings/settings_registry_helpers.cpp"]
+test = "tests/e2e/settings_navigation.sh"
+build = "shell"
+
+[[feature]]
+name = "settings page: date and time"
+keywords = ["date", "time", "timezone", "clock settings", "datetime", "ntp"]
+module = "shell"
+entry = ["shell/src/shell/settings/settings_content_datetime.cpp", "shell/src/shell/settings/settings_window_datetime.cpp"]
+test = "tests/e2e/date_time_settings.sh"
+build = "shell"
+
+[[feature]]
+name = "settings page: default apps"
+keywords = ["default apps", "default application", "mime", "associations", "default browser"]
+module = "shell"
+entry = ["shell/src/shell/settings/settings_content_default_apps.cpp", "shell/src/shell/settings/settings_window_default_apps.cpp"]
+test = "tests/e2e/default_apps.sh"
+build = "shell"
+
+[[feature]]
+name = "settings page: devices"
+keywords = ["devices", "settings devices", "usb", "peripherals", "drives"]
+module = "shell"
+entry = ["shell/src/shell/settings/settings_content_devices.cpp", "shell/src/shell/settings/settings_window_devices.cpp"]
+test = "tests/e2e/drives.sh"
+build = "shell"
+
+[[feature]]
+name = "settings page: displays"
+keywords = ["displays", "monitor settings", "resolution", "scale", "refresh rate", "display settings"]
+module = "shell"
+entry = ["shell/src/shell/settings/settings_content_displays.cpp", "shell/src/shell/settings/settings_window_displays.cpp"]
+test = "tests/e2e/displays.sh"
+build = "shell"
+
+[[feature]]
+name = "settings page: input"
+keywords = ["input settings", "keyboard settings", "mouse settings", "touchpad settings", "pointer settings"]
+module = "shell"
+entry = ["shell/src/shell/settings/settings_content_input.cpp", "shell/src/shell/settings/settings_window_input.cpp"]
+test = "tests/e2e/input_settings.sh"
+build = "shell"
+
+[[feature]]
+name = "settings page: language"
+keywords = ["language", "locale", "settings language", "region", "translation"]
+module = "shell"
+entry = ["shell/src/shell/settings/settings_content_language.cpp", "shell/src/shell/settings/settings_window_language.cpp"]
+test = "tests/e2e/language_settings.sh"
+build = "shell"
+
+[[feature]]
+name = "settings page: wifi"
+keywords = ["wifi", "wi-fi", "wireless", "settings wifi", "access point"]
+module = "shell"
+entry = ["shell/src/shell/settings/settings_content_wifi.cpp", "shell/src/shell/settings/settings_window_wifi.cpp"]
+test = ""
+build = "shell"
+
+[[feature]]
+name = "settings page: notification filter"
+keywords = ["notification filter", "notification settings", "notification rules"]
+module = "shell"
+entry = ["shell/src/shell/settings/settings_content_notification_filter.cpp"]
+test = "tests/e2e/notifications_tab_actions.sh"
+build = "shell"
+
+[[feature]]
+name = "settings page: plugins"
+keywords = ["plugins page", "plugin settings", "plugin store", "mods"]
+module = "shell"
+entry = ["shell/src/shell/settings/settings_content_plugins.cpp", "shell/src/shell/settings/plugin_store_content.cpp"]
+test = ""
+build = "shell"
+
+[[feature]]
+name = "settings page: power"
+keywords = ["power", "settings power", "power profile", "suspend", "battery settings"]
+module = "shell"
+entry = ["shell/src/shell/settings/settings_content_power.cpp", "shell/src/shell/settings/settings_content_session_action.cpp"]
+test = "tests/e2e/settings_power.sh"
+build = "shell"
+
+[[feature]]
+name = "settings page: privacy"
+keywords = ["privacy", "settings privacy", "permissions", "camera", "microphone", "location"]
+module = "shell"
+entry = ["shell/src/shell/settings/settings_content_privacy.cpp", "shell/src/shell/settings/settings_window_privacy.cpp"]
+test = "tests/e2e/settings_privacy.sh"
+build = "shell"
+
+[[feature]]
+name = "settings page: problems"
+keywords = ["problems", "health", "system health", "issues", "warnings"]
+module = "shell"
+entry = ["shell/src/shell/settings/settings_content_problems.cpp", "shell/src/shell/settings/settings_window_problems.cpp"]
+test = ""
+build = "shell"
+
+[[feature]]
+name = "settings page: shortcuts"
+keywords = ["shortcuts page", "keybinds page", "keyboard shortcuts", "keybind recorder"]
+module = "shell"
+entry = ["shell/src/shell/settings/settings_content_shortcuts.cpp", "shell/src/shell/settings/keybind_recorder.cpp"]
+test = "tests/e2e/global_shortcuts.sh"
+build = "shell"
+
+[[feature]]
+name = "settings page: software update"
+keywords = ["software update", "updates", "update settings", "upgrade"]
+module = "shell"
+entry = ["shell/src/shell/settings/settings_content_software_update.cpp", "shell/src/shell/settings/settings_window_software_update.cpp"]
+test = "tests/e2e/settings_update.sh"
+build = "shell"
+
+[[feature]]
+name = "settings page: sound"
+keywords = ["sound", "audio", "volume", "speakers", "settings sound"]
+module = "shell"
+entry = ["shell/src/shell/settings/settings_content_sound.cpp"]
+test = ""
+build = "shell"
+
+[[feature]]
+name = "polkit agent"
+keywords = ["polkit", "authentication", "auth dialog", "sudo prompt", "authorization", "pkexec"]
+module = "shell"
+entry = ["shell/src/shell/polkit/polkit_panel.cpp", "shell/src/shell/polkit/polkit_panel.h"]
+test = "tests/e2e/face_polkit.sh"
+build = "shell"
+notes = "The polkit backend is in system/crates/andromeda-system/src/polkit.rs."
+
+[[feature]]
+name = "clipboard"
+keywords = ["clipboard", "copy paste", "clipboard history", "paste"]
+module = "shell"
+entry = ["shell/src/clipboard/clipboard_service.cpp", "shell/src/shell/clipboard/clipboard_panel.cpp", "shell/src/shell/clipboard/clipboard_paste.cpp"]
+test = "tests/e2e/launcher_clipboard_image.sh"
+build = "shell"
+
+[[feature]]
+name = "wallpaper"
+keywords = ["wallpaper", "background image", "desktop background", "shuffle"]
+module = "shell"
+entry = ["shell/src/shell/wallpaper/wallpaper.cpp", "shell/src/shell/wallpaper/wallpaper_window.cpp", "shell/src/shell/wallpaper/wallpaper_shuffle_state.cpp"]
+test = "tests/e2e/wallpaper_panel_v2.sh"
+build = "shell"
+
+[[feature]]
+name = "desktop icons and widgets"
+keywords = ["desktop icons", "desktop widgets", "desktop files", "icons on desktop"]
+module = "shell"
+entry = ["shell/src/shell/desktop/desktop_icons.cpp", "shell/src/shell/desktop/desktop_widgets_controller.cpp"]
+test = "tests/e2e/desktop_icons.sh"
+build = "shell"
+
+[[feature]]
+name = "plugins: Luau runtime and manager"
+keywords = ["plugin", "plugins", "luau", "mod", "script", "plugin manager", "extension"]
+module = "shell"
+entry = ["shell/src/scripting/plugin_manager.cpp", "shell/src/scripting/luau_host.cpp", "shell/src/scripting/plugin_manifest.cpp"]
+test = "shell/tests"
+build = "shell"
+
+[[feature]]
+name = "plugins: permissions"
+keywords = ["plugin permissions", "permission", "plugin access", "sandbox"]
+module = "shell"
+entry = ["shell/src/scripting/plugin_permissions.cpp", "shell/src/scripting/plugin_registry.cpp"]
+test = "shell/tests"
+build = "shell"
+
+[[feature]]
+name = "shell IPC and msg"
+keywords = ["ipc", "msg", "shell ipc", "command line", "cli", "shell command"]
+module = "shell"
+entry = ["shell/src/ipc/ipc_service.cpp", "shell/src/ipc/ipc_client.cpp", "shell/src/ipc/cli.cpp"]
+test = "tests/e2e/shell_protocol.sh"
+build = "shell"
+
+[[feature]]
+name = "OSD (volume, brightness, keys)"
+keywords = ["osd", "volume osd", "brightness osd", "on screen display", "caps lock osd"]
+module = "shell"
+entry = ["shell/src/shell/osd/osd_overlay.cpp", "shell/src/shell/osd/audio_osd.cpp", "shell/src/shell/osd/brightness_osd.cpp"]
+test = ""
+build = "shell"
+
+[[feature]]
+name = "system tray"
+keywords = ["tray", "system tray", "status icon", "statusnotifier", "tray menu"]
+module = "shell"
+entry = ["shell/src/shell/tray/tray_menu.cpp", "shell/src/shell/tray/tray_drawer_panel.cpp"]
+test = ""
+build = "shell"
+
+[[feature]]
+name = "screenshot"
+keywords = ["screenshot", "screen shot", "print screen", "capture region", "snip"]
+module = "shell"
+entry = ["shell/src/capture/screenshot_service.cpp", "shell/src/capture/screenshot_capture.cpp", "shell/src/capture/screenshot_region_overlay.cpp"]
+test = "tests/e2e/kwin_screenshot.py"
+build = "shell"
+
+[[feature]]
+name = "screen recording (shell)"
+keywords = ["screen record", "recording", "record screen", "screencast", "video capture"]
+module = "shell"
+entry = ["shell/src/capture/screen_recorder.cpp", "shell/src/capture/screencopy_capture.cpp"]
+test = "tests/e2e/screen_record.sh"
+build = "shell"
+
+[[feature]]
+name = "window switcher"
+keywords = ["switcher", "alt tab", "window switcher", "switch windows"]
+module = "shell"
+entry = ["shell/src/shell/switcher/window_switcher.cpp", "shell/src/shell/switcher/window_switcher_carousel_style.cpp"]
+test = ""
+build = "shell"
+
+[[feature]]
+name = "hot corners (shell)"
+keywords = ["hot corner", "hotcorner", "corner action"]
+module = "shell"
+entry = ["shell/src/shell/hot_corners/hot_corners.cpp"]
+test = "tests/e2e/hot_corners_handover.sh"
+build = "shell"
+
+[[feature]]
+name = "session and power menu"
+keywords = ["power menu", "session menu", "logout", "shutdown", "reboot", "session overlay"]
+module = "shell"
+entry = ["shell/src/shell/session/power_overlay.cpp", "shell/src/shell/session/session_action_runner.cpp", "shell/src/shell/session/session_ipc.cpp"]
+test = "tests/e2e/logout.sh"
+build = "shell"
+
+[[feature]]
+name = "panel manager"
+keywords = ["panel", "panels", "panel manager", "popup panel", "attached panel"]
+module = "shell"
+entry = ["shell/src/shell/panel/panel_manager.cpp", "shell/src/shell/panel/panel.h", "shell/src/shell/panel/persistent_panel_host.cpp"]
+test = ""
+build = "shell"
+
+[[feature]]
+name = "phone panel (shell)"
+keywords = ["phone", "phone panel", "link phone", "phone page"]
+module = "shell"
+entry = ["shell/src/shell/phone/phone_panel.cpp", "shell/src/shell/phone/phone_state.cpp"]
+test = "tests/e2e/link_phone_page.sh"
+build = "shell"
+
+[[feature]]
+name = "display mode panel"
+keywords = ["display mode", "mirror mode", "extend mode", "projector"]
+module = "shell"
+entry = ["shell/src/shell/display_mode/display_mode_panel.cpp"]
+test = "tests/e2e/display_mode.sh"
+build = "shell"
+
+[[feature]]
+name = "activity inspector"
+keywords = ["activity", "activity monitor", "task manager", "process list", "activity window"]
+module = "shell"
+entry = ["shell/src/shell/activity/activity_window.cpp", "shell/src/shell/activity/activity_inspector.cpp"]
+test = "tests/e2e/activity_window.sh"
+build = "shell"
+
+[[feature]]
+name = "setup wizard (first run)"
+keywords = ["setup", "wizard", "first run", "onboarding", "setup wizard"]
+module = "shell"
+entry = ["shell/src/shell/setup_wizard/setup_wizard_panel.cpp"]
+test = "tests/e2e/setup_wizard_flow.sh"
+build = "shell"
+
+[[feature]]
+name = "shell: Andromeda compositor backend"
+keywords = ["compositor backend", "andromeda backend", "compositor adapter", "wayland backend"]
+module = "shell"
+entry = ["shell/src/compositors/andromeda/andromeda_runtime.cpp", "shell/src/compositors/andromeda/andromeda_output_backend.cpp"]
+test = ""
+build = "shell"
+
+[[feature]]
+name = "shell: D-Bus to compositor and system"
+keywords = ["dbus", "d-bus", "bus", "service", "shell service"]
+module = "shell"
+entry = ["shell/src/dbus/andromeda/shell_service.cpp", "shell/src/dbus/andromeda/lock_service.cpp"]
+test = ""
+build = "shell"
+
+[[feature]]
+name = "shell: MPRIS media"
+keywords = ["mpris", "media", "now playing", "media controls", "player"]
+module = "shell"
+entry = ["shell/src/dbus/mpris/mpris_art.cpp", "shell/src/dbus/mpris/mpris_art.h"]
+test = "tests/e2e/mpris_test_player.py"
+build = "shell"
+
+[[feature]]
+name = "libdesk-ui: widgets (controls)"
+keywords = ["widget", "widgets", "control", "button", "checkbox", "slider", "toolkit"]
+module = "shell"
+entry = ["libdesk-ui/src/ui/controls/button.cpp", "libdesk-ui/src/ui/controls/box.cpp", "libdesk-ui/src/ui/builders.cpp"]
+test = "libdesk-ui/tests"
+build = "shell"
+notes = "libdesk-ui is a subproject of shell (shell/meson.build:146) and greeter."
+
+[[feature]]
+name = "libdesk-ui: style and palette"
+keywords = ["style", "theme", "palette", "colors", "tokens", "ui style"]
+module = "shell"
+entry = ["libdesk-ui/src/ui/style.cpp", "libdesk-ui/src/ui/palette.cpp"]
+test = "libdesk-ui/tests"
+build = "shell"
+
+[[feature]]
+name = "libdesk-ui: render scene and context"
+keywords = ["render", "scene", "render context", "gl", "opengl", "render target", "text", "font"]
+module = "shell"
+entry = ["libdesk-ui/src/render/render_context.cpp", "libdesk-ui/src/render/scene", "libdesk-ui/src/render/render_target.cpp"]
+test = "libdesk-ui/tests"
+build = "shell"
+
+[[feature]]
+name = "libdesk-ui: animation and motion service"
+keywords = ["animation", "motion", "motion service", "animation manager", "tween"]
+module = "shell"
+entry = ["libdesk-ui/src/render/animation/animation_manager.cpp", "libdesk-ui/src/render/animation/motion_service.cpp"]
+test = "libdesk-ui/tests"
+build = "shell"
+
+[[feature]]
+name = "libdesk-ui: Wayland client (surfaces and seat)"
+keywords = ["wayland client", "surface", "layer surface", "seat", "wayland", "toplevel"]
+module = "shell"
+entry = ["libdesk-ui/src/wayland/wayland_connection.cpp", "libdesk-ui/src/wayland/layer_surface.cpp", "libdesk-ui/src/wayland/toplevel_surface.cpp"]
+test = "libdesk-ui/tests"
+build = "shell"
+
+[[feature]]
+name = "libdesk-ui: drag and drop"
+keywords = ["drag", "drop", "drag and drop", "dnd source", "drag icon"]
+module = "shell"
+entry = ["libdesk-ui/src/wayland/drag_and_drop.cpp", "libdesk-ui/src/ui/drag_drop_controller.cpp"]
+test = "libdesk-ui/tests"
+build = "shell"
+
+[[feature]]
+name = "libdesk-ui: accessibility (AT-SPI bridge)"
+keywords = ["a11y", "accessibility", "atspi", "at-spi", "screen reader", "accessible"]
+module = "shell"
+entry = ["libdesk-ui/src/a11y/atspi_bridge.cpp", "libdesk-ui/src/a11y/atspi_bridge.h"]
+test = "tests/e2e/a11y_launcher_tree.sh"
+build = "shell"
+
+[[feature]]
+name = "libdesk-ui: tooltips, popups and dialogs"
+keywords = ["tooltip", "popup", "context menu", "dialog", "dialogs", "modal", "auth ui"]
+module = "shell"
+entry = ["libdesk-ui/src/ui/tooltip", "libdesk-ui/src/ui/controls/context_menu.cpp", "libdesk-ui/src/ui/popup_chrome.cpp"]
+test = "libdesk-ui/tests"
+build = "shell"
+notes = "Entries include a directory (ui/tooltip)."
+
+[[feature]]
+name = "libdesk-system: session and system bus"
+keywords = ["session bus", "system bus", "dbus connection", "bus", "libdesk system"]
+module = "shell"
+entry = ["libdesk-system/src/dbus/session_bus.cpp", "libdesk-system/src/dbus/system_bus.cpp"]
+test = ""
+build = "shell"
+notes = "libdesk-system is a subproject of shell (shell/meson.build:149) and greeter."
+
+[[feature]]
+name = "libdesk-system: logind and power clients"
+keywords = ["logind", "login1", "seat", "suspend client", "lid", "upower", "power client"]
+module = "shell"
+entry = ["libdesk-system/src/dbus/logind/logind_service.cpp", "libdesk-system/src/dbus/upower"]
+test = ""
+build = "shell"
+
+[[feature]]
+name = "libdesk-system: Bluetooth client"
+keywords = ["bluez", "bluetooth client", "bluetooth agent"]
+module = "shell"
+entry = ["libdesk-system/src/dbus/bluetooth/bluetooth_service.cpp", "libdesk-system/src/dbus/bluetooth/bluetooth_agent.cpp"]
+test = ""
+build = "shell"
+
+[[feature]]
+name = "libdesk-system: NetworkManager client"
+keywords = ["network client", "networkmanager client", "nm client", "wifi client"]
+module = "shell"
+entry = ["libdesk-system/src/dbus/network"]
+test = ""
+build = "shell"
+notes = "Entry is a directory."
+
+[[feature]]
+name = "libdesk-system: accounts, locale and time clients"
+keywords = ["accounts", "locale", "timedate", "time client", "users client"]
+module = "shell"
+entry = ["libdesk-system/src/dbus/accounts/accounts_service.cpp", "libdesk-system/src/dbus/locale/locale_service.cpp", "libdesk-system/src/dbus/timedate"]
+test = ""
+build = "shell"
+
+[[feature]]
+name = "libdesk-system: rfkill helper"
+keywords = ["rfkill", "airplane mode", "radio", "airplane"]
+module = "shell"
+entry = ["libdesk-system/src/system/rfkill_helper.cpp"]
+test = "tests/e2e/airplane.sh"
+build = "shell"
+
+# ---------- system daemon ----------
+
+[[feature]]
+name = "System1 daemon (session and bus)"
+keywords = ["system1", "system daemon", "org.andromeda.system1", "system bus", "daemon", "dbus daemon"]
+module = "system"
+entry = ["system/crates/andromeda-system/src/main.rs", "system/crates/andromeda-system/src/bus.rs", "system/crates/andromeda-system/src/manager.rs"]
+test = "system/tests"
+build = "system"
+notes = "Shell and compositor reach system services only through System1."
+
+[[feature]]
+name = "power: battery, thermal and profiles"
+keywords = ["power", "battery", "thermal", "temperature", "power profile", "charge"]
+module = "system"
+entry = ["system/crates/andromeda-system/src/power.rs", "system/crates/andromeda-system/src/battery.rs", "system/crates/andromeda-system/src/thermal.rs"]
+test = "system/tests"
+build = "system"
+
+[[feature]]
+name = "display and keyboard backlight (system)"
+keywords = ["backlight", "brightness", "keyboard backlight", "kbd backlight"]
+module = "system"
+entry = ["system/crates/andromeda-system/src/display.rs", "system/crates/andromeda-system/src/kbd_backlight.rs"]
+test = "system/tests"
+build = "system"
+
+[[feature]]
+name = "network: NetworkManager control"
+keywords = ["networkmanager", "network manager", "nm", "network control", "networking"]
+module = "system"
+entry = ["system/crates/andromeda-system/src/nm_control.rs", "system/crates/andromeda-system/src/nm.rs", "system/crates/andromeda-system/src/network.rs"]
+test = "system/tests"
+build = "system"
+
+[[feature]]
+name = "wifi (system)"
+keywords = ["wifi", "wi-fi", "wireless", "access point", "ssid"]
+module = "system"
+entry = ["system/crates/andromeda-system/src/wifi.rs"]
+test = "system/tests"
+build = "system"
+
+[[feature]]
+name = "holds and inhibitors"
+keywords = ["hold", "holds", "inhibit", "inhibitor", "sleep inhibit", "block sleep"]
+module = "system"
+entry = ["system/crates/andromeda-system/src/holds.rs"]
+test = "system/tests"
+build = "system"
+
+[[feature]]
+name = "health rules engine"
+keywords = ["health", "health rules", "rules", "rule engine", "system health", "problems", "policy"]
+module = "system"
+entry = ["system/crates/andromeda-system/src/rules.rs", "system/crates/andromeda-system/src/engine.rs", "system/crates/andromeda-system/src/policy.rs"]
+test = "system/tests"
+build = "system"
+notes = "Design notes in docs/system-health.md."
+
+[[feature]]
+name = "crash watcher"
+keywords = ["crash", "crashes", "coredump", "crash watcher", "core dump", "segfault"]
+module = "system"
+entry = ["system/crates/andromeda-system/src/crashes.rs"]
+test = ""
+build = "system"
+
+[[feature]]
+name = "memory and processes (system)"
+keywords = ["memory", "ram", "oom", "process", "procs", "swap"]
+module = "system"
+entry = ["system/crates/andromeda-system/src/memory.rs", "system/crates/andromeda-system/src/procs.rs"]
+test = "system/tests"
+build = "system"
+
+[[feature]]
+name = "storage and drives (system)"
+keywords = ["storage", "disk", "drive", "udisks", "mount", "unmount", "partition"]
+module = "system"
+entry = ["system/crates/andromeda-system/src/storage.rs", "system/crates/andromeda-system/src/drives.rs"]
+test = "system/tests"
+build = "system"
+
+[[feature]]
+name = "polkit (system)"
+keywords = ["polkit", "authorization", "policy kit", "polkit rules", "action policy"]
+module = "system"
+entry = ["system/crates/andromeda-system/src/polkit.rs", "system/data/org.andromeda.system.policy"]
+test = "system/tests"
+build = "system"
+
+[[feature]]
+name = "FileOps1 daemon (file operations)"
+keywords = ["fileops", "file ops", "fileops1", "copy", "move", "file operations"]
+module = "system"
+entry = ["system/crates/andromeda-fileops/src/main.rs", "system/crates/andromeda-fileops/src/ops.rs", "system/crates/andromeda-fileops/src/jobs.rs"]
+test = "system/tests"
+build = "system"
+
+[[feature]]
+name = "FileOps1: trash and archives"
+keywords = ["trash", "recycle", "delete", "archive", "zip", "tar", "extract", "compress"]
+module = "system"
+entry = ["system/crates/andromeda-fileops/src/trash.rs", "system/crates/andromeda-fileops/src/archive.rs"]
+test = "tests/e2e/files_archive.sh"
+build = "system"
+
+[[feature]]
+name = "Update1 daemon (software update)"
+keywords = ["update", "updates", "update1", "upgrade", "software update", "updater"]
+module = "system"
+entry = ["system/crates/andromeda-update/src/service.rs", "system/crates/andromeda-update/src/main.rs", "system/crates/andromeda-update/src/lib.rs"]
+test = "tests/e2e/settings_update.sh"
+build = "system"
+
+[[feature]]
+name = "Update1: apt, pacman, flatpak, snap backends"
+keywords = ["apt", "pacman", "flatpak", "snap", "package manager", "packages"]
+module = "system"
+entry = ["system/crates/andromeda-update/src/apt.rs", "system/crates/andromeda-update/src/pacman.rs", "system/crates/andromeda-update/src/flatpak.rs", "system/crates/andromeda-update/src/snap.rs"]
+test = "system/tests"
+build = "system"
+
+[[feature]]
+name = "UpdateHelper1 (privileged update helper)"
+keywords = ["update helper", "updatehelper", "updatehelper1", "transaction", "snapshot", "rollback"]
+module = "system"
+entry = ["system/crates/andromeda-update-helper/src/helper.rs", "system/crates/andromeda-update-helper/src/transaction.rs", "system/crates/andromeda-update-helper/src/snapshot.rs"]
+test = "system/tests"
+build = "system"
+
+[[feature]]
+name = "update migrations"
+keywords = ["migration", "migrations", "migrate", "upgrade migration", "migrations hook"]
+module = "system"
+entry = ["system/crates/andromeda-update-helper/src/migrations.rs", "system/data/andromeda-migrations.hook"]
+test = ""
+build = "system"
+
+# ---------- link ----------
+
+[[feature]]
+name = "Link daemon (desktop side)"
+keywords = ["link", "link daemon", "phone link", "companion", "android link"]
+module = "link"
+entry = ["link/crates/link-daemon/src/main.rs", "link/crates/link-daemon/src/hub.rs", "link/crates/link-daemon/src/listener.rs"]
+test = "link/tests"
+build = "link"
+
+[[feature]]
+name = "Link protocol and messages"
+keywords = ["link protocol", "messages", "wire", "cddl", "protocol"]
+module = "link"
+entry = ["link/api/messages.cddl", "link/crates/link-proto/src", "link/api/org.andromeda.Link1.xml"]
+test = "link/tests"
+build = "link"
+
+[[feature]]
+name = "Link: phone"
+keywords = ["link phone", "phone call", "sms", "call", "phone page"]
+module = "link"
+entry = ["link/crates/link-phone/src", "link/crates/link-daemon/src/control.rs"]
+test = "tests/e2e/link_phone_page.sh"
+build = "link"
+
+[[feature]]
+name = "Link: screen mirror"
+keywords = ["mirror", "link mirror", "screen mirror", "phone screen", "mirror phone"]
+module = "link"
+entry = ["link/crates/link-mirror/src", "link/crates/link-daemon/src/mirror.rs"]
+test = "tests/e2e/link_mirror.sh"
+build = "link"
+
+[[feature]]
+name = "Link: quick share"
+keywords = ["quickshare", "quick share", "share", "send file", "nearby share"]
+module = "link"
+entry = ["link/crates/link-quickshare/src", "link/crates/link-daemon/src/quickshare.rs"]
+test = "tests/e2e/quickshare.sh"
+build = "link"
+
+[[feature]]
+name = "Link: notifications sync"
+keywords = ["link notifications", "phone notifications", "notification sync", "notifications sync"]
+module = "link"
+entry = ["link/crates/link-daemon/src/notifications.rs"]
+test = "tests/e2e/link_notifications.sh"
+build = "link"
+
+[[feature]]
+name = "Link: media and now playing"
+keywords = ["link media", "now playing", "phone media", "media sync"]
+module = "link"
+entry = ["link/crates/link-nowplaying/src", "link/crates/link-daemon/src/media.rs"]
+test = "tests/e2e/link_media.sh"
+build = "link"
+
+[[feature]]
+name = "Link: clipboard"
+keywords = ["link clipboard", "phone clipboard", "clipboard sync"]
+module = "link"
+entry = ["link/crates/link-daemon/src/control.rs"]
+test = "tests/e2e/link_clipboard.sh"
+build = "link"
+
+[[feature]]
+name = "Link: file browse over Link"
+keywords = ["link files", "phone files", "browse phone", "mtp"]
+module = "link"
+entry = ["link/crates/link-daemon/src/browse.rs"]
+test = "tests/e2e/link_files_shell.sh"
+build = "link"
+
+[[feature]]
+name = "Link: hotspot and Wi-Fi Direct"
+keywords = ["hotspot", "wifi direct", "wi-fi direct", "tethering"]
+module = "link"
+entry = ["link/crates/link-daemon/src/hotspot.rs", "link/crates/link-daemon/src/wifi_direct.rs"]
+test = "tests/e2e/hotspot.sh"
+build = "link"
+
+[[feature]]
+name = "Link: desktop client (link-desk)"
+keywords = ["link desk", "desk", "link-desk", "desktop client"]
+module = "link"
+entry = ["link/crates/link-desk/src", "link/crates/link-session/src"]
+test = "tests/e2e/link_desk_mirror.sh"
+build = "link"
+
+[[feature]]
+name = "Link: Android app"
+keywords = ["android", "android app", "phone app", "kotlin", "apk"]
+module = "link"
+entry = ["link/apps/android/app/src/main/AndroidManifest.xml", "link/apps/android/app/src/main/kotlin"]
+test = "link/apps/android/maestro"
+build = "link"
+notes = "Android checks: cd link && just android-check (ktlint and lint)."
+
+# ---------- greeter ----------
+
+[[feature]]
+name = "greeter: login UI"
+keywords = ["greeter", "login", "login screen", "greeter ui", "greeter surface"]
+module = "greeter"
+entry = ["greeter/src/greeter/greeter.cpp", "greeter/src/greeter/greeter_window.cpp", "greeter/src/greeter/greeter_surface.cpp"]
+test = "tests/e2e/greeter_mode_parity.sh"
+build = "greeter"
+
+[[feature]]
+name = "greeter: greetd sessions and user"
+keywords = ["greetd", "session picker", "greeter sessions", "greetd user"]
+module = "greeter"
+entry = ["greeter/src/greeter/greeter_sessions.cpp", "greeter/src/greeter/greetd_user.cpp"]
+test = "greeter/tests/session_discovery_test.cpp"
+build = "greeter"
+
+[[feature]]
+name = "greeter: appearance sync (privileged tool)"
+keywords = ["appearance", "appearance sync", "apply appearance", "greeter appearance", "theme sync"]
+module = "greeter"
+entry = ["greeter/src/tools/apply_appearance_main.cpp", "greeter/src/greeter/appearance_sync.cpp", "greeter/src/tools/passwordless_sync_policy.cpp"]
+test = "greeter/tests/passwordless_sync_policy_xml_test.cpp"
+build = "greeter"
+
+[[feature]]
+name = "session: greetd config"
+keywords = ["greetd", "greetd config", "greeter config", "greetd toml", "pam"]
+module = "greeter"
+entry = ["session/greetd/config.toml", "session/greetd/greetd.service", "session/pam.d"]
+test = ""
+build = "greeter"
+
+# ---------- session ----------
+
+# ---------- apps (built with the shell tree; not a just build module) ----------
+
+[[feature]]
+name = "apps: Files"
+keywords = ["files", "file manager", "file browser", "nautilus", "explorer", "files app"]
+module = "shell"
+entry = ["apps/files/src/files_app.cpp", "apps/files/src/files_window.cpp", "apps/files/src/main.cpp"]
+test = "tests/e2e/files_browse.sh"
+build = "shell"
+notes = "apps/files has its own meson tree (apps/files/meson.build); no just build module."
+
+[[feature]]
+name = "apps: Files file operations and jobs"
+keywords = ["file copy", "job pill", "file job", "conflict", "file transfer"]
+module = "shell"
+entry = ["apps/files/src/job_pill.cpp", "apps/files/src/conflict_sheet.cpp"]
+test = "tests/e2e/files_ops.sh"
+build = "shell"
+
+[[feature]]
+name = "apps: Files FileManager1 and pickers"
+keywords = ["filemanager1", "file manager dbus", "file picker", "open file dialog", "picker"]
+module = "shell"
+entry = ["apps/files/src/file_manager1.cpp", "apps/files/src/picker_portal.cpp"]
+test = "tests/e2e/files_filemanager1.sh"
+build = "shell"
+
+[[feature]]
+name = "apps: Player"
+keywords = ["player", "video", "music", "media player", "player library"]
+module = "shell"
+entry = ["apps/player/src", "apps/player/meson.build"]
+test = "tests/e2e/player_library.sh"
+build = "shell"
+notes = "Entry is a directory. Own meson tree (apps/player/meson.build)."
+
+[[feature]]
+name = "apps: Viewer"
+keywords = ["viewer", "image viewer", "pdf", "document viewer", "photo"]
+module = "shell"
+entry = ["apps/viewer/src", "apps/viewer/meson.build"]
+test = "tests/e2e/viewer_pdf.sh"
+build = "shell"
+notes = "Entry is a directory. Own meson tree (apps/viewer/meson.build)."
+
+# ---------- portal ----------
+
+[[feature]]
+name = "portal: ScreenCast and Screenshot"
+keywords = ["portal", "xdg portal", "screencast portal", "screenshot portal", "screen share"]
+module = "shell"
+entry = ["portal/src/dbus/screencast.cpp", "portal/src/dbus/screenshot.cpp"]
+test = "tests/e2e/background_portal.sh"
+build = "shell"
+notes = "Not a just build module: build with cd portal && just build (justfile:10)."
+
+[[feature]]
+name = "portal: file chooser picker UI"
+keywords = ["file chooser", "portal picker", "picker ui", "previews"]
+module = "shell"
+entry = ["portal/src/picker/main.cpp", "portal/src/picker/previews.cpp"]
+test = "tests/e2e/filechooser_impl_call.py"
+build = "shell"
+notes = "Not a just build module: build with cd portal && just build (justfile:10)."
+
+[[feature]]
+name = "portal: PipeWire capture"
+keywords = ["pipewire portal", "pipewire", "stream capture", "portal stream"]
+module = "shell"
+entry = ["portal/src/pipewire/pipewire.cpp", "portal/src/wayland/wayland.cpp"]
+test = ""
+build = "shell"
+notes = "Not a just build module: build with cd portal && just build (justfile:10)."
+
+# ---------- indexer ----------
+
+[[feature]]
+name = "indexer: query server"
+keywords = ["index", "indexer", "search index", "query server", "search daemon"]
+module = "shell"
+entry = ["indexer/src/main.cpp", "indexer/src/query_server.cpp"]
+test = "indexer/tests"
+build = "shell"
+notes = "Not a just build module: indexer has its own meson.build."
+
+[[feature]]
+name = "indexer: crawler and database"
+keywords = ["crawler", "crawl", "skip rules", "index db", "sqlite", "index scan"]
+module = "shell"
+entry = ["indexer/src/crawler.cpp", "indexer/src/skip_rules.cpp", "indexer/src/index_db.cpp"]
+test = "indexer/tests"
+build = "shell"
+notes = "Not a just build module: indexer has its own meson.build."
+
+# ---------- packaging ----------
+
+[[feature]]
+name = "packaging: Arch (PKGBUILD)"
+keywords = ["pkgbuild", "arch", "pacman package", "arch package", "package"]
+module = "shell"
+entry = ["pkg/PKGBUILD", "pkg/deb-build.sh"]
+test = ""
+build = "shell"
+notes = "Not a just build module. Package build runs from the justfile (package recipe)."
+
+[[feature]]
+name = "packaging: Debian and Ubuntu (debian/)"
+keywords = ["debian", "deb", "ubuntu", "apt package", "debian control", "dpkg"]
+module = "shell"
+entry = ["debian/control", "debian/rules", "tools/ubuntu-deb.sh"]
+test = ""
+build = "shell"
+notes = "Not a just build module. Ubuntu build: tools/ubuntu-deb.sh."
+
+# ---------- tests and tools ----------
+
+[[feature]]
+name = "tests/e2e: harness and helpers"
+keywords = ["e2e", "end to end", "test harness", "e2e lib", "lib.sh", "test helpers"]
+module = "shell"
+entry = ["tests/e2e/lib.sh", "tests/e2e/helpers", "link/tests/e2e/link_phone_lib.sh"]
+test = "tests/e2e"
+build = "shell"
+notes = "E2E runs: just e2e-one <name>. Logs in /tmp/andromeda-e2e/."
+
+[[feature]]
+name = "tests: build and test wrapper"
+keywords = ["build", "test wrapper", "quiet", "build log", "just build", "just test"]
+module = "shell"
+entry = ["tools/quiet.sh", "tools/build.sh", "tools/f7.sh"]
+test = "tools/tests/quiet_test.sh"
+build = "shell"
+notes = "Use just build <module> and just test <module> [filter]."
+
+[[feature]]
+name = "tools: map lookup"
+keywords = ["where", "map", "find feature", "where is", "feature map"]
+module = "shell"
+entry = ["tools/where.sh", "docs/map.toml"]
+test = "tools/tests/map_test.sh"
+build = "shell"
