@@ -5,6 +5,9 @@
 //                  "alpha <value>" after that commit is drawn
 //   opaque-lie     half-transparent premultiplied white ARGB8888 content whose opaque region is the whole surface
 //   dialog         then maps a child toplevel "<title>-modal" that xdg-dialog marks modal; "modal" once it is drawn
+//   adopt          then maps a second, unparented toplevel "<title>-child" and prints "child" once it is drawn. Each
+//                  stdin line "parent" makes it a modal dialog of the first and prints "parented"; "orphan" clears
+//                  its parent and prints "orphaned"
 //   icon           names its xdg-toplevel-icon "utilities-terminal"
 //   bell           rings xdg_system_bell_v1 with its surface and prints "rang"
 //   fifo           sends 60 commits at once, each with wp_fifo set_barrier and wait_barrier and a frame callback, and
@@ -68,6 +71,7 @@ namespace {
     wp_single_pixel_buffer_manager_v1* singlePixel = nullptr;
     wp_alpha_modifier_v1* alphaModifier = nullptr;
     xdg_wm_dialog_v1* dialogs = nullptr;
+    xdg_dialog_v1* childDialog = nullptr;
     xdg_toplevel_icon_manager_v1* icons = nullptr;
     xdg_system_bell_v1* bell = nullptr;
     wp_fifo_manager_v1* fifoManager = nullptr;
@@ -192,7 +196,9 @@ namespace {
 
   void createWindow(State& state, Window& window, const std::string& title);
 
-  void childDrawn(State& state) { say(state.mode == "dialog" ? "modal" : "torn"); }
+  void childDrawn(State& state) {
+    say(state.mode == "dialog" ? "modal" : state.mode == "adopt" ? "child" : "torn");
+  }
 
   void mainDrawn(State& state) {
     say("mapped");
@@ -204,6 +210,9 @@ namespace {
       createWindow(state, state.child, state.title + "-modal");
       xdg_toplevel_set_parent(state.child.toplevel, state.main.toplevel);
       xdg_dialog_v1_set_modal(xdg_wm_dialog_v1_get_xdg_dialog(state.dialogs, state.child.toplevel));
+      wl_surface_commit(state.child.surface);
+    } else if (state.mode == "adopt") {
+      createWindow(state, state.child, state.title + "-child");
       wl_surface_commit(state.child.surface);
     } else if (state.mode == "fifo") {
       runFifo(state);
@@ -422,7 +431,7 @@ namespace {
     if (state.mode == "opaque-lie") {
       return state.compositor;
     }
-    if (state.mode == "dialog") {
+    if (state.mode == "dialog" || state.mode == "adopt") {
       return state.dialogs;
     }
     if (state.mode == "icon") {
@@ -445,6 +454,18 @@ namespace {
   }
 
   void handleStdinLine(State& state, std::string_view line) {
+    if (state.mode == "adopt" && (line == "parent" || line == "orphan")) {
+      const bool adopt = line == "parent";
+      xdg_toplevel_set_parent(state.child.toplevel, adopt ? state.main.toplevel : nullptr);
+      if (adopt && state.childDialog == nullptr) {
+        state.childDialog = xdg_wm_dialog_v1_get_xdg_dialog(state.dialogs, state.child.toplevel);
+        xdg_dialog_v1_set_modal(state.childDialog);
+      }
+      wl_surface_commit(state.child.surface);
+      wl_display_roundtrip(state.display);
+      say(adopt ? "parented" : "orphaned");
+      return;
+    }
     if (!line.starts_with("alpha ") || state.alpha == nullptr) {
       return;
     }

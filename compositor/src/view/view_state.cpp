@@ -106,9 +106,8 @@ namespace andromeda {
   }
 
   void View::setMaximized(bool maximized, bool animate) {
-    if (m_tiled && m_workspace != nullptr) {
-      m_floatingMaximized = false;
-      if (m_maximizedToEdges) {
+    if (tiled() && m_workspace != nullptr) {
+      if (maximizedToEdges()) {
         setMaximizedToEdges(false);
       }
       const int column = m_workspace->layout().columnOf(this);
@@ -123,9 +122,14 @@ namespace andromeda {
       return;
     }
 
+    // Leaving maximize-to-edges also restores the decorations it hid.
+    if (!maximized && maximizedToEdges()) {
+      setMaximizedToEdges(false, animate);
+      return;
+    }
     // Record the target before cancelSizeAnimation synchronizes the current
     // presentation back through ScratchpadManager.
-    m_floatingMaximized = maximized;
+    transitionPlacement({.event = maximized ? PlacementEvent::FloatMaximize : PlacementEvent::FloatUnmaximize});
     const ScratchpadManager* scratchpad = m_server->scratchpadManager();
     const bool visibleScratchpad = m_onActiveWorkspace && scratchpad != nullptr && scratchpad->contains(this);
     // A visible scratchpad has a manager-owned presentation even though it is
@@ -188,7 +192,7 @@ namespace andromeda {
 
   void View::refitFloatingMaximized() {
     // A scratchpad window has no workspace: its manager refits it with the box this view computes.
-    if (m_tiled || !mapped() || !m_floatingMaximized || m_workspace == nullptr || scheduledFullscreen()) {
+    if (tiled() || !mapped() || !floatingMaximized() || m_workspace == nullptr || scheduledFullscreen()) {
       return;
     }
     if (m_server->cursor()->isDraggingView(this)) {
@@ -270,7 +274,7 @@ namespace andromeda {
   }
 
   bool View::minimizable() const {
-    return mapped() && m_attachedTo == nullptr && !m_tiled && !m_pinned && !m_inScratchpad && m_workspace != nullptr;
+    return mapped() && m_attachedTo == nullptr && !tiled() && !placedPinned() && !m_inScratchpad && m_workspace != nullptr;
   }
 
   bool View::requestMinimize() {
@@ -372,27 +376,27 @@ namespace andromeda {
 
   void View::setMaximizedToEdges(bool maximized, bool animate) {
     if (!maximized) {
-      m_restoreMaximizedToEdges = false;
+      transitionPlacement({.event = PlacementEvent::DropEdgeRestore});
     }
-    if (!roleInitialized() || maximized == m_maximizedToEdges) {
+    if (!roleInitialized() || maximized == maximizedToEdges()) {
       return;
     }
     const bool leavingFullscreen = maximized && scheduledFullscreen();
     if (leavingFullscreen) {
       setFullscreen(false, FullscreenExitLayout::DeferToCaller);
     }
-    if (m_tiled || !animate) {
+    if (tiled() || !animate) {
       cancelSizeAnimation();
     }
 
-    m_maximizedToEdges = maximized;
+    transitionPlacement({.event = maximized ? PlacementEvent::EdgeMaximize : PlacementEvent::EdgeUnmaximize});
     bool columnFullWidth = false;
-    if (!maximized && m_tiled && m_workspace != nullptr && !scheduledFullscreen()) {
+    if (!maximized && tiled() && m_workspace != nullptr && !scheduledFullscreen()) {
       const int column = m_workspace->layout().columnOf(this);
       const ColumnOps* ops = m_workspace->layout().columnOps();
       columnFullWidth = column >= 0 && ops != nullptr && ops->isFullWidth(column);
     }
-    if (m_tiled) {
+    if (tiled()) {
       setMaximizedState(maximized || columnFullWidth);
     } else {
       setMaximized(maximized, animate);
@@ -412,12 +416,12 @@ namespace andromeda {
     refreshStateRuleEffects();
   }
 
-  void View::toggleMaximizedToEdges() { setMaximizedToEdges(!m_maximizedToEdges); }
+  void View::toggleMaximizedToEdges() { setMaximizedToEdges(!maximizedToEdges()); }
 
-  void View::toggleMaximized() { setMaximized(m_tiled ? !scheduledMaximized() : !m_floatingMaximized); }
+  void View::toggleMaximized() { setMaximized(tiled() ? !scheduledMaximized() : !floatingMaximized()); }
 
   void View::setMaximizedLikeClientRequest(bool maximized) {
-    if (!maximized && m_maximizedToEdges) {
+    if (!maximized && maximizedToEdges()) {
       setMaximizedToEdges(false);
       return;
     }
@@ -426,9 +430,9 @@ namespace andromeda {
     // workspace's client_maximize, a floating window keeps the default behavior
     // whatever it says. The gesture passes the direction explicitly because it
     // computes the opposite of the current state at its second press.
-    if (m_tiled && m_workspace != nullptr) {
+    if (tiled() && m_workspace != nullptr) {
       if (maximizeRequestTargetsEdges(
-              maximized, m_maximizedToEdges, m_workspace->layoutConfig().clientMaximize == ClientMaximize::Edges
+              maximized, maximizedToEdges(), m_workspace->layoutConfig().clientMaximize == ClientMaximize::Edges
           )) {
         setMaximizedToEdges(maximized);
         return;
@@ -444,27 +448,25 @@ namespace andromeda {
     if (scheduledFullscreen() || currentFullscreen()) {
       return;
     }
-    if (m_maximizedToEdges) {
+    if (maximizedToEdges()) {
       setMaximizedToEdges(false, false);
-    } else if (m_floatingMaximized) {
+    } else if (floatingMaximized()) {
       setMaximized(false, false);
     }
   }
 
   void View::dropMaximizedForResize() {
-    if (m_tiled || !roleInitialized()) {
+    if (tiled() || !roleInitialized()) {
       return;
     }
-    if (!m_maximizedToEdges && !m_floatingMaximized) {
+    if (!maximizedToEdges() && !floatingMaximized()) {
       return;
     }
     // Not setMaximized(false)/setMaximizedToEdges(false): those replay the restore box and would undo the size the
     // caller is about to request.
     cancelSizeAnimation();
-    const bool wasEdges = m_maximizedToEdges;
-    m_maximizedToEdges = false;
-    m_floatingMaximized = false;
-    m_restoreMaximizedToEdges = false;
+    const bool wasEdges = maximizedToEdges();
+    transitionPlacement({.event = PlacementEvent::DropMaximize});
     m_hasMaximizeRestoreBox = false;
     setMaximizedState(false);
     if (wasEdges) {
@@ -526,7 +528,7 @@ namespace andromeda {
       refreshStateRuleEffects();
     }
     if (mapped() && !attached()) {
-      if (inheritScratchpadFromParent(m_tiled)) {
+      if (inheritScratchpadFromParent(tiled())) {
         placeInUsableArea(m_initialRules.defaultPosition);
         if (ScratchpadManager* scratchpad = m_server->scratchpadManager()) {
           scratchpad->syncViewPresentation(this);
@@ -574,9 +576,9 @@ namespace andromeda {
     if (!mapped() || !roleInitialized()) {
       return;
     }
-    const bool wasTiled = m_tiled;
+    const bool wasTiled = tiled();
     const bool keepMaximized = scheduledMaximized() && !scheduledFullscreen() && !currentFullscreen();
-    const bool keepMaximizedToEdges = keepMaximized && m_maximizedToEdges;
+    const bool keepMaximizedToEdges = keepMaximized && maximizedToEdges();
     const std::optional<wlr_box> floatingRestore =
         keepMaximized && !wasTiled && m_hasMaximizeRestoreBox ? std::optional{m_maximizeRestoreBox} : std::nullopt;
     if (floatingRestore
@@ -608,11 +610,11 @@ namespace andromeda {
       }
     }
     setFloating(wasTiled, focus);
-    if (wasTiled == m_tiled) {
+    if (wasTiled == tiled()) {
       return;
     }
     if (keepMaximized) {
-      if (m_tiled) {
+      if (tiled()) {
         // Retiling restores the ordinary column extent. Maximize that column again so only the maximize binding
         // consumes its restore extent. Keep the maximized float's geometry out of its normal floating memory.
         if (floatingRestore) {
@@ -635,7 +637,7 @@ namespace andromeda {
   }
 
   void View::restorePinnedSceneParent() {
-    if (!m_pinned) {
+    if (!placedPinned()) {
       return;
     }
     Output* output = currentOutput();
@@ -647,7 +649,6 @@ namespace andromeda {
   }
 
   void View::applyPinnedState() {
-    m_pinned = true;
     m_server->scheduleIpcWindowsEvent();
     restorePinnedSceneParent();
     if (m_workspace != nullptr) {
@@ -661,21 +662,22 @@ namespace andromeda {
     }
   }
 
-  void View::togglePinned() { setPinned(!m_pinned, true); }
+  void View::togglePinned() { setPinned(!placedPinned(), true); }
 
   void View::setPinned(bool pinned, bool focus) {
     assert(!attached());
     if (!mapped()
         || !roleInitialized()
         || (pinned && (scheduledFullscreen() || currentFullscreen()))
-        || pinned == m_pinned) {
+        || pinned == placedPinned()) {
       return;
     }
     if (pinned) {
-      m_restoreTiledAfterUnpin = m_tiled;
-      if (m_tiled) {
+      const bool fromTile = tiled();
+      if (fromTile) {
         setFloating(true, false);
       }
+      transitionPlacement({.event = fromTile ? PlacementEvent::PinTile : PlacementEvent::Pin});
       applyPinnedState();
       if (focus) {
         m_server->focusView(this, FocusReason::Startup);
@@ -688,9 +690,8 @@ namespace andromeda {
       return;
     }
 
-    const bool restoreTiled = m_restoreTiledAfterUnpin;
-    m_restoreTiledAfterUnpin = false;
-    m_pinned = false;
+    const bool restoreTiled = restoresTiledOnUnpin();
+    transitionPlacement({.event = PlacementEvent::Unpin});
     m_server->scheduleIpcWindowsEvent();
     if (restoreTiled) {
       setFloating(false, focus);
@@ -716,26 +717,24 @@ namespace andromeda {
   }
 
   void View::floatForLayout() {
-    if (m_tiled) {
+    if (tiled()) {
       const bool fullscreen = scheduledFullscreen() || currentFullscreen();
-      const auto restore = m_hasFullscreenRestoreBox ? std::optional{m_fullscreenRestoreBox} : std::nullopt;
+      const std::optional<wlr_box> restore = m_fullscreenRestoreBox;
       toggleFloating(false);
       if (fullscreen) {
         setFullscreen(true);
         // The internal tiled fullscreen exit discards this box. The layout transition must preserve the floating
         // episode that started before fullscreen, rather than capture the fullscreen client buffer on re-entry.
         if (restore) {
-          m_fullscreenRestoreBox = *restore;
-          m_hasFullscreenRestoreBox = true;
+          m_fullscreenRestoreBox = restore;
         }
       }
     }
-    m_layoutFloated = true;
+    transitionPlacement({.event = PlacementEvent::LayoutFloat});
   }
 
   void View::adoptLayoutFloat() {
-    m_tiled = false;
-    m_layoutFloated = true;
+    transitionPlacement({.event = PlacementEvent::LayoutFloat});
     const bool fullscreen = scheduledFullscreen() || currentFullscreen();
     setSceneParent(fullscreen ? m_workspace->fullscreenTree() : m_workspace->viewLayer(false));
     m_workspace->syncFloatingStack(this);
@@ -746,7 +745,7 @@ namespace andromeda {
         && placement == TilePlacement::Layout
         && m_workspace != nullptr
         && m_workspace->layoutMode() == LayoutMode::Floating) {
-      m_layoutFloated = true;
+      transitionPlacement({.event = PlacementEvent::LayoutFloat});
       return;
     }
     assert(!attached());
@@ -755,7 +754,7 @@ namespace andromeda {
     }
     kLog.debug(
         "set_floating '{}' [{}] -> {} (tiled={}, pinned={}, fs={})", appId() != nullptr ? appId() : "?",
-        static_cast<const void*>(this), floating, m_tiled, m_pinned, scheduledFullscreen()
+        static_cast<const void*>(this), floating, tiled(), placedPinned(), scheduledFullscreen()
     );
     if (!floating && m_server->scratchpadManager() != nullptr && m_server->scratchpadManager()->contains(this)) {
       return;
@@ -763,26 +762,26 @@ namespace andromeda {
     // A no-op request must stay a no-op: a redundant "make tiled" call must not unfullscreen or cancel the size
     // animation.
     const bool wantTiled = !floating;
-    if (m_tiled == wantTiled) {
+    if (tiled() == wantTiled) {
       return;
     }
     // A window shows before it joins the layout, which cannot hold a hidden tile.
     if (!floating && m_minimized) {
       setMinimized(false);
     }
-    m_layoutFloated = false;
     if (!floating) {
       clearSnapState();
     }
-    if (m_maximizedToEdges) {
+    if (maximizedToEdges()) {
       setMaximizedToEdges(false, false);
     }
-    m_floatingMaximized = false;
-    const bool unpinning = !floating && m_pinned;
+    const bool unpinning = !floating && placedPinned();
+    if (!floating) {
+      transitionPlacement({.event = PlacementEvent::Unpin});
+      transitionPlacement({.event = PlacementEvent::ClearLayoutFloat});
+      transitionPlacement({.event = PlacementEvent::FloatUnmaximize});
+    }
     if (unpinning) {
-      m_pinned = false;
-      m_restoreTiledAfterUnpin = false;
-      m_restorePinnedAfterFullscreen = false;
       if (m_workspace != nullptr) {
         setSceneParent(m_workspace->viewLayer(false));
         setOnActiveWorkspace(m_workspace->active());
@@ -794,14 +793,14 @@ namespace andromeda {
     // state and re-inserts it as a fullscreen column, so the client never sees a transient column-sized configure.
     if (floating && fullscreen) {
       setFullscreen(false, FullscreenExitLayout::DeferToCaller);
-      // Remember to restore on the next re-tile. Set after setFullscreen,
-      // which clears the flag on every leave-fullscreen path.
-      m_refullscreenOnTile = true;
+      // Remember to restore on the next re-tile. Set after setFullscreen, which forgets it on every leave-fullscreen
+      // path.
+      transitionPlacement({.event = PlacementEvent::RememberFullscreen});
     }
-    // Consume the memory: a client that itself left fullscreen while floating cleared it (setFullscreen(false) below
-    // via its request), so this only fires for a float episode the client still considers fullscreen.
-    const bool refullscreen = !floating && !fullscreen && m_refullscreenOnTile;
-    m_refullscreenOnTile = floating && m_refullscreenOnTile;
+    // The Tile transition below consumes the memory: a client that itself left fullscreen while floating cleared it
+    // (setFullscreen(false) via its request), so this only fires for a float episode the client still considers
+    // fullscreen.
+    const bool refullscreen = !floating && !fullscreen && m_placement.restoreTo == RestoreTo::Fullscreen;
 
     if (floating) {
       auto [keepWidth, keepHeight] = floatingRestoreSize();
@@ -828,10 +827,10 @@ namespace andromeda {
       }
       const int keepX = slot.x;
       const int keepY = slot.y;
-      m_tiled = false;
+      transitionPlacement({.event = PlacementEvent::Float});
       m_presentedTiledBox = {};
       if (m_workspace != nullptr) {
-        setSceneParent(m_workspace->viewLayer(m_tiled));
+        setSceneParent(m_workspace->viewLayer(tiled()));
         m_workspace->syncFloatingStack(this);
       }
       const wlr_box usable = floatingUsableArea();
@@ -913,8 +912,7 @@ namespace andromeda {
     m_floating.rememberPositionFraction({.x = layoutTargetX(), .y = layoutTargetY()}, usable);
 
     m_floating.clearSizeRequest();
-    m_tiled = true;
-    m_restorePinnedAfterFullscreen = false;
+    transitionPlacement({.event = PlacementEvent::Tile});
     // Restore the fullscreen the float toggle dropped BEFORE the layout attach: arrange then sizes the column to the
     // full output instead of a regular column width, and the client sees no transient windowed configure. setFullscreen
     // also reparents and disables borders.
@@ -982,35 +980,30 @@ namespace andromeda {
         && config().input.focus.followsMouse;
     kLog.debug(
         "set_fullscreen '{}' [{}] -> {} (tiled={}, ws_active={})", appId() != nullptr ? appId() : "?",
-        static_cast<const void*>(this), fullscreen, m_tiled, m_workspace != nullptr && m_workspace->active()
+        static_cast<const void*>(this), fullscreen, tiled(), m_workspace != nullptr && m_workspace->active()
     );
-    if (fullscreen && m_maximizedToEdges) {
+    const bool coverEdges = fullscreen && maximizedToEdges();
+    if (coverEdges) {
       setMaximizedToEdges(false, false);
-      m_restoreMaximizedToEdges = true;
     }
-    if (fullscreen && !m_tiled && !scheduledFullscreen() && !currentFullscreen()) {
+    if (fullscreen && !tiled() && !scheduledFullscreen() && !currentFullscreen()) {
       // A requested resize or move may still be awaiting its client buffer or animation. Restore its target geometry.
       const auto [width, height] = floatingSize();
-      m_fullscreenRestoreBox = {
-          .x = layoutTargetX(),
-          .y = layoutTargetY(),
-          .width = width,
-          .height = height,
-      };
-      m_hasFullscreenRestoreBox = width > 0 && height > 0;
+      m_fullscreenRestoreBox = width > 0 && height > 0
+          ? std::optional(wlr_box{.x = layoutTargetX(), .y = layoutTargetY(), .width = width, .height = height})
+          : std::nullopt;
     }
-    const bool restoreFloating = !fullscreen && !m_tiled && m_hasFullscreenRestoreBox;
+    const bool restoreFloating = !fullscreen && !tiled() && m_fullscreenRestoreBox;
     // Any leave-fullscreen invalidates a pending float-toggle restore: the
-    // float path re-sets the flag right after its own setFullscreen(false).
+    // float path re-sets it right after its own setFullscreen(false).
     if (!fullscreen) {
       m_xCompositorFullscreen = false;
-      m_refullscreenOnTile = false;
+      transitionPlacement({.event = PlacementEvent::ExitFullscreen});
     }
-    const bool unpinning = fullscreen && m_pinned;
+    const bool unpinning = fullscreen && placedPinned();
     if (fullscreen) {
+      transitionPlacement({.event = PlacementEvent::EnterFullscreen, .flag = coverEdges});
       if (unpinning) {
-        m_pinned = false;
-        m_restorePinnedAfterFullscreen = true;
         if (m_workspace != nullptr) {
           setSceneParent(m_workspace->viewLayer(false));
           setOnActiveWorkspace(m_workspace->active());
@@ -1044,31 +1037,32 @@ namespace andromeda {
         // centered on the backdrop. arrange() sends the full-output size even when this workspace is hidden.
         m_workspace->arrange(true);
       }
-      if (!m_tiled || m_workspace == nullptr) {
+      if (!tiled() || m_workspace == nullptr) {
         // Floating fullscreen is not part of the layout; size it directly.
         applyFullscreenLayout(true);
       }
     } else {
       setSceneParent(homeTree());
-      if (!m_tiled && m_workspace != nullptr) {
+      if (!tiled() && m_workspace != nullptr) {
         m_workspace->restackFloatingViews();
       } else {
         raiseToTop();
       }
       if (restoreFloating) {
-        requestFloatingSize(m_fullscreenRestoreBox.width, m_fullscreenRestoreBox.height);
-        beginResizeAnimation(m_fullscreenRestoreBox.width, m_fullscreenRestoreBox.height, true);
-        animateTo(m_fullscreenRestoreBox.x, m_fullscreenRestoreBox.y);
-      } else if (m_tiled) {
-        m_hasFullscreenRestoreBox = false;
+        const wlr_box restore = *m_fullscreenRestoreBox;
+        requestFloatingSize(restore.width, restore.height);
+        beginResizeAnimation(restore.width, restore.height, true);
+        animateTo(restore.x, restore.y);
+      } else if (tiled()) {
+        m_fullscreenRestoreBox.reset();
       }
     }
     m_decoration.setBordersEnabled(!fullscreen);
     applyCornerRadius();
     updateBlur();
     updateShadow();
-    if (!fullscreen && m_restoreMaximizedToEdges) {
-      m_restoreMaximizedToEdges = false;
+    if (!fullscreen && restoresEdges(m_placement.restoreTo)) {
+      transitionPlacement({.event = PlacementEvent::DropEdgeRestore});
       // A compound transition owns its final state. Maximize-to-edges applies that state in its caller, while floating
       // must not carry a stale maximized state after detaching from the layout.
       if (exitLayout == FullscreenExitLayout::Immediate) {
@@ -1077,7 +1071,7 @@ namespace andromeda {
     }
     if (!fullscreen) {
       // scheduled.fullscreen is already false; arrange into usable area (exclusive zones).
-      if (m_tiled && m_workspace != nullptr) {
+      if (tiled() && m_workspace != nullptr) {
         if (exitLayout == FullscreenExitLayout::Immediate) {
           // wlroots has already scheduled the fullscreen-state configure. Arrange synchronously so its size is
           // replaced with the restored tile before that configure is sent, keeping state and geometry in one client
@@ -1092,8 +1086,7 @@ namespace andromeda {
         placeInUsableArea();
       }
     }
-    if (!fullscreen && m_restorePinnedAfterFullscreen) {
-      m_restorePinnedAfterFullscreen = false;
+    if (!fullscreen && transitionPlacement({.event = PlacementEvent::RestorePin})) {
       applyPinnedState();
     }
     updateForeignState();

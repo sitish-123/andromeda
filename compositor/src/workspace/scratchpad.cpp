@@ -630,8 +630,8 @@ namespace andromeda {
     if (view->m_hasMaximizeRestoreBox) {
       remap(view->m_maximizeRestoreBox);
     }
-    if (view->m_hasFullscreenRestoreBox) {
-      remap(view->m_fullscreenRestoreBox);
+    if (view->m_fullscreenRestoreBox) {
+      remap(*view->m_fullscreenRestoreBox);
     }
   }
 
@@ -790,7 +790,7 @@ namespace andromeda {
     for (const Entry& entry : m_entries) {
       const Scratchpad* scratchpad = entry.view != nullptr ? findScratchpad(entry.scratchpad) : nullptr;
       // A hidden pad is refit when it is shown.
-      if (scratchpad != nullptr && scratchpad->visible && entry.view->m_floatingMaximized) {
+      if (scratchpad != nullptr && scratchpad->visible && entry.view->floatingMaximized()) {
         syncViewPresentation(entry.view, true);
       }
     }
@@ -1053,7 +1053,7 @@ namespace andromeda {
     if (refreshMaximized
         && scratchpad != nullptr
         && scratchpad->output != nullptr
-        && (view->maximizedToEdges() || view->m_floatingMaximized)) {
+        && (view->maximizedToEdges() || view->floatingMaximized())) {
       const wlr_box area = view->floatingMaximizedBox(usableArea(*m_server, scratchpad->output));
       if (area.width > 0 && area.height > 0) {
         view->cancelPositionAnimation();
@@ -1445,7 +1445,7 @@ namespace andromeda {
           const bool managerOwnedGeometry = entry.view->scheduledFullscreen()
               || entry.view->currentFullscreen()
               || entry.view->maximizedToEdges()
-              || entry.view->m_floatingMaximized;
+              || entry.view->floatingMaximized();
           if (entry.displacedPosition && !managerOwnedGeometry && homeArea.width > 0 && homeArea.height > 0) {
             entry.view->cancelPositionAnimation();
             entry.view->setPosition(

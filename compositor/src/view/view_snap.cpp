@@ -11,9 +11,9 @@ namespace andromeda {
   bool View::canSnap() const {
     const ScratchpadManager* scratchpad = m_server->scratchpadManager();
     return mapped()
-        && !m_tiled
+        && !tiled()
         && !attached()
-        && !m_pinned
+        && !placedPinned()
         && !scheduledFullscreen()
         && !currentFullscreen()
         && (scratchpad == nullptr || !scratchpad->contains(this));
@@ -51,7 +51,7 @@ namespace andromeda {
     if (!canSnap()) {
       return false;
     }
-    if (m_snap == spot) {
+    if (snapSpot() == spot) {
       unsnap();
       return true;
     }
@@ -59,19 +59,19 @@ namespace andromeda {
     if (!box) {
       return false;
     }
-    if (!m_snap) {
+    if (!snapSpot()) {
       const auto [width, height] = floatingSize();
-      m_snapRestoreBox = m_hasMaximizeRestoreBox
+      wlr_box restore = m_hasMaximizeRestoreBox
           ? m_maximizeRestoreBox
           : wlr_box{.x = layoutTargetX(), .y = layoutTargetY(), .width = width, .height = height};
       if (restoreOrigin) {
-        m_snapRestoreBox.x = restoreOrigin->x;
-        m_snapRestoreBox.y = restoreOrigin->y;
+        restore.x = restoreOrigin->x;
+        restore.y = restoreOrigin->y;
       }
-      m_hasSnapRestoreBox = width > 0 && height > 0;
+      m_snapRestoreBox = width > 0 && height > 0 ? std::optional(restore) : std::nullopt;
     }
     dropMaximizedForResize();
-    m_snap = spot;
+    transitionPlacement({.event = PlacementEvent::Snap, .spot = spot});
     m_snappedBox = *box;
     requestFloatingSize(box->width, box->height);
     beginResizeAnimation(box->width, box->height);
@@ -82,19 +82,19 @@ namespace andromeda {
   }
 
   void View::clearSnapState() {
-    if (m_snap) {
+    if (snapSpot()) {
       m_server->scheduleIpcWindowsEvent();
     }
-    m_snap.reset();
-    m_hasSnapRestoreBox = false;
+    transitionPlacement({.event = PlacementEvent::Unsnap});
+    m_snapRestoreBox.reset();
     m_snappedBox = {};
   }
 
   void View::unsnap(bool animate) {
-    if (!m_snap || !canSnap()) {
+    if (!snapSpot() || !canSnap()) {
       return;
     }
-    const auto restore = m_hasSnapRestoreBox ? std::optional{m_snapRestoreBox} : std::nullopt;
+    const std::optional<wlr_box> restore = m_snapRestoreBox;
     clearSnapState();
     dropMaximizedForResize();
     if (!restore) {
@@ -112,10 +112,10 @@ namespace andromeda {
   }
 
   void View::refitFloatingSnapped() {
-    if (!m_snap || !canSnap() || scheduledMaximized() || m_server->cursor()->isDraggingView(this)) {
+    if (!snapSpot() || !canSnap() || scheduledMaximized() || m_server->cursor()->isDraggingView(this)) {
       return;
     }
-    const auto box = floatingSnappedBox(*m_snap, floatingUsableArea());
+    const auto box = floatingSnappedBox(*snapSpot(), floatingUsableArea());
     if (!box) {
       unsnap();
       return;

@@ -513,10 +513,10 @@ namespace andromeda {
           && (width != fullWidth || height != fullHeight);
       m_xFullscreenSize = emulated ? std::optional<ClientSize>({.width = width, .height = height}) : std::nullopt;
     }
-    if (!m_tiled
+    if (!tiled()
         && !scheduledFullscreen()
         && !scheduledMaximized()
-        && !m_maximizedToEdges
+        && !maximizedToEdges()
         && !sizeGrabActive()
         && (widthRequested || heightRequested)
         && width > 0

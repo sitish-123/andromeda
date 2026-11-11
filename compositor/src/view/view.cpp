@@ -389,7 +389,7 @@ namespace andromeda {
         && m_server->scratchpadManager()->contains(this)) {
       return;
     }
-    if (!m_displacedHome && !m_pinned && workspace != nullptr && workspace->displacedWorkspace()) {
+    if (!m_displacedHome && !placedPinned() && workspace != nullptr && workspace->displacedWorkspace()) {
       const auto& home = workspace->displacedWorkspace();
       m_displacedHome.emplace();
       m_displacedHome->outputName = home->outputName;
@@ -421,14 +421,14 @@ namespace andromeda {
       // A pinned view normally hangs below an output-owned clipping root. Park its frame on the server-owned pinned
       // root before the last output is destroyed, then addView() can rehome it when an output returns. Leaving it under
       // the dying output frees nodes that the live View still owns.
-      if (m_pinned) {
+      if (placedPinned()) {
         setSceneParent(m_server->pinnedTree());
       }
       setOnActiveWorkspace(true);
     }
     notifyOutputScale();
     if (mapped()
-        && !m_tiled
+        && !tiled()
         && m_workspace != nullptr
         && (m_pendingFloatingWidthPx
             || m_pendingFloatingHeightPx
@@ -592,7 +592,7 @@ namespace andromeda {
   }
 
   void View::setOnActiveWorkspace(bool active) {
-    if (m_pinned) {
+    if (placedPinned()) {
       return;
     }
     if (m_onActiveWorkspace == active) {
@@ -654,6 +654,8 @@ namespace andromeda {
     syncShown();
     return true;
   }
+
+  bool View::transitionPlacement(PlacementInput input) { return applyPlacementEvent(m_placement, input); }
 
   void View::syncShown() {
     if (m_sceneTree == nullptr) {
@@ -755,7 +757,7 @@ namespace andromeda {
   }
 
   void View::syncTransientSceneParent() {
-    if (!mapped() || m_workspace == nullptr || m_pinned || m_server->cursor()->isDraggingView(this)) {
+    if (!mapped() || m_workspace == nullptr || placedPinned() || m_server->cursor()->isDraggingView(this)) {
       return;
     }
 
@@ -763,7 +765,7 @@ namespace andromeda {
     if (View* parent = transientParent()) {
       wlr_scene_tree* parentTree = parent->m_sceneTree->node.parent;
       Output* output = currentOutput();
-      const bool inRaisedFloatingLayer = !m_tiled && !scheduledFullscreen() && m_workspace->floatingLayerRaised();
+      const bool inRaisedFloatingLayer = !tiled() && !scheduledFullscreen() && m_workspace->floatingLayerRaised();
       const bool parentElevated = parentTree == m_server->dragTree()
           || (parentTree == m_workspace->fullscreenTree() && !inRaisedFloatingLayer)
           || (output != nullptr && parentTree == output->pinnedRoot());
@@ -853,7 +855,7 @@ namespace andromeda {
   void View::applySeatFocus(bool withKeyboard, bool raise) {
     // Mechanism only. Policy lives in Server::focusView; do not call directly
     // from input/event code.
-    if ((!m_onActiveWorkspace && !m_pinned) || !acceptsKeyboardFocus()) {
+    if ((!m_onActiveWorkspace && !placedPinned()) || !acceptsKeyboardFocus()) {
       return;
     }
 
@@ -1032,9 +1034,9 @@ namespace andromeda {
     // not at the surface origin.
     const wlr_box& geometry = geometryBox();
     const wlr_box box{
-        .x = m_tiled ? geometry.x : target.x - lx + geometry.x,
+        .x = tiled() ? geometry.x : target.x - lx + geometry.x,
         .y = target.y - ly + geometry.y,
-        .width = m_tiled ? geometry.width : target.width,
+        .width = tiled() ? geometry.width : target.width,
         .height = target.height,
     };
     wlr_xdg_popup_unconstrain_from_box(popup, &box);
@@ -1077,7 +1079,7 @@ namespace andromeda {
     }
     const bool fs = scheduledFullscreen();
     if (m_workspace != nullptr) {
-      return fs ? m_workspace->fullscreenTree() : m_workspace->viewLayer(m_tiled);
+      return fs ? m_workspace->fullscreenTree() : m_workspace->viewLayer(tiled());
     }
     if (m_inScratchpad) {
       return fs ? m_server->fullscreenTree() : m_server->scratchpadTree();

@@ -251,7 +251,7 @@ namespace andromeda {
     m_server->scheduleIpcWindowsEvent();
     // The workspace listing counts mapped windows.
     m_server->scheduleIpcWorkspacesEvent();
-    m_tiled = looksTiled();
+    transitionPlacement({.event = PlacementEvent::Map, .flag = looksTiled()});
     const wlr_box& mapGeo = geometryBox();
     m_presentation.setSize(mapGeo.width, mapGeo.height);
     resetSurfaceClip();
@@ -279,13 +279,13 @@ namespace andromeda {
     const bool launchRuleOverride = m_launchPlacementPending
         && (rule.defaultOutput.has_value() || rule.defaultWorkspace.has_value() || rule.defaultScratchpad.has_value());
     if (rule.defaultFloating) {
-      m_tiled = !*rule.defaultFloating;
+      transitionPlacement({.event = PlacementEvent::Map, .flag = !*rule.defaultFloating});
     }
-    const bool restoreTiled = m_tiled;
+    const bool restoreTiled = tiled();
     const bool draggedToplevel = m_server->seat()->toplevelDrags().attached(m_toplevel);
     // A passive utility belongs at its client's position over its parent, whatever app-wide rule tiles the client.
     if (draggedToplevel || passiveXwaylandUtility()) {
-      m_tiled = false;
+      transitionPlacement({.event = PlacementEvent::Map});
     }
     // Unsettled when any rule uses a title pattern: the first handleSetTitle after map re-applies disruptive effects
     // with the real title, even if the client mapped with a placeholder.
@@ -376,7 +376,7 @@ namespace andromeda {
       if (ScratchpadManager* scratchpad = m_server->scratchpadManager()) {
         scratchpad->syncViewPresentation(this);
       }
-    } else if (!assignedScratchpad && !m_tiled) {
+    } else if (!assignedScratchpad && !tiled()) {
       // The initial commit already applied the floating size rules. Re-requesting them here
       // races the client's first content-driven resize.
       placeInUsableArea(rule.defaultPosition);
@@ -421,8 +421,8 @@ namespace andromeda {
     // reveal it, while dialogs retain their normal parent-aware opening behavior.
     const View* previousFocus = m_workspace != nullptr ? m_workspace->focusedView() : nullptr;
     const bool protectsFullscreen = !assignedScratchpad
-        && !m_pinned
-        && !m_tiled
+        && !placedPinned()
+        && !tiled()
         && !openingParented()
         && !requestedFullscreen()
         && !scheduledFullscreen()
@@ -445,7 +445,7 @@ namespace andromeda {
     const bool ruleMaximized = !openingParented() && rule.defaultMaximize && *rule.defaultMaximize;
     const bool restoredMaximized = honorsRestoredMaximize() && requestedMaximized();
     const bool restoreToEdges = restoredMaximized
-        && m_tiled
+        && tiled()
         && m_workspace != nullptr
         && m_workspace->layoutConfig().clientMaximize == ClientMaximize::Edges;
     if (placed && !assignedScratchpad && (ruleMaximized || (restoredMaximized && !restoreToEdges))) {
@@ -485,7 +485,7 @@ namespace andromeda {
       m_customFade = animation.enabled && open.enabled && customShader;
       const bool animates = animation.enabled && open.enabled && (open.style != "none" || customShader);
       const bool tiledMember =
-          m_tiled && !layoutFullscreen() && m_workspace != nullptr && m_workspace->layout().columnOf(this) >= 0;
+          tiled() && !layoutFullscreen() && m_workspace != nullptr && m_workspace->layout().columnOf(this) >= 0;
       if (!animates) {
         setFadeAlpha(1.0F);
         m_fade.snap(1.0);
@@ -601,7 +601,7 @@ namespace andromeda {
     const bool focusRevealedTile = closingWorkspace != nullptr
         && closingWorkspace->focusedView() == this
         && closingWorkspace->active()
-        && m_tiled
+        && tiled()
         && !shellParentRequested()
         && config().input.focus.followsMouse
         && !m_server->sessionLocked()
@@ -618,15 +618,12 @@ namespace andromeda {
     const double closePointerY = cursor != nullptr ? cursor->wlr()->y : 0.0;
 
     setUrgent(false);
-    m_floatingMaximized = false;
-    m_maximizedToEdges = false;
-    m_hasFullscreenRestoreBox = false;
+    m_fullscreenRestoreBox.reset();
     clearSnapState();
-    m_restorePinnedAfterFullscreen = false;
     m_xCompositorFullscreen = false;
-    if (m_pinned) {
-      m_pinned = false;
-      m_restoreTiledAfterUnpin = false;
+    const bool wasPinned = placedPinned();
+    transitionPlacement({.event = PlacementEvent::Unmap});
+    if (wasPinned) {
       if (m_workspace != nullptr) {
         setSceneParent(m_workspace->viewLayer(false));
         setOnActiveWorkspace(m_workspace->active());
@@ -693,12 +690,11 @@ namespace andromeda {
     m_presentation.setBackdropEnabled(false);
     if (currentFullscreen() || scheduledFullscreen()) {
       // Move out of the fullscreen layer back to the normal workspace/xdg tree.
-      setSceneParent(m_workspace ? m_workspace->viewLayer(m_tiled) : m_server->xdgTree());
+      setSceneParent(m_workspace ? m_workspace->viewLayer(tiled()) : m_server->xdgTree());
     }
     const bool hadRuntimeEffects = m_effects.slot(EffectKind::Border).runtimeSelector.has_value()
         || m_effects.slot(EffectKind::Window).runtimeSelector.has_value();
     transitionLifecycle(LifecycleEvent::Unmap);
-    m_layoutFloated = false;
     if (m_workspace != nullptr) {
       m_workspace->syncFloatingStack(this);
     }
@@ -728,7 +724,7 @@ namespace andromeda {
     m_positioned = false;
     m_presentedTiledBox = {};
     if (m_workspace != nullptr) {
-      m_workspace->layoutDetach(this, m_tiled);
+      m_workspace->layoutDetach(this, tiled());
       if (focusRevealedTile) {
         // The scene may still be animating from its old geometry. Arrange now, then read the authoritative layout
         // targets once so compositor motion cannot produce a chain of hover focus changes.
@@ -1059,7 +1055,7 @@ namespace andromeda {
     // resize requests: Chromium can change its geometry while keeping the same configure, and retargeting to that
     // geometry lets a tiled surface escape its assigned box.
     if (mapped()
-        && m_tiled
+        && tiled()
         && m_onActiveWorkspace
         && m_workspace != nullptr
         && !scheduledFullscreen()
@@ -1079,9 +1075,9 @@ namespace andromeda {
     }
     // Re-apply output clip after configure ack so Super+F / resize sizes show
     // without needing a workspace switch (clip boxes are copied, not live).
-    if (mapped() && m_tiled && m_workspace != nullptr && m_workspace->active()) {
+    if (mapped() && tiled() && m_workspace != nullptr && m_workspace->active()) {
       m_workspace->syncViewPresentation(this);
-    } else if (mapped() && !m_tiled) {
+    } else if (mapped() && !tiled()) {
       if (scheduledFullscreen() && m_onActiveWorkspace) {
         // Keep fullscreen placement authoritative; the xdg scene helper just
         // reset the surface offset for this commit.

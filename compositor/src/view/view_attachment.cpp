@@ -133,9 +133,7 @@ namespace andromeda {
       if (scheduledFullscreen() || currentFullscreen()) {
         setFullscreen(false);
       }
-      m_pinned = false;
-      m_restoreTiledAfterUnpin = false;
-      m_restorePinnedAfterFullscreen = false;
+      transitionPlacement({.event = PlacementEvent::Unpin});
       if (ScratchpadManager* scratchpad = m_server->scratchpadManager()) {
         scratchpad->remove(this);
       }
@@ -143,8 +141,9 @@ namespace andromeda {
         setWorkspace(nullptr, false);
       }
       m_displacedHome.reset();
-      if (m_tiled) {
-        m_tiled = false;
+      const bool wasTiled = tiled();
+      transitionPlacement({.event = PlacementEvent::Attach});
+      if (wasTiled) {
         setTiledState(
             config().appearance.preferNoCsd ? WLR_EDGE_TOP | WLR_EDGE_RIGHT | WLR_EDGE_BOTTOM | WLR_EDGE_LEFT : 0
         );
@@ -152,9 +151,6 @@ namespace andromeda {
       if (scheduledMaximized()) {
         setMaximizedState(false);
       }
-      m_floatingMaximized = false;
-      m_maximizedToEdges = false;
-      m_restoreMaximizedToEdges = false;
       m_aloneOpeningSeed = AloneSeed::None;
       cancelPositionAnimation();
     }

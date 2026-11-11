@@ -5,6 +5,7 @@
 #include "util/tracked.h"
 #include "view/chrome_attachment.h"
 #include "view/configure_state.h"
+#include "view/placement_state.h"
 #include "view/decoration.h"
 #include "view/deferred_unfullscreen.h"
 #include "view/drag_physics.h"
@@ -171,21 +172,28 @@ namespace andromeda {
     [[nodiscard]] bool onActiveWorkspace() const {
       return m_attachedTo != nullptr ? m_attachedTo->onActiveWorkspace() : m_onActiveWorkspace;
     }
-    [[nodiscard]] bool tiled() const { return m_tiled; }
-    [[nodiscard]] bool floating() const { return !m_tiled; }
-    [[nodiscard]] bool layoutFloated() const { return m_layoutFloated; }
+    [[nodiscard]] bool tiled() const { return m_placement.arrangement == Arrangement::Tiled; }
+    [[nodiscard]] bool floating() const { return !tiled(); }
+    [[nodiscard]] bool layoutFloated() const {
+      return m_placement.arrangement == Arrangement::LayoutFloated
+          || (m_placement.arrangement == Arrangement::Pinned && m_placement.unpinTo == Arrangement::LayoutFloated);
+    }
     [[nodiscard]] bool isAloneInLayout() const;
     [[nodiscard]] bool isOnlyWindowOnWorkspace() const;
     [[nodiscard]] const std::optional<std::string>& namedScrollingColumnName() const {
       return m_namedScrollingColumnName;
     }
     [[nodiscard]] std::optional<int> namedScrollingColumnOrder() const { return m_namedScrollingColumnOrder; }
-    [[nodiscard]] bool pinned() const { return m_attachedTo != nullptr ? m_attachedTo->pinned() : m_pinned; }
+    [[nodiscard]] bool pinned() const {
+      return m_attachedTo != nullptr ? m_attachedTo->pinned() : m_placement.arrangement == Arrangement::Pinned;
+    }
     // True when unpinning puts the window back in the tiled layout, because
     // that is where it was pinned from.
-    [[nodiscard]] bool restoresTiledOnUnpin() const { return m_restoreTiledAfterUnpin; }
-    [[nodiscard]] bool maximizedToEdges() const { return m_maximizedToEdges; }
-    [[nodiscard]] bool floatingMaximized() const { return m_floatingMaximized; }
+    [[nodiscard]] bool restoresTiledOnUnpin() const { return m_placement.unpinTo == Arrangement::Tiled; }
+    [[nodiscard]] bool maximizedToEdges() const { return m_placement.fit == Fit::EdgeMaximized; }
+    [[nodiscard]] bool floatingMaximized() const {
+      return m_placement.fit == Fit::FloatMaximized || (m_placement.fit == Fit::EdgeMaximized && floating());
+    }
     // Fullscreen for layout purposes follows the state already scheduled for the next configure.
     [[nodiscard]] bool layoutFullscreen() const;
     [[nodiscard]] bool urgent() const { return m_urgent; }
@@ -429,7 +437,7 @@ namespace andromeda {
     // Put a maximized float back in the box its settings give it now, after a layout, border, strut, or usable area
     // change. Does nothing unless that box moved, so every arrange can ask.
     void refitFloatingMaximized();
-    [[nodiscard]] std::optional<SnapSpot> snapSpot() const { return m_snap; }
+    [[nodiscard]] std::optional<SnapSpot> snapSpot() const { return m_placement.snap; }
     [[nodiscard]] std::optional<wlr_box>
     floatingSnappedBox(const SnapSpot& spot, const wlr_box& usable, const ResolvedLayoutConfig* layout = nullptr) const;
     [[nodiscard]] bool canSnap() const;
@@ -519,6 +527,10 @@ namespace andromeda {
     bool transitionLifecycle(LifecycleEvent event);
     // Applies one configure event with what wlroots reports now; entering a settled state wakes waiting settle requests.
     bool transitionConfigure(ConfigureEvent event);
+    // Applies one placement event; false when the transition is rejected.
+    bool transitionPlacement(PlacementInput input);
+    // Pinned in its own placement; pinned() follows the window an attached dialog sits in.
+    [[nodiscard]] bool placedPinned() const { return m_placement.arrangement == Arrangement::Pinned; }
     void syncShown();
     [[nodiscard]] WindowVisibility visibility() const {
       return {.lifecycle = m_lifecycle, .tabHidden = m_tabHidden, .minimized = m_minimized, .placeShows = m_placeShows};
@@ -1067,26 +1079,13 @@ namespace andromeda {
     // (1.0 = none) and a slide offset in logical pixels (0 = none).
     double m_openingScale = 1.0;
     int m_openingSlide = 0;
-    bool m_tiled = false;
-    // Floating because its workspace floats every window; tiles again when moved to a tiling layout.
-    bool m_layoutFloated = false;
-    bool m_floatingMaximized = false;
-    bool m_maximizedToEdges = false;
-    bool m_restoreMaximizedToEdges = false;
-    std::optional<SnapSpot> m_snap;
-    wlr_box m_snapRestoreBox{};
-    bool m_hasSnapRestoreBox = false;
+    // Changed only through transitionPlacement.
+    Placement m_placement;
+    std::optional<wlr_box> m_snapRestoreBox;
     wlr_box m_snappedBox{};
-    wlr_box m_fullscreenRestoreBox{};
-    bool m_hasFullscreenRestoreBox = false;
-    bool m_pinned = false;
-    bool m_restoreTiledAfterUnpin = false;
-    bool m_restorePinnedAfterFullscreen = false;
+    std::optional<wlr_box> m_fullscreenRestoreBox;
     // The toplevel's fullscreen state as of its last commit, so the commit that leaves fullscreen can be detected.
     bool m_committedFullscreen = false;
-    // Set when a float toggle drops fullscreen: re-tiling restores fullscreen before the layout attach, so the client
-    // never sees a transient column-sized configure. Cleared when fullscreen is left by any other path.
-    bool m_refullscreenOnTile = false;
     // Inactive client unfullscreen requests wait briefly for xdg or foreign activation. Any later client request or
     // compositor-driven fullscreen change clears the parked request.
     DeferredUnfullscreen m_deferredUnfullscreen;

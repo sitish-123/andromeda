@@ -29,7 +29,7 @@ namespace andromeda {
   int View::titleBarHeight() const {
     if (!wantsTitleBar(titleBarModeFor(m_titleBarMode, m_workspace))
         || scheduledFullscreen()
-        || (m_tiled && m_workspace != nullptr && m_workspace->inTabGroup(this))) {
+        || (tiled() && m_workspace != nullptr && m_workspace->inTabGroup(this))) {
       return 0;
     }
     return config().appearance.titleBar.height;
@@ -121,7 +121,7 @@ namespace andromeda {
         m_workspace->markArrange();
       m_server->scheduleIpcWindowsEvent();
     }
-    if ((titleBarHeight() > 0 || !m_tiled) && m_ssdFrame == nullptr) {
+    if ((titleBarHeight() > 0 || !tiled()) && m_ssdFrame == nullptr) {
       m_ssdFrame = std::make_unique<SsdFrame>(chromeParent(), TabLabelCache::shared(), m_sceneTree);
     }
     if (m_ssdFrame == nullptr)
@@ -132,7 +132,7 @@ namespace andromeda {
         && hints.maxHeight > 0
         && hints.maxHeight == hints.minHeight;
     m_ssdFrame->setTitle(title() != nullptr ? title() : "");
-    m_ssdFrame->setResizable(!m_tiled);
+    m_ssdFrame->setResizable(!tiled());
     m_ssdFrame->setMaximizeEnabled(!fixed);
     syncTitleBarButtons();
     m_ssdFrame->setMaximized(scheduledMaximized() || floatingMaximized());
@@ -253,7 +253,7 @@ namespace andromeda {
     // presented frame while the client redraws.
     const wlr_box& geometry = geometryBox();
     const bool usePresentedSize =
-        (m_tiled || sizeAnimating() || sizeGrabActive() || m_floating.pendingSize().has_value())
+        (tiled() || sizeAnimating() || sizeGrabActive() || m_floating.pendingSize().has_value())
         && m_presentation.width() > 0
         && m_presentation.height() > 0;
     struct Ctx {
@@ -328,14 +328,14 @@ namespace andromeda {
   }
 
   void View::updateShadow() {
-    if (scheduledFullscreen() || m_maximizedToEdges) {
+    if (scheduledFullscreen() || maximizedToEdges()) {
       m_decoration.hideShadow();
       return;
     }
     // Shadows follow the presented frame through layout changes, animations, and pending floating restores.
     const wlr_box& geometry = geometryBox();
     const bool usePresentedSize =
-        (m_tiled || sizeAnimating() || sizeGrabActive() || m_floating.pendingSize().has_value())
+        (tiled() || sizeAnimating() || sizeGrabActive() || m_floating.pendingSize().has_value())
         && m_presentation.width() > 0
         && m_presentation.height() > 0;
     updateShadow(
@@ -403,14 +403,14 @@ namespace andromeda {
         .contentWidth = contentWidth,
         .contentHeight = contentHeight,
         .borderInset = borderInset(),
-        .cornerRadius = m_maximizedToEdges ? 0 : decorationCornerRadius(),
+        .cornerRadius = maximizedToEdges() ? 0 : decorationCornerRadius(),
         .titleBarHeight = titleBarHeight(),
         .scale = output != nullptr ? output->wlr()->scale : 1.0F,
         .suppressed = !mapped() || scheduledFullscreen() || currentFullscreen(),
     };
     if (m_ssdFrame != nullptr)
       m_ssdFrame->layout(geometry);
-    geometry.suppressed = geometry.suppressed || m_maximizedToEdges;
+    geometry.suppressed = geometry.suppressed || maximizedToEdges();
     if (m_chromeAttachment != nullptr)
       m_chromeAttachment->layout(geometry);
   }

@@ -57,7 +57,7 @@ namespace andromeda {
 
   // True when this is the only tiled window in the workspace.
   bool View::isAloneInLayout() const {
-    return m_tiled
+    return tiled()
         && m_workspace != nullptr
         && m_workspace->layout().columnOf(this) >= 0
         && m_workspace->isOnlyTiledView(this);
@@ -111,7 +111,7 @@ namespace andromeda {
       return true;
     }
     if (delta.defaultMaximizeToEdges && *delta.defaultMaximizeToEdges) {
-      if (m_maximizedToEdges || scheduledFullscreen()) {
+      if (maximizedToEdges() || scheduledFullscreen()) {
         return false;
       }
       setMaximizedToEdges(true);
@@ -129,7 +129,7 @@ namespace andromeda {
     if ((delta.defaultScrollingExtentPx || delta.defaultScrollingExtent)
         && m_workspace != nullptr
         && !scheduledFullscreen()
-        && !m_maximizedToEdges
+        && !maximizedToEdges()
         && !scheduledMaximized()) {
       ScrollingLayout* scrolling = m_workspace->scrollingLayout();
       if (scrolling != nullptr) {
@@ -176,12 +176,12 @@ namespace andromeda {
       }
       break;
     case AloneAction::MaximizeToEdges:
-      if (m_maximizedToEdges) {
+      if (maximizedToEdges()) {
         setMaximizedToEdges(false);
       }
       break;
     case AloneAction::Maximize:
-      if (scheduledMaximized() && !m_maximizedToEdges) {
+      if (scheduledMaximized() && !maximizedToEdges()) {
         setMaximized(false);
       }
       break;
@@ -306,7 +306,7 @@ namespace andromeda {
     const bool floatingPositionChanged =
         unseenInitialRuleValue(rule.defaultPosition, m_initialRuleHistory, &ResolvedWindowRule::defaultPosition);
     bool floatingGeometryAppliedOnTransition = false;
-    const bool enteringFloatingByRule = !wasInScratchpad && defaultFloatingChanged && *rule.defaultFloating && m_tiled;
+    const bool enteringFloatingByRule = !wasInScratchpad && defaultFloatingChanged && *rule.defaultFloating && tiled();
     const bool placementChanged =
         (rule.defaultOutput.has_value() || rule.defaultWorkspace.has_value())
         && std::ranges::none_of(m_initialRuleHistory, [&](const ResolvedWindowRule& previous) {
@@ -345,7 +345,7 @@ namespace andromeda {
             target->layoutAttach(
                 this, rule.defaultScrollingExtent, rule.defaultScrollingExtentPx, LayoutAttachOrigin::OpeningView
             );
-            if (m_tiled && scheduledMaximized() && !m_maximizedToEdges) {
+            if (tiled() && scheduledMaximized() && !maximizedToEdges()) {
               setMaximized(true);
             }
           }
@@ -361,10 +361,10 @@ namespace andromeda {
     // Move first so a simultaneous floating-size rule resolves against the destination output.
     if (!wasInScratchpad && defaultFloatingChanged) {
       const bool wantFloat = *rule.defaultFloating;
-      if (wantFloat && m_layoutFloated) {
-        m_layoutFloated = false;
+      if (wantFloat) {
+        transitionPlacement({.event = PlacementEvent::ClearLayoutFloat});
       }
-      if (wantFloat != !m_tiled) {
+      if (wantFloat != !tiled()) {
         if (wantFloat) {
           if (floatingWidthChanged) {
             m_pendingFloatingWidthPx = rule.defaultFloatingWidthPx;
@@ -379,7 +379,7 @@ namespace andromeda {
           }
         }
         setFloating(wantFloat);
-        floatingGeometryAppliedOnTransition = wantFloat && !m_tiled;
+        floatingGeometryAppliedOnTransition = wantFloat && !tiled();
       }
     }
 
@@ -419,7 +419,7 @@ namespace andromeda {
       }
       std::optional<bool> restoreTiled;
       if (!wasInScratchpad) {
-        restoreTiled = m_pinned ? m_restoreTiledAfterUnpin : m_tiled;
+        restoreTiled = placedPinned() ? restoresTiledOnUnpin() : tiled();
       }
       if (defaultFloatingChanged) {
         restoreTiled = !*rule.defaultFloating;
@@ -459,7 +459,7 @@ namespace andromeda {
     const bool ownsNamedScrollingColumnExtent =
         m_displacedHome ? m_displacedHome->ownsNamedScrollingColumnExtent : m_ownsNamedScrollingColumnExtent;
     if (defaultExtentChanged
-        && m_tiled
+        && tiled()
         && m_namedScrollingColumnName
         && m_displacedHome
         && ownsNamedScrollingColumnExtent) {
@@ -469,7 +469,7 @@ namespace andromeda {
     const bool canResizeCurrentNamedScrollingColumn =
         ownsNamedScrollingColumnExtent && (!m_displacedHome || m_ownsNamedScrollingColumnExtent);
     if (defaultExtentChanged
-        && m_tiled
+        && tiled()
         && scrolling != nullptr
         && (!m_namedScrollingColumnName || canResizeCurrentNamedScrollingColumn)) {
       const int column = scrolling->columnOf(this);
@@ -482,13 +482,13 @@ namespace andromeda {
         m_workspace->markArrange();
       }
     }
-    if (defaultExtentChanged && !m_tiled) {
+    if (defaultExtentChanged && !tiled()) {
       m_savedScrollingExtentPx = rule.defaultScrollingExtentPx;
       m_savedScrollingExtent = rule.defaultScrollingExtent;
     }
 
     if (!inScratchpad && !floatingGeometryAppliedOnTransition && (floatingWidthChanged || floatingHeightChanged)) {
-      if (!m_tiled) {
+      if (!tiled()) {
         const wlr_box usable = floatingUsableArea();
         const SizeHints hints = sizeHints();
         auto [width, height] = floatingSize();
@@ -523,7 +523,7 @@ namespace andromeda {
     }
 
     if (!inScratchpad && !floatingGeometryAppliedOnTransition && floatingPositionChanged) {
-      if (!m_tiled) {
+      if (!tiled()) {
         placeInUsableArea(rule.defaultPosition);
       } else {
         m_pendingFloatingPosition = rule.defaultPosition;
@@ -542,7 +542,7 @@ namespace andromeda {
             rule.defaultMaximizeToEdges, m_initialRuleHistory, &ResolvedWindowRule::defaultMaximizeToEdges
         )
         && *rule.defaultMaximizeToEdges
-        && !m_maximizedToEdges) {
+        && !maximizedToEdges()) {
       setMaximizedToEdges(true);
     }
 
@@ -580,9 +580,9 @@ namespace andromeda {
   WindowRuleState View::ruleState() const {
     return {
         .focused = m_borderFocusedState,
-        .floating = !m_tiled,
-        .maximizedToEdges = m_maximizedToEdges,
-        .pinned = m_pinned,
+        .floating = !tiled(),
+        .maximizedToEdges = maximizedToEdges(),
+        .pinned = placedPinned(),
         .scratchpad = m_inScratchpad,
         .alone = isAloneInLayout(),
         .onlyWindow = isOnlyWindowOnWorkspace(),

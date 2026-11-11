@@ -12,6 +12,7 @@ unit_tests = [
   ['slide-mode', ['unit/slide_mode.cpp'], []],
   ['view-visibility', ['unit/view_visibility.cpp'], []],
   ['configure-state', ['unit/configure_state.cpp'], []],
+  ['placement-state', ['unit/placement_state.cpp'], []],
   ['gesture-physics', ['unit/gesture_physics.cpp'], []],
   ['presented-crop', ['unit/presented_crop.cpp'], []],
   ['scene-node', ['unit/scene_node.cpp'], []],

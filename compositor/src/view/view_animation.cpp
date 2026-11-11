@@ -125,7 +125,7 @@ namespace andromeda {
   bool View::tiledOpeningActive() const {
     return mapped()
         && !m_inScratchpad
-        && m_tiled
+        && tiled()
         && !layoutFullscreen()
         && m_workspace != nullptr
         && m_workspace->layout().columnOf(this) >= 0
@@ -192,7 +192,7 @@ namespace andromeda {
       }
       return;
     }
-    if (m_tiled && m_workspace != nullptr && m_workspace->layout().columnOf(this) >= 0) {
+    if (tiled() && m_workspace != nullptr && m_workspace->layout().columnOf(this) >= 0) {
       const wlr_box slot = m_workspace->presentedTiledBox(this);
       setScenePosition(slot.x, slot.y);
     }
@@ -200,7 +200,7 @@ namespace andromeda {
 
   wlr_box View::committedContentBox() const {
     wlr_box box = geometryBox();
-    if (m_xsurface != nullptr || !m_tiled || currentFullscreen()) {
+    if (m_xsurface != nullptr || !tiled() || currentFullscreen()) {
       return box;
     }
     // A client may ack a configure, render the new size into its buffer, and leave set_window_geometry at the old size
@@ -303,7 +303,7 @@ namespace andromeda {
     // Restoring a snapped float requests its normal size before the client can redraw. Keep the entire frame at that
     // requested size throughout the grab, including commits and stationary pointer frames.
     const auto size =
-        !m_tiled && !sizeAnimating() ? floatingSize() : std::array{m_presentation.width(), m_presentation.height()};
+        !tiled() && !sizeAnimating() ? floatingSize() : std::array{m_presentation.width(), m_presentation.height()};
     applyPresentation({
         .x = layoutX(),
         .y = layoutY(),
@@ -359,7 +359,7 @@ namespace andromeda {
     if (m_ssdFrame != nullptr)
       m_ssdFrame->setBlurLive(true);
     setFadeAlpha(m_fadeAlpha);
-    if (m_pinned) {
+    if (placedPinned()) {
       wlr_scene_node_place_above(&m_server->dragTree()->node, &m_server->pinnedTree()->node);
     } else if (m_workspace != nullptr && m_workspace->floatingLayerRaised()) {
       wlr_scene_node_place_above(&m_server->dragTree()->node, &m_server->fullscreenTree()->node);
@@ -482,7 +482,7 @@ namespace andromeda {
       scratchpad->restorePresentation(this);
       return;
     }
-    if (m_pinned) {
+    if (placedPinned()) {
       restorePinnedSceneParent();
       if (m_workspace != nullptr) {
         m_workspace->syncViewPresentation(this);
@@ -549,7 +549,7 @@ namespace andromeda {
     m_posX.snap(x);
     m_posY.snap(y);
     m_positioned = true;
-    if (mapped() && !m_tiled && changed) {
+    if (mapped() && !tiled() && changed) {
       m_server->scheduleIpcWindowsEvent();
     }
   }
@@ -711,13 +711,13 @@ namespace andromeda {
     }
     const bool changed = layoutX() != x || layoutY() != y;
     setScenePosition(x, y);
-    if (mapped() && (!m_tiled || m_server->cursor()->toplevelDragView() == this) && changed) {
+    if (mapped() && (!tiled() || m_server->cursor()->toplevelDragView() == this) && changed) {
       m_server->scheduleIpcWindowsEvent();
     }
   }
 
   void View::animateTo(int x, int y) {
-    if (mapped() && !m_tiled && (layoutTargetX() != x || layoutTargetY() != y)) {
+    if (mapped() && !tiled() && (layoutTargetX() != x || layoutTargetY() != y)) {
       m_server->scheduleIpcWindowsEvent();
     }
     // First placement snaps: the node starts at the default (0,0) world origin, so animating would fly the window
@@ -917,7 +917,7 @@ namespace andromeda {
       // box, and a custom shader stays composed over the lifecycle presentation.
       const bool finishingTiledOpen = mapped()
           && !m_inScratchpad
-          && m_tiled
+          && tiled()
           && !layoutFullscreen()
           && m_workspace != nullptr
           && m_workspace->layout().columnOf(this) >= 0
@@ -1143,13 +1143,13 @@ namespace andromeda {
     const bool fullscreen = scheduledFullscreen();
     const wlr_box content = committedContentBox();
     trackPresentedSize(content.width, content.height);
-    if (!fullscreen && !m_tiled) {
+    if (!fullscreen && !tiled()) {
       syncFloatingSurfaceClip();
       applyCornerRadius();
       updateBorderGeometry();
       return;
     }
-    const wlr_box* clip = (!fullscreen && m_tiled) ? &content : nullptr;
+    const wlr_box* clip = (!fullscreen && tiled()) ? &content : nullptr;
     setSurfaceTreeClip(clip);
     applyCornerRadius();
     updateBorderGeometry();
