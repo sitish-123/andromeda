@@ -454,7 +454,7 @@ fn walk_7z(
         let result = result.and_then(|go_on| {
             if go_on {
                 let mut guard = Guard { inner: data, limits, read: 0 };
-                io::copy(&mut guard, &mut io::sink()).map_err(|e| unguard(ArchiveError::Io(e)))?;
+                io::copy(&mut guard, &mut io::sink()).map_err(|e| unguard(e.into()))?;
             }
             Ok(go_on)
         });
