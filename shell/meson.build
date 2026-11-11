@@ -1175,6 +1175,7 @@ if build_tests
     'face_auth_machine',
     'fcitx_status',
     'fingerprint_auth_machine',
+    'flex_layout',
     'format_units',
     'freedesktop_key_file',
     'freeze_sequence',
