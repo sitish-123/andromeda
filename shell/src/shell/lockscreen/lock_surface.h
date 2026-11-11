@@ -97,7 +97,7 @@ public:
   void setClockGradient(std::uint32_t from, std::uint32_t to);
   void setTextureCache(SharedTextureCache* cache) noexcept { m_textureCache = cache; }
   void setWallpaperPath(std::string wallpaperPath);
-  // The compositor blurs only the desktop wallpaper behind the lock; a lock image of its own is drawn here, sharp.
+  // The compositor blurs only the desktop wallpaper behind the lock; a lock image of its own is blurred once at load.
   void setOwnWallpaper(bool own);
   void setWallpaperFillMode(WallpaperFillMode fillMode);
   void setWallpaperCoverage(TextureCoverage coverage);
