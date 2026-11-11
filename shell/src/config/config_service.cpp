@@ -1110,8 +1110,8 @@ BarConfig ConfigService::resolveForOutput(const BarConfig& base, const WaylandOu
     if (resolved.startWidgets == defaults.startWidgets
         && resolved.centerWidgets == defaults.centerWidgets
         && resolved.endWidgets == defaults.endWidgets) {
-      resolved.startWidgets = {"island_workspaces", "island_app"};
-      resolved.endWidgets = {"island_network", "island_volume", "island_battery", "island_clock", "notifications", "andromeda_mark"};
+      resolved.startWidgets = {"andromeda_mark", "island_workspaces", "island_app"};
+      resolved.endWidgets = {"island_network", "island_volume", "island_battery", "island_clock", "notifications"};
       if (resolved.widgetSpacing == defaults.widgetSpacing) {
         resolved.widgetSpacing = static_cast<std::int32_t>(Tokens::componentIslandGap);
       }
