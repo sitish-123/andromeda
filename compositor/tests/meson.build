@@ -145,6 +145,15 @@ test(
   args: [andromeda],
 )
 
+dbus_run_session = find_program('dbus-run-session', required: false)
+if libsystemd_dep.found() and dbus_run_session.found()
+  test(
+    'cli-update',
+    dbus_run_session,
+    args: ['--', find_program('python3'), files('cli_update_bus.py'), andromeda],
+  )
+endif
+
 # Harness helper, not a unit test: drives virtual pointer and modifier input against a running compositor. The headless backend has no input devices, so protocol
 # input is the only way to exercise pointer hit-testing and grabs.
 pointer_client = executable(

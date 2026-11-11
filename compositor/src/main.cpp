@@ -1,4 +1,5 @@
 #include "cli/ipc_client.h"
+#include "cli/update.h"
 #include "config/config.h"
 #include "config/config_diag.h"
 #include "config/schema.h"
@@ -146,6 +147,7 @@ namespace {
     }
 
     heading("Other");
+    row("update", "check for and install updates");
     row("help | -h | --help", "show this help");
     row("-v | -V | --version", "print version");
 
@@ -245,6 +247,14 @@ int main(int argc, char** argv) {
         return printConfigSchema(json);
       }
       const bool help = argc >= 3 && isHelpFlag(argv[2]);
+      printHelp(help ? stdout : stderr);
+      return help ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+    if (std::strcmp(argv[1], "update") == 0) {
+      if (argc == 2) {
+        return andromeda::runUpdate();
+      }
+      const bool help = isHelpFlag(argv[2]);
       printHelp(help ? stdout : stderr);
       return help ? EXIT_SUCCESS : EXIT_FAILURE;
     }
