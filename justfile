@@ -42,6 +42,10 @@ test module="" filter="" force="":
 wait *args:
     @tools/wait.sh "$@"
 
+# Find where a feature lives: module, entry files, test and build module (docs/map.toml).
+where word:
+    @tools/where.sh {{quote(word)}}
+
 # Phone state in one call: screenshot, UI dump, logcat tail and top activity in /tmp/phone-state/<name>. Honors ANDROID_SERIAL.
 phone-state name="now":
     #!/usr/bin/env bash
