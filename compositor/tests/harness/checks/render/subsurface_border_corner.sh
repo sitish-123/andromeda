@@ -53,24 +53,30 @@ sample() {
 }
 
 # The configured 12 px outer radius stays fixed around both color bands. Smooth
-# nesting keeps 7 px radii at the color seam and content edge.
+# nesting keeps 7 px radii at the color seam and content edge. Corners are
+# continuous (corner_alpha.frag, smoothing 0.6): a 7 px corner leaves the first
+# two pixels of the top row to the border, and the content fills the pixel
+# diagonal to them; a larger content radius leaves a dark gap there.
 outer_top=$(sample "$((x + 2))" "$((y - 9))")
 outer_diagonal=$(sample "$((x - 6))" "$((y - 5))")
 seam=$(sample "$((x + 4))" "$((y - 1))")
-content_arc=$(sample "$((x + 3))" "$y")
+content_arc=$(sample "$((x + 1))" "$y")
+arc_inside=$(sample "$((x + 2))" "$((y + 1))")
 inside=$(sample "$((x + 6))" "$y")
 read -r outer_top_red outer_top_green outer_top_blue <<< "$outer_top"
 read -r outer_diagonal_red outer_diagonal_green outer_diagonal_blue <<< "$outer_diagonal"
 read -r seam_red seam_green seam_blue <<< "$seam"
 read -r content_arc_red content_arc_green content_arc_blue <<< "$content_arc"
+read -r arc_inside_red arc_inside_green arc_inside_blue <<< "$arc_inside"
 read -r inside_red inside_green inside_blue <<< "$inside"
 if (( outer_top_red < 30 || outer_top_green > 1 || outer_top_blue > 1 ||
       outer_diagonal_red < 30 || outer_diagonal_green > 1 || outer_diagonal_blue > 1 ||
       seam_red > 10 || seam_green < 220 || seam_blue > 5 ||
       content_arc_red > 10 || content_arc_green < 220 || content_arc_blue > 10 ||
+      arc_inside_red > 10 || arc_inside_green > 10 || arc_inside_blue < 240 ||
       inside_green > 10 || inside_blue < 240 )); then
-  echo "smooth border contours were uneven: outer_top=$outer_top outer_diagonal=$outer_diagonal seam=$seam content_arc=$content_arc inside=$inside window=$window"
+  echo "smooth border contours were uneven: outer_top=$outer_top outer_diagonal=$outer_diagonal seam=$seam content_arc=$content_arc arc_inside=$arc_inside inside=$inside window=$window"
   exit 1
 fi
 
-echo "single-pass border kept smooth contours continuous: outer_top=$outer_top outer_diagonal=$outer_diagonal seam=$seam content_arc=$content_arc inside=$inside"
+echo "single-pass border kept smooth contours continuous: outer_top=$outer_top outer_diagonal=$outer_diagonal seam=$seam content_arc=$content_arc arc_inside=$arc_inside inside=$inside"
