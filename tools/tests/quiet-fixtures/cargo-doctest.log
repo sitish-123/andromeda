@@ -1,0 +1,13 @@
+     Running unittests src/lib.rs (target/debug/deps/link_core-1234)
+
+running 2 tests
+test pair::tests::accepts_code ... ok
+test frame::tests::round_trip ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests link_core
+error[E0433]: failed to resolve: use of undeclared crate or module `foo`
+ --> crates/link-core/src/lib.rs:4:5
+error: aborting due to 1 previous error
+error: doctest failed, to rerun pass `-p link-core --doc`

@@ -1,13 +1,17 @@
 default: check
 
-build:
-    cd compositor && just build
-    cd shell && just build
-    cd portal && just build
-    cd greeter && just build
+[doc('Quiet build of one module (compositor shell greeter portal files player viewer system link): one ok line, or the first 3 errors as file:line. Log in /tmp/andromeda-build. Reuses the last result when nothing changed; --force reruns. No module: every module, full output.')]
+build module="" force="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [ -z {{quote(module)}} ] || exec tools/quiet.sh build {{quote(module)}} {{quote(force)}}
+    (cd compositor && ../tools/build.sh just build)
+    (cd shell && ../tools/build.sh just build)
+    (cd portal && ../tools/build.sh just build)
+    (cd greeter && ../tools/build.sh just build)
     git submodule update --init link
-    cd link && cargo build
-    cd system && cargo build
+    (cd link && cargo build)
+    (cd system && cargo build)
 
 # Link's gate: format, pedantic clippy, the proto tests, and the supply-chain policy.
 link:
@@ -24,9 +28,19 @@ system:
     cd system && cargo build
     system/tests/mock_bus.sh
 
-test: build
-    cd compositor && just test
-    cd shell && just test
+[doc('Quiet unit tests of one module, built first: failing tests with their first file:line error, then "N passed, M failed". Log in /tmp/andromeda-test. Reuses the last result when nothing changed; --force reruns. No module: build all, then compositor and shell suites.')]
+test module="" filter="" force="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [ -z {{quote(module)}} ] || exec tools/quiet.sh test {{quote(module)}} {{quote(filter)}} {{quote(force)}}
+    just build
+    (cd compositor && ../tools/build.sh just test)
+    (cd shell && ../tools/build.sh just test)
+
+# Wait for a log line, pid, file or bus name in one blocking call (tools/wait.sh --help); never sleep or poll.
+[positional-arguments]
+wait *args:
+    @tools/wait.sh "$@"
 
 # Phone state in one call: screenshot, UI dump, logcat tail and top activity in /tmp/phone-state/<name>. Honors ANDROID_SERIAL.
 phone-state name="now":
@@ -109,15 +123,15 @@ design-reference:
     python3 protocol/gen-design-tokens.py protocol/design-tokens.toml /tmp/design_tokens.h docs/design/tokens.css
     google-chrome-stable --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --window-size=1600,1010 --screenshot="$PWD/docs/design/reference.png" "file://$PWD/docs/design/reference.html"
 
-# Live shell loop: the user session runs shell/build-f7/noctalia; each new build-f7 binary (mold link) restarts the shell and captures the screen to /tmp/andromeda-live/last.png.
+# Live shell loop: the user session runs shell/build-f7/andromeda-shell; each new build-f7 binary (mold link) restarts the shell and captures the screen to /tmp/andromeda-live/last.png.
 dev-live:
     meson configure shell/build-f7 -Dcpp_link_args=-fuse-ld=mold -Dc_link_args=-fuse-ld=mold
-    tools/f7.sh noctalia noctalia-calc.so
+    tools/f7.sh andromeda-shell noctalia-calc.so
     mkdir -p ~/.config/systemd/user/andromeda-shell.service.d /tmp/andromeda-live
-    printf '[Service]\nEnvironment=ANDROMEDA_DEV_TOKENS=%s/protocol/design-tokens.toml\nExecStart=\nExecStart=%s/shell/build-f7/noctalia\n' "$PWD" "$PWD" > ~/.config/systemd/user/andromeda-shell.service.d/dev-live.conf
+    printf '[Service]\nEnvironment=ANDROMEDA_DEV_TOKENS=%s/protocol/design-tokens.toml\nExecStart=\nExecStart=%s/shell/build-f7/andromeda-shell\n' "$PWD" "$PWD" > ~/.config/systemd/user/andromeda-shell.service.d/dev-live.conf
     systemctl --user daemon-reload && systemctl --user restart andromeda-shell.service
     # Restart only on a new binary: a source watch restarts the live shell on every half-done agent edit.
-    watchexec -p -w shell/build-f7/noctalia --debounce 500ms -- 'systemctl --user restart andromeda-shell.service && sleep 1 && grim /tmp/andromeda-live/last.png'
+    watchexec -p -w shell/build-f7/andromeda-shell --debounce 500ms -- 'systemctl --user restart andromeda-shell.service && sleep 1 && grim /tmp/andromeda-live/last.png'
 
 # Back to the packaged shell.
 dev-live-off:

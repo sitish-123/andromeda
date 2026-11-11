@@ -1,0 +1,10 @@
+   Compiling andromeda-system v0.1.0 (/data/desktop/system)
+error[E0425]: cannot find value `a` in this scope
+  --> src/a.rs:1:1
+error[E0425]: cannot find value `b` in this scope
+  --> src/b.rs:2:1
+error[E0425]: cannot find value `c` in this scope
+  --> src/c.rs:3:1
+error[E0425]: cannot find value `d` in this scope
+  --> src/d.rs:4:1
+error: aborting due to 4 previous errors

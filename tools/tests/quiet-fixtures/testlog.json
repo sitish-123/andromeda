@@ -1,0 +1,6 @@
+{"name":"noctalia:crash_records","stdout":"","stderr":"","result":"OK","is_fail":false,"returncode":0}
+{"name":"noctalia:design_lint","stdout":"checking 412 files\nshell/src/shell/live_activity/island_lane_layout.h:9 S1 float size literal 8.0F; use a token or scale\nshell/src/x.cpp:3 S1 other\n","stderr":"","result":"FAIL","is_fail":true,"returncode":1}
+{"name":"noctalia:clipboard_storage_permissions","stdout":"","stderr":"00:35:04.629 [\u001b[33mWRN\u001b[0m] [secret-store] status=unavailable\nclipboard_storage_permissions_test: legacy history was not loaded\nclipboard_storage_permissions_test: migrated payload was not available\n","result":"FAIL","is_fail":true,"returncode":1}
+{"name":"noctalia:wake_timer","stdout":"","stderr":"","result":"TIMEOUT","is_fail":true,"returncode":-15}
+{"name":"noctalia:gpu_probe","stdout":"","stderr":"","result":"SKIP","is_fail":false,"returncode":77}
+{"name":"noctalia:layout","stdout":"","stderr":"","result":"OK","is_fail":false,"returncode":0}

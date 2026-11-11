@@ -1,0 +1,15 @@
+   Compiling andromeda-system v0.1.0 (/data/desktop/system)
+warning: unused import: `std::fs`
+ --> src/power.rs:3:5
+  |
+3 | use std::fs;
+  |     ^^^^^^^
+error[E0425]: cannot find value `level` in this scope
+  --> src/power.rs:41:17
+   |
+41 |     let x = level + 1;
+   |             ^^^^^ not found in this scope
+error: expected one of `,` or `}`, found `;`
+  --> src/main.rs:12:30
+error: aborting due to 2 previous errors
+error: could not compile `andromeda-system` (bin "andromeda-system") due to 2 previous errors
