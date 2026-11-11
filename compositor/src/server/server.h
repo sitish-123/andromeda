@@ -15,6 +15,7 @@
 #include "scene/effect_selection.h"
 #include "scene/surface_shadow.h"
 #include "server/focus.h"
+#include "server/xdg_session_state.h"
 #include "view/registry.h"
 
 #include <filesystem>
@@ -1052,16 +1053,10 @@ namespace andromeda {
     // One-shot refresh when dynamic startup rules expire.
     wl_event_source* m_startupRulesTimer = nullptr;
     void startWatchdog(const std::string& notifySocket);
-    void scheduleSessionSave();
     // A window from the pre-crash list: the next window of that app id within 2 min maps where this one was.
     struct RestorePlacement {
       std::string appId;
-      std::string output;
-      std::string workspace;
-      bool floating = false;
-      bool fullscreen = false;
-      int width = 0;
-      int height = 0;
+      SessionPlacement placement;
     };
     std::vector<RestorePlacement> m_restorePlacements;
     uint64_t m_restorePlacementDeadlineMs = 0;
@@ -1072,6 +1067,10 @@ namespace andromeda {
     void applyRestorePlacement(std::string_view appId, ResolvedWindowRule& rule, bool consume);
     // Applies the placement xdg_session_v1.restore_toplevel asked for `toplevel`; `consume` drops it once it maps.
     void applyXdgSessionPlacement(wlr_xdg_toplevel* toplevel, ResolvedWindowRule& rule, bool consume);
+    // Records where the session window of `toplevel` is before it unmaps.
+    void xdgSessionWindowUnmapping(wlr_xdg_toplevel* toplevel);
+    // Writes session.json and the xdg session store at most once a second (docs/resilience.md §5).
+    void scheduleSessionSave();
 
   private:
     void saveSession();

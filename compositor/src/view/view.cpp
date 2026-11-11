@@ -14,6 +14,7 @@
 #include "scene/ssd_frame.h"
 #include "scene/surface_blur.h"
 #include "server/color_manager.h"
+#include "server/dsk_surface.h"
 #include "server/server.h"
 extern "C" {
 #include <andromedafx/render/effect.h>
@@ -367,10 +368,28 @@ namespace andromeda {
 
   wlr_scene_tree* View::captureTree() const { return m_captureScene != nullptr ? &m_captureScene->tree : nullptr; }
 
-  void View::setCaptureHidden(bool hidden) {
+  void View::refreshCaptureHidden() {
     if (m_captureScene == nullptr) {
       return;
     }
+    struct Walk {
+      const DskSurfaceManager* dsk;
+      bool secure;
+    };
+    Walk walk{.dsk = m_server->dskSurfaces(), .secure = false};
+    if (walk.dsk != nullptr && walk.dsk->anySecure()) {
+      const auto visit = [](wlr_surface* surface, int /*sx*/, int /*sy*/, void* data) {
+        auto* walk = static_cast<Walk*>(data);
+        const DskSurfaceManager::State* state = walk->dsk->state(surface);
+        walk->secure = walk->secure || (state != nullptr && state->secure);
+      };
+      if (m_toplevel != nullptr) {
+        wlr_xdg_surface_for_each_surface(m_toplevel->base, visit, &walk);
+      } else if (wlr_surface* root = rootSurface()) {
+        wlr_surface_for_each_surface(root, visit, &walk);
+      }
+    }
+    const bool hidden = walk.secure;
     wlr_scene_node* child = nullptr;
     wl_list_for_each(child, &m_captureScene->tree.children, link) {
       wlr_scene_node_set_enabled(child, !hidden);

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
+# harness: outputs=2
 # dsk_surface_v1.set_secure: a screenshot shows a secure layer surface as black; clearing it shows the content again.
+# A capture of an output that mirrors it, a magnified frame and the surface's popup stay black too, and a window
+# capture of a window with a secure subsurface shows none of it.
 set -euo pipefail
 source "$ANDROMEDA_HARNESS_LIB"
 
@@ -7,13 +10,20 @@ readonly LAYER_CLIENT="${ANDROMEDA_LAYER_CLIENT:-./build-debug/tests/layer-clien
 readonly LOG="$ANDROMEDA_RUNTIME_DIR/dsk-secure.log"
 readonly FIFO="$ANDROMEDA_RUNTIME_DIR/dsk-secure.fifo"
 readonly SHOT="$ANDROMEDA_RUNTIME_DIR/dsk-secure.png"
+readonly WINDOW_SHOT="$ANDROMEDA_RUNTIME_DIR/dsk-secure-window.png"
+readonly CAPTURE_LOG="$ANDROMEDA_RUNTIME_DIR/dsk-secure-capture.log"
+readonly CAPTURE_FIFO="$ANDROMEDA_RUNTIME_DIR/dsk-secure-capture.fifo"
+readonly WINDOW_LOG="$ANDROMEDA_RUNTIME_DIR/dsk-secure-window.log"
 readonly REGION="400x20+100+10"
+readonly BLUE='b > 0.5 && r < 0.3'
+readonly BLACK='r < 0.05 && g < 0.05 && b < 0.05'
 
 if [[ ! -x $LAYER_CLIENT ]]; then
   echo "required harness clients are not built"
   exit 1
 fi
 
+BASELINE=$(< "$ANDROMEDA_CONFIG")
 cat >> "$ANDROMEDA_CONFIG" <<'CONF'
 
 [animation]
@@ -22,43 +32,110 @@ enabled = false
 [colors]
 backdrop = "#FFFFFFFF"
 CONF
+CONFIG=$(< "$ANDROMEDA_CONFIG")
 "$ANDROMEDA" msg config-reload > /dev/null
+
+pids=()
+trap 'kill "${pids[@]}" 2> /dev/null || true' EXIT
 
 mkfifo "$FIFO"
 exec {control_fd}<> "$FIFO"
 LAYER_DSK_VERSION=14 LAYER_CONTROL=1 "$LAYER_CLIENT" HEADLESS-1 40 <&"$control_fd" > "$LOG" 2>&1 &
-client_pid=$!
-trap 'kill "$client_pid" 2> /dev/null || true' EXIT
+pids+=($!)
 await_lines "$LOG" ready 1
 
-# Prints "<blue pixels> <black pixels>" in the bar strip of a fresh screenshot.
+# Prints "<blue pixels> <black pixels>" in a region (default: the bar strip) of a fresh screenshot of HEADLESS-1.
 probe() {
   "$ANDROMEDA" settle
-  grim "$SHOT"
-  "$ANDROMEDA_PIXEL_PROBE" "$SHOT" count 'b > 0.5 && r < 0.3' 'r < 0.05 && g < 0.05 && b < 0.05' "$REGION"
+  grim -o HEADLESS-1 "$SHOT"
+  "$ANDROMEDA_PIXEL_PROBE" "$SHOT" count "$BLUE" "$BLACK" "${1:-$REGION}"
 }
 
-printf '%s\n' "color plain FF2040A0" >&"$control_fd"
-await_lines "$LOG" 'done plain' 1
+# Sends one control command and waits for its "done LABEL".
+layer() {
+  local label
+  read -r _ label _ <<< "$1"
+  printf '%s\n' "$1" >&"$control_fd"
+  await_lines "$LOG" "done $label " 1
+}
+
+layer "color plain FF2040A0"
 read -r blue black < <(probe)
 if ((blue < 7000)); then
   echo "the bar does not show in a screenshot before set_secure: $blue of 8000 pixels blue"
   exit 1
 fi
 
-printf '%s\n' "dsk-secure hide 1" >&"$control_fd"
-await_lines "$LOG" 'done hide' 1
+layer "dsk-secure hide 1"
 read -r hidden_blue hidden_black < <(probe)
 if ((hidden_blue != 0 || hidden_black < 7000)); then
   echo "a secure bar shows in a screenshot: $hidden_blue blue, $hidden_black black of 8000 pixels"
   exit 1
 fi
 
-printf '%s\n' "dsk-secure show 0" >&"$control_fd"
-await_lines "$LOG" 'done show' 1
+layer "dsk-secure show 0"
 read -r shown_blue shown_black < <(probe)
 if ((shown_blue < 7000)); then
   echo "the bar stays hidden after set_secure 0: $shown_blue of 8000 pixels blue"
   exit 1
 fi
-echo "plain $blue blue/$black black; secure $hidden_blue/$hidden_black; cleared $shown_blue/$shown_black"
+
+# Mirroring: a capture session on HEADLESS-2 outlives its wl_output when HEADLESS-2 starts to mirror HEADLESS-1, and
+# then reads the mirror's frames. Its top-left pixel is the bar's.
+"$ANDROMEDA_POINTER_CLIENT" 100 100 move 25 50 > /dev/null
+mkfifo "$CAPTURE_FIFO"
+CAPTURE_PIXELS=1 CAPTURE_CONTROL=1 "$ANDROMEDA_CAPTURE_CLIENT" --output HEADLESS-2 < "$CAPTURE_FIFO" > "$CAPTURE_LOG" 2>&1 &
+pids+=($!)
+exec {capture_fd}> "$CAPTURE_FIFO"
+await_lines "$CAPTURE_LOG" 'session-ready HEADLESS-2' 1
+printf '%s\n\n[output.HEADLESS-2]\nmirror = "HEADLESS-1"\n' "$CONFIG" > "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+layer "color mirror-shown FF2040A0"
+if ! await_lines "$CAPTURE_LOG" 'pixels HEADLESS-2 uniform=0 color=..2040a0' 1 > /dev/null; then
+  echo "a capture of the mirroring output never showed the bar: $(grep '^pixels' "$CAPTURE_LOG" | tail -3 | tr '\n' '|')"
+  exit 1
+fi
+layer "dsk-secure mirrored 1"
+if ! await_lines "$CAPTURE_LOG" 'pixels HEADLESS-2 uniform=0 color=..000000' 1 > /dev/null; then
+  echo "a capture of an output mirroring a secure bar shows it: $(grep '^pixels' "$CAPTURE_LOG" | tail -3 | tr '\n' '|')"
+  exit 1
+fi
+exec {capture_fd}>&-
+printf '%s\n' "$CONFIG" > "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+
+# Magnifier: three zoom-in steps at the top-left corner draw the bar twice as tall, over the strip below it.
+"$ANDROMEDA_POINTER_CLIENT" 1 1 move 0 0 > /dev/null
+for _ in 1 2 3; do "$ANDROMEDA" msg zoom-in > /dev/null; done
+read -r zoomed_blue zoomed_black < <(probe "400x20+100+50")
+"$ANDROMEDA" msg zoom-reset > /dev/null
+if ((zoomed_blue != 0 || zoomed_black < 7000)); then
+  echo "a magnified secure bar shows in a screenshot: $zoomed_blue blue, $zoomed_black black of 8000 pixels"
+  exit 1
+fi
+
+# A popup of a secure surface is secure too.
+layer "popup menu 100"
+await_lines "$LOG" popup-mapped 1
+read -r popup_blue popup_black < <(probe "60x30+110+45")
+if ((popup_blue != 0 || popup_black < 1700)); then
+  echo "the popup of a secure bar shows in a screenshot: $popup_blue blue, $popup_black black of 1800 pixels"
+  exit 1
+fi
+
+# Window capture: the blue subsurface covers the whole window and is secure, its red parent is not.
+SECURE=child "$ANDROMEDA_SUBSURFACE_CLIENT" secure-child > "$WINDOW_LOG" 2>&1 &
+pids+=($!)
+await_lines "$WINDOW_LOG" mapped 1
+"$ANDROMEDA" settle
+window_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.app_id == "secure-child") | .id')
+window_blue=0
+if timeout 10 grim -T "$window_id" "$WINDOW_SHOT" 2> /dev/null; then
+  read -r window_blue < <("$ANDROMEDA_PIXEL_PROBE" "$WINDOW_SHOT" count "$BLUE")
+fi
+if ((window_blue != 0)); then
+  echo "a window capture shows a secure subsurface: $window_blue blue pixels"
+  exit 1
+fi
+echo "plain $blue blue/$black black; secure $hidden_blue/$hidden_black; cleared $shown_blue/$shown_black;" \
+  "zoomed $zoomed_blue/$zoomed_black; popup $popup_blue/$popup_black; window capture $window_blue blue"

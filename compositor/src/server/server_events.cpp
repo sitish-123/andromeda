@@ -883,9 +883,6 @@ namespace andromeda {
   void Server::scheduleIpcWindowsEvent(bool sessionChanged) {
     if (sessionChanged) {
       scheduleSessionSave();
-      if (m_xdgSessions != nullptr) {
-        m_xdgSessions->scheduleSnapshot();
-      }
     }
     if (m_ipc == nullptr || m_ipcWindowsIdle != nullptr) {
       return;
@@ -899,7 +896,10 @@ namespace andromeda {
   // docs/resilience.md §5: the window list is current at a crash, at most one write per second. After a log-out request
   // the user manager stops the apps before the compositor, so their unmaps must not reach session.json.
   void Server::scheduleSessionSave() {
-    if (!m_lockFileManaged || m_stopping || m_sessionExitRequested) {
+    if (m_stopping || m_sessionSavePending) {
+      return;
+    }
+    if ((!m_lockFileManaged || m_sessionExitRequested) && (m_xdgSessions == nullptr || !m_xdgSessions->wantsFlush())) {
       return;
     }
     if (m_sessionSaveTimer == nullptr) {
@@ -923,6 +923,12 @@ namespace andromeda {
 
   void Server::saveSession() {
     m_sessionSavePending = false;
+    if (m_xdgSessions != nullptr) {
+      m_xdgSessions->flush();
+    }
+    if (!m_lockFileManaged || m_sessionExitRequested) {
+      return;
+    }
     const char* state = std::getenv("XDG_STATE_HOME");
     const char* home = std::getenv("HOME");
     const std::filesystem::path dir = state != nullptr && *state != '\0' ? std::filesystem::path(state) / "andromeda"
@@ -931,7 +937,19 @@ namespace andromeda {
     if (dir.empty()) {
       return;
     }
-    const nlohmann::json windows = IpcCommands::windows(*this, "")["ok"];
+    nlohmann::json windows = IpcCommands::windows(*this, "")["ok"];
+    // Restore reads `placement`: the workspace by its live position or name, as ids count creations.
+    std::map<std::string_view, const View*> byId;
+    for (const auto& view : views()) {
+      if (view->mapped() && view->extForeignIdentifier() != nullptr) {
+        byId.emplace(view->extForeignIdentifier(), view.get());
+      }
+    }
+    for (nlohmann::json& window : windows) {
+      if (const auto view = byId.find(window.value("id", "")); view != byId.end()) {
+        window["placement"] = sessionPlacementJson(sessionPlacementOf(*view->second));
+      }
+    }
     writeFileAsync(dir / "session.json", nlohmann::json{{"version", 1}, {"windows", windows}}.dump());
   }
 

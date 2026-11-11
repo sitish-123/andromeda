@@ -568,6 +568,7 @@ namespace andromeda {
   }
 
   void View::handleUnmap(bool animateClose) {
+    m_server->xdgSessionWindowUnmapping(m_toplevel);
     m_server->seat()->toplevelDrags().unmapped(this);
     if (m_effectSelectionIdle != nullptr) {
       wl_event_source_remove(m_effectSelectionIdle);

@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # xdg-session-management-v1: a window added to a session and moved to another workspace returns to that workspace
-# when the app restores the session after it quits; the compositor keeps the session in its state file.
+# when the app restores the session after it quits; the compositor keeps the session in its state file. The app
+# destroys its xdg_toplevel_session_v1 once mapped, which must not stop the compositor from recording the move, and a
+# session that never held a window must not reach the state file.
 set -euo pipefail
 source "$ANDROMEDA_HARNESS_LIB"
 
 readonly CLIENT="${ANDROMEDA_XDG_SESSION_CLIENT:-./build-debug/tests/xdg-session-client}"
 readonly FILLER="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
 readonly FILLER_LOG="$ANDROMEDA_RUNTIME_DIR/xdg-session-filler.log"
+readonly EMPTY_LOG="$ANDROMEDA_RUNTIME_DIR/xdg-session-empty.log"
 readonly FIRST_LOG="$ANDROMEDA_RUNTIME_DIR/xdg-session-first.log"
 readonly SECOND_LOG="$ANDROMEDA_RUNTIME_DIR/xdg-session-second.log"
 readonly STATE_FILE="$ANDROMEDA_RUNTIME_DIR/xdg-state/andromeda/xdg-sessions.json"
@@ -31,10 +34,17 @@ for _ in $(seq 60); do
   sleep 0.1
 done
 
-"$CLIENT" > "$FIRST_LOG" 2>&1 &
+"$CLIENT" --empty > "$EMPTY_LOG" 2>&1
+empty_id=$(sed -n 's/^created //p' "$EMPTY_LOG")
+if [[ -z $empty_id ]]; then
+  echo "the empty session got no id: $(cat "$EMPTY_LOG")"
+  exit 1
+fi
+
+"$CLIENT" --drop-handle > "$FIRST_LOG" 2>&1 &
 first_pid=$!
 await_lines "$FIRST_LOG" 'created ' 1
-await_lines "$FIRST_LOG" 'mapped' 1
+await_lines "$FIRST_LOG" 'handle-dropped' 1
 session_id=$(sed -n 's/^created //p' "$FIRST_LOG")
 
 home=$("$ANDROMEDA" workspaces --json | jq -r '.[] | select(.active) | .id')
@@ -58,15 +68,19 @@ for _ in $(seq 60); do
   sleep 0.1
 done
 
-# The state file holds the position "OUTPUT:2"; workspace ids count creations.
+# The state file holds the position 2 (a number; a string is a workspace name); workspace ids count creations.
 saved=
 for _ in $(seq 60); do
-  saved=$(jq -r --arg id "$session_id" '.sessions[$id].main.workspace // empty' "$STATE_FILE" 2> /dev/null || true)
-  [[ $saved == "HEADLESS-1:2" ]] && break
+  saved=$(jq -c --arg id "$session_id" '.sessions[$id].toplevels.main | [.output, .workspace]' "$STATE_FILE" 2> /dev/null || true)
+  [[ $saved == '["HEADLESS-1",2]' ]] && break
   sleep 0.1
 done
-if [[ $saved != "HEADLESS-1:2" ]]; then
+if [[ $saved != '["HEADLESS-1",2]' ]]; then
   echo "session $session_id does not hold workspace position 2 in $STATE_FILE: $(cat "$STATE_FILE" 2> /dev/null)"
+  exit 1
+fi
+if jq -e --arg id "$empty_id" '.sessions | has($id)' "$STATE_FILE" > /dev/null; then
+  echo "the session $empty_id that never held a window reached $STATE_FILE: $(cat "$STATE_FILE")"
   exit 1
 fi
 

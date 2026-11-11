@@ -5,8 +5,8 @@
 // a bar opening a menu: the first left press switches the layer to on-demand and opens a grabbing xdg_popup.
 // `popup-on-release` batches the release until the pointer frame and anchors its menu at the last valid position.
 // LAYER_CONTROL enables stdin commands: frames LABEL COUNT, color LABEL AARRGGBB, child-color LABEL AARRGGBB,
-// child-move LABEL X Y, margins LABEL TOP RIGHT BOTTOM LEFT, and dsk-launch-from LABEL X Y W H. Each prints done
-// after its frame callbacks arrive.
+// child-move LABEL X Y, margins LABEL TOP RIGHT BOTTOM LEFT, popup LABEL X, and dsk-launch-from LABEL X Y W H. Each
+// prints done after its frame callbacks arrive.
 // LAYER_NAMESPACE sets the layer surface namespace.
 
 #include <wayland-client.h>
@@ -26,6 +26,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <poll.h>
 #include <print>
 #include <sstream>
@@ -194,6 +195,8 @@ namespace {
   }
 
   void requestFrame(State& state);
+  // `grabSerial`: grab the seat with it, as a bar's menu does; without it the popup takes no grab and no keyboard.
+  void openPopup(State& state, std::optional<uint32_t> grabSerial, int anchorX = 0, int anchorY = 0);
 
   void frameDone(void* data, wl_callback* callback, uint32_t) {
     auto& state = *static_cast<State*>(data);
@@ -521,6 +524,15 @@ namespace {
       } else {
         wl_subsurface_set_position(state.childSubsurface, x, y);
       }
+    } else if (action == "popup") {
+      // popup <label> <x>: an ungrabbed 80x80 xdg_popup in the fill colour, just below the surface's top edge at x.
+      int x = 0;
+      command >> x;
+      if (state.wmBase == nullptr || state.popup != nullptr) {
+        command.setstate(std::ios::failbit);
+      } else {
+        openPopup(state, std::nullopt, x, 0);
+      }
     } else if (action == "margins") {
       int top = 0;
       int right = 0;
@@ -661,11 +673,16 @@ namespace {
   };
 
   // Mirrors a bar opening a menu: the layer surface only asks for the keyboard right before its popup grabs it.
-  void openPopup(State& state, uint32_t serial, int anchorX = 0, int anchorY = 0) {
-    zwlr_layer_surface_v1_set_keyboard_interactivity(
-        state.layerSurface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_ON_DEMAND
-    );
-    wl_surface_commit(state.surface);
+  void openPopup(State& state, std::optional<uint32_t> grabSerial, int anchorX, int anchorY) {
+    if (grabSerial) {
+      zwlr_layer_surface_v1_set_keyboard_interactivity(
+          state.layerSurface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_ON_DEMAND
+      );
+      wl_surface_commit(state.surface);
+    }
+    if (state.popupBuffer.resource == nullptr) {
+      state.popupBuffer = createBuffer(state, kPopupSize, kPopupSize);
+    }
 
     state.popupSurface = wl_compositor_create_surface(state.compositor);
     state.popupXdgSurface = xdg_wm_base_get_xdg_surface(state.wmBase, state.popupSurface);
@@ -679,7 +696,9 @@ namespace {
     xdg_positioner_destroy(positioner);
     xdg_popup_add_listener(state.popup, &kPopupListener, &state);
     zwlr_layer_surface_v1_get_popup(state.layerSurface, state.popup);
-    xdg_popup_grab(state.popup, state.seat, serial);
+    if (grabSerial) {
+      xdg_popup_grab(state.popup, state.seat, *grabSerial);
+    }
     wl_surface_commit(state.popupSurface);
     std::println("popup-requested");
   }

@@ -72,12 +72,21 @@ namespace andromeda {
 
   void Popup::onMap(wl_listener* listener, void* /*data*/) {
     Popup* self = wl_container_of(listener, self, m_map); // NOLINT(modernize-use-auto)
+    self->refreshWindowCapture();
     self->handleMap();
   }
 
   void Popup::onUnmap(wl_listener* listener, void* /*data*/) {
     Popup* self = wl_container_of(listener, self, m_unmap); // NOLINT(modernize-use-auto)
     self->m_blur.hide();
+    self->refreshWindowCapture();
+  }
+
+  // The window capture tree holds every popup of the window: a new one shows in it unless this hides it again.
+  void Popup::refreshWindowCapture() const {
+    if (View* view = View::fromSurface(m_popup->parent)) {
+      view->refreshCaptureHidden();
+    }
   }
 
   void Popup::onDestroy(wl_listener* listener, void* /*data*/) {

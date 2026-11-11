@@ -907,6 +907,7 @@ pure_sources = files(
   'src/output/cursor_plane_pace.cpp',
   'src/server/allocator_policy.cpp',
   'src/server/drm_policy.cpp',
+  'src/server/xdg_session_state.cpp',
   'src/config/action_groups.cpp',
   'src/scene/effect_selection.cpp',
   'src/overview/arrange.cpp',
@@ -928,6 +929,7 @@ andromeda_pure_deps = [
   andromedafx_dep,
   tomlplusplus_dep,
   layer_shell_protocol_dep,
+  nlohmann_json_dep,
 ]
 
 andromeda_pure = static_library(

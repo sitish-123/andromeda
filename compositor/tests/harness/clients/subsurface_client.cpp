@@ -12,8 +12,10 @@
 // destroys its subsurface role while the surface lives on, and `s` maps it again, as a subsurface of the parent once
 // more after `d`. `p` maps an empty green popup of the window, and after `d`, `m` makes the child a subsurface of that
 // popup instead. Each prints child-hidden, child-detached, child-shown, popup-mapped or child-moved once applied.
+// SECURE=child|parent makes that surface secure (dsk_surface_v1.set_secure) from its first commit.
 // Usage: subsurface-client [title [width height [animate]]]. The dimensions are a fallback: a configure adopts it.
 
+#include "dsk-surface-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 
 #include <algorithm>
@@ -40,6 +42,7 @@ namespace {
     wl_subcompositor* subcompositor = nullptr;
     wl_shm* shm = nullptr;
     xdg_wm_base* wmBase = nullptr;
+    dsk_surface_manager_v1* dskManager = nullptr;
     wl_surface* surface = nullptr;
     xdg_surface* xdgSurface = nullptr;
     xdg_toplevel* toplevel = nullptr;
@@ -326,6 +329,9 @@ namespace {
       state.wmBase =
           static_cast<xdg_wm_base*>(wl_registry_bind(registry, name, &xdg_wm_base_interface, std::min(version, 1U)));
       xdg_wm_base_add_listener(state.wmBase, &kWmBaseListener, &state);
+    } else if (std::strcmp(interface, dsk_surface_manager_v1_interface.name) == 0 && version >= 14) {
+      state.dskManager =
+          static_cast<dsk_surface_manager_v1*>(wl_registry_bind(registry, name, &dsk_surface_manager_v1_interface, 14));
     }
   }
 
@@ -394,6 +400,14 @@ int main(int argc, char** argv) {
     wl_subsurface_place_below(state.subsurface, state.surface);
   }
   wl_subsurface_set_desync(state.subsurface);
+  if (const char* secure = std::getenv("SECURE")) {
+    if (state.dskManager == nullptr) {
+      std::println(stderr, "subsurface-client: SECURE needs dsk_surface_manager_v1 version 14");
+      return EXIT_FAILURE;
+    }
+    wl_surface* target = std::strcmp(secure, "child") == 0 ? state.child : state.surface;
+    dsk_surface_v1_set_secure(dsk_surface_manager_v1_get_surface(state.dskManager, target), 1);
+  }
 
   if (state.fixedSize) {
     xdg_toplevel_set_min_size(state.toplevel, state.width, state.height);

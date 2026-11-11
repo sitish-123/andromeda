@@ -1,7 +1,8 @@
 #pragma once
 
+#include "server/xdg_session_state.h"
+
 #include <filesystem>
-#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -13,21 +14,10 @@ struct wlr_xdg_toplevel;
 namespace andromeda {
 
   class Server;
-  struct ResolvedWindowRule;
+  class View;
 
-  // Where a window was: its output, workspace id ("OUTPUT:NAME"), float or tile, fullscreen, and floating size.
-  struct SessionPlacement {
-    std::string output;
-    std::string workspace;
-    bool floating = false;
-    bool fullscreen = false;
-    int width = 0;
-    int height = 0;
-    bool operator==(const SessionPlacement&) const = default;
-  };
-
-  // Makes the next window that `rule` opens follow `placement`.
-  void applySessionPlacement(const SessionPlacement& placement, ResolvedWindowRule& rule);
+  // Where `view` is now, in the form a restore resolves: an unnamed workspace by its live position, a named one by name.
+  SessionPlacement sessionPlacementOf(const View& view);
 
   // Serves xdg-session-management-v1 (wayland-protocols staging): an app keeps its windows' placement across app and
   // compositor restarts by a session id. Placements live in `stateFile` (docs/resilience.md §5).
@@ -39,8 +29,13 @@ namespace andromeda {
     XdgSessionManager(const XdgSessionManager&) = delete;
     XdgSessionManager& operator=(const XdgSessionManager&) = delete;
 
-    // Records the placement of every window in a live session on the next idle; call it when a window changes.
-    void scheduleSnapshot();
+    // True while a flush has work: a tracked window to record, or a store change not yet written.
+    [[nodiscard]] bool wantsFlush() const;
+    // Records the placement of every tracked window and writes the store if it changed. Server's debounced session
+    // save timer calls it.
+    void flush();
+    // Records the placement of `toplevel` before its window unmaps.
+    void windowUnmapping(wlr_xdg_toplevel* toplevel);
     // The placement restore_toplevel asked for `toplevel`; `consume` drops it once the window maps. The first call
     // sends xdg_toplevel_session_v1.restored.
     std::optional<SessionPlacement> placementFor(wlr_xdg_toplevel* toplevel, bool consume);
@@ -64,19 +59,23 @@ namespace andromeda {
     static Toplevel* toplevelFrom(wl_resource* resource);
     // add_toplevel and restore_toplevel; `restore` looks up the stored placement.
     static void addToplevel(wl_resource* resource, uint32_t id, wl_resource* toplevel, const char* name, bool restore);
-    // Detaches the entry from its session and its xdg_toplevel; its resource stays, inert, and owns it.
-    static void detach(Toplevel* entry);
-    void snapshot();
-    void save() const;
+    // Applies `event` to the entry; false when the transition is invalid. An entry that becomes Free is deleted, and its
+    // resource, if any, goes inert.
+    static bool step(Toplevel* entry, SessionEntryEvent event);
+    // Removes every entry of `session` and deletes it; its resource goes inert.
+    static void dropSession(Session* session);
+    // Stores where the entry's window is when it is tracked and mapped; true when the store changed.
+    bool record(const Session& session, const Toplevel& entry);
+    void storeChanged();
+    void save();
     void load();
 
     Server& m_server;
     wl_global* m_global = nullptr;
     std::filesystem::path m_stateFile;
-    // session id -> toplevel name -> placement
-    std::map<std::string, std::map<std::string, SessionPlacement>> m_store;
+    SessionStore m_store;
+    bool m_unsaved = false;
     std::vector<Session*> m_sessions;
-    wl_event_source* m_snapshotIdle = nullptr;
   };
 
 } // namespace andromeda

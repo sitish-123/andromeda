@@ -30,6 +30,7 @@ namespace andromeda {
     void unconstrain();
     void handleMap();
     void handleDestroy();
+    void refreshWindowCapture() const;
 
     wlr_xdg_popup* m_popup = nullptr;
     SurfaceBlur m_blur;

@@ -1,9 +1,8 @@
 #include "server/xdg_session.h"
 
-#include "config/config.h"
 #include "core/async_file_writer.h"
 #include "core/log.h"
-#include "server/ipc_commands.h"
+#include "output/output.h"
 #include "server/server.h"
 #include "view/view.h"
 #include "workspace/workspace.h"
@@ -11,12 +10,10 @@
 #include "xdg-session-management-v1-protocol.h"
 
 #include <algorithm>
-#include <charconv>
 #include <format>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <random>
-#include <ranges>
 
 namespace andromeda {
 
@@ -32,47 +29,24 @@ namespace andromeda {
       }
       return id;
     }
-
-    nlohmann::json placementJson(const SessionPlacement& placement) {
-      return {
-          {"output", placement.output},       {"workspace", placement.workspace}, {"floating", placement.floating},
-          {"fullscreen", placement.fullscreen}, {"w", placement.width},          {"h", placement.height},
-      };
-    }
-
-    SessionPlacement placementFrom(const nlohmann::json& window) {
-      return {
-          .output = window.value("output", ""),
-          .workspace = window.value("workspace", ""),
-          .floating = window.value("floating", false),
-          .fullscreen = window.value("fullscreen", false),
-          .width = window.value("w", 0),
-          .height = window.value("h", 0),
-      };
-    }
   } // namespace
 
-  void applySessionPlacement(const SessionPlacement& placement, ResolvedWindowRule& rule) {
-    if (!placement.output.empty()) {
-      rule.defaultOutput = placement.output;
+  SessionPlacement sessionPlacementOf(const View& view) {
+    SessionPlacement placement;
+    if (const Output* output = view.currentOutput(); output != nullptr) {
+      placement.output = output->wlr()->name;
     }
-    // Workspace ids are "OUTPUT:NAME"; a numeric name is a position.
-    const std::string name = placement.workspace.substr(placement.workspace.rfind(':') + 1);
-    if (!name.empty()) {
-      size_t position = 0;
-      const auto [end, error] = std::from_chars(name.data(), name.data() + name.size(), position);
-      if (error == std::errc{} && end == name.data() + name.size() && position > 0) {
-        rule.defaultWorkspace = WorkspaceIndex{position};
-      } else {
-        rule.defaultWorkspace = WorkspaceName{name};
-      }
+    // Workspace ids count creations, not positions.
+    if (const Workspace* workspace = view.workspace(); workspace != nullptr) {
+      placement.workspace = workspace->named() ? WorkspaceReference{WorkspaceName{workspace->name()}}
+                                               : WorkspaceReference{WorkspaceIndex{workspace->index() + 1}};
     }
-    rule.defaultFloating = placement.floating;
-    rule.defaultFullscreen = placement.fullscreen;
-    if (placement.floating && placement.width > 0 && placement.height > 0) {
-      rule.defaultFloatingWidthPx = placement.width;
-      rule.defaultFloatingHeightPx = placement.height;
-    }
+    placement.floating = view.floating();
+    placement.fullscreen = view.scheduledFullscreen();
+    const wlr_box content = view.committedContentBox();
+    placement.width = content.width;
+    placement.height = content.height;
+    return placement;
   }
 
   // A live xdg_session_v1. Null user data on its resource makes it inert (replaced, removed, or the manager is gone).
@@ -80,17 +54,20 @@ namespace andromeda {
     XdgSessionManager* manager = nullptr;
     wl_resource* resource = nullptr;
     std::string id;
-    std::vector<Toplevel*> toplevels;
+    std::vector<std::unique_ptr<Toplevel>> toplevels;
   };
 
-  // A live xdg_toplevel_session_v1, owned by its resource; session and toplevel are null once detached (inert).
+  // A toplevel in a live session, owned by the session; it lives until its window or its session goes, whether or not
+  // the client keeps its xdg_toplevel_session_v1.
   struct XdgSessionManager::Toplevel {
     Session* session = nullptr;
+    // Null once the client destroyed the handle.
     wl_resource* resource = nullptr;
     wlr_xdg_toplevel* toplevel = nullptr;
     std::string name;
-    std::optional<SessionPlacement> pending;
-    bool restoredSent = false;
+    SessionEntryState state = SessionEntryState::Free;
+    // The stored placement; read only in Restoring and Configured.
+    SessionPlacement restore;
     wl_listener toplevelDestroy{};
   };
 
@@ -104,15 +81,11 @@ namespace andromeda {
   }
 
   XdgSessionManager::~XdgSessionManager() {
-    if (m_snapshotIdle != nullptr) {
-      wl_event_source_remove(m_snapshotIdle);
+    while (!m_sessions.empty()) {
+      dropSession(m_sessions.back());
     }
-    for (Session* session : m_sessions) {
-      for (Toplevel* entry : std::vector(session->toplevels)) {
-        detach(entry);
-      }
-      wl_resource_set_user_data(session->resource, nullptr);
-      delete session;
+    if (m_unsaved) {
+      save();
     }
     if (m_global != nullptr) {
       wl_global_destroy(m_global);
@@ -140,6 +113,37 @@ namespace andromeda {
     return static_cast<Toplevel*>(wl_resource_get_user_data(resource));
   }
 
+  bool XdgSessionManager::step(Toplevel* entry, SessionEntryEvent event) {
+    const std::optional<SessionEntryState> next = transitionSessionEntry(entry->state, event);
+    if (!next) {
+      return false;
+    }
+    if (sessionEntrySendsRestored(entry->state, *next) && entry->resource != nullptr) {
+      xdg_toplevel_session_v1_send_restored(entry->resource);
+    }
+    entry->state = *next;
+    if (event == SessionEntryEvent::ResourceDestroyed) {
+      entry->resource = nullptr;
+    }
+    if (*next == SessionEntryState::Free) {
+      wl_list_remove(&entry->toplevelDestroy.link);
+      if (entry->resource != nullptr) {
+        wl_resource_set_user_data(entry->resource, nullptr);
+      }
+      std::erase_if(entry->session->toplevels, [entry](const auto& owned) { return owned.get() == entry; });
+    }
+    return true;
+  }
+
+  void XdgSessionManager::dropSession(Session* session) {
+    while (!session->toplevels.empty()) {
+      step(session->toplevels.back().get(), SessionEntryEvent::Remove);
+    }
+    wl_resource_set_user_data(session->resource, nullptr);
+    std::erase(session->manager->m_sessions, session);
+    delete session;
+  }
+
   void XdgSessionManager::handleGetSession(
       wl_client* client, wl_resource* resource, uint32_t id, uint32_t reason, const char* sessionId
   ) {
@@ -156,26 +160,18 @@ namespace andromeda {
       return;
     }
     std::string sessionKey = sessionId != nullptr ? sessionId : "";
-    if (!sessionKey.empty() && !self->m_store.contains(sessionKey)) {
+    const auto live = std::ranges::find(self->m_sessions, sessionKey, &Session::id);
+    if (!sessionKey.empty() && live == self->m_sessions.end() && !self->m_store.contains(sessionKey)) {
       sessionKey.clear();
     }
-    if (!sessionKey.empty()) {
-      const auto live = std::ranges::find(self->m_sessions, sessionKey, &Session::id);
-      if (live != self->m_sessions.end()) {
-        if (wl_resource_get_client((*live)->resource) == client) {
-          wl_resource_post_error(resource, XDG_SESSION_MANAGER_V1_ERROR_IN_USE, "session is in use");
-          return;
-        }
-        // Another client takes the session over; the old object goes inert.
-        Session* old = *live;
-        xdg_session_v1_send_replaced(old->resource);
-        for (Toplevel* entry : std::vector(old->toplevels)) {
-          detach(entry);
-        }
-        wl_resource_set_user_data(old->resource, nullptr);
-        self->m_sessions.erase(live);
-        delete old;
+    if (!sessionKey.empty() && live != self->m_sessions.end()) {
+      if (wl_resource_get_client((*live)->resource) == client) {
+        wl_resource_post_error(resource, XDG_SESSION_MANAGER_V1_ERROR_IN_USE, "session is in use");
+        return;
       }
+      // Another client takes the session over; the old object goes inert.
+      xdg_session_v1_send_replaced((*live)->resource);
+      dropSession(*live);
     }
     wl_resource* sessionResource =
         wl_resource_create(client, &xdg_session_v1_interface, wl_resource_get_version(resource), id);
@@ -186,13 +182,14 @@ namespace andromeda {
     auto* session = new Session{.manager = self, .resource = sessionResource, .id = {}, .toplevels = {}};
     wl_resource_set_implementation(sessionResource, &implementation, session, handleSessionResourceDestroy);
     self->m_sessions.push_back(session);
+    // A new session reaches the store with its first placement.
     if (sessionKey.empty()) {
       session->id = newSessionId();
-      self->m_store[session->id];
-      self->save();
       xdg_session_v1_send_created(sessionResource, session->id.c_str());
     } else {
       session->id = sessionKey;
+      self->m_store.touch(sessionKey);
+      self->storeChanged();
       xdg_session_v1_send_restored(sessionResource);
     }
   }
@@ -205,26 +202,24 @@ namespace andromeda {
     XdgSessionManager* self = session->manager;
     // destroy keeps the state; take the latest placements first, unless the server is tearing down.
     if (!self->m_server.stopping()) {
-      self->snapshot();
+      bool changed = false;
+      for (const auto& entry : session->toplevels) {
+        changed = self->record(*session, *entry) || changed;
+      }
+      if (changed) {
+        self->storeChanged();
+      }
     }
-    for (Toplevel* entry : std::vector(session->toplevels)) {
-      detach(entry);
-    }
-    std::erase(self->m_sessions, session);
-    delete session;
+    dropSession(session);
   }
 
   void XdgSessionManager::handleSessionRemove(wl_client*, wl_resource* resource) {
     if (Session* session = sessionFrom(resource)) {
       XdgSessionManager* self = session->manager;
-      self->m_store.erase(session->id);
-      for (Toplevel* entry : std::vector(session->toplevels)) {
-        detach(entry);
+      if (self->m_store.eraseSession(session->id)) {
+        self->storeChanged();
       }
-      std::erase(self->m_sessions, session);
-      wl_resource_set_user_data(resource, nullptr);
-      delete session;
-      self->save();
+      dropSession(session);
     }
     wl_resource_destroy(resource);
   }
@@ -266,13 +261,13 @@ namespace andromeda {
     if (toplevel == nullptr) {
       return;
     }
-    if (std::ranges::any_of(session->toplevels, [&](const Toplevel* entry) { return entry->name == entryName; })) {
+    if (std::ranges::any_of(session->toplevels, [&](const auto& entry) { return entry->name == entryName; })) {
       wl_resource_post_error(resource, XDG_SESSION_V1_ERROR_NAME_IN_USE, "toplevel name is in use");
       return;
     }
     for (const Session* other : self->m_sessions) {
       if (wl_resource_get_client(other->resource) == client
-          && std::ranges::any_of(other->toplevels, [toplevel](const Toplevel* e) { return e->toplevel == toplevel; })) {
+          && std::ranges::any_of(other->toplevels, [toplevel](const auto& e) { return e->toplevel == toplevel; })) {
         wl_resource_post_error(resource, XDG_SESSION_V1_ERROR_ALREADY_ADDED, "toplevel already added");
         return;
       }
@@ -281,24 +276,29 @@ namespace andromeda {
       wl_resource_post_error(resource, XDG_SESSION_V1_ERROR_ALREADY_MAPPED, "toplevel was committed before restore");
       return;
     }
-    auto* entry = new Toplevel{};
+    auto entry = std::make_unique<Toplevel>();
     entry->session = session;
     entry->resource = entryResource;
     entry->toplevel = toplevel;
     entry->name = entryName;
-    std::map<std::string, SessionPlacement>& stored = self->m_store[session->id];
-    if (restore) {
-      if (const auto found = stored.find(entryName); found != stored.end()) {
-        entry->pending = found->second;
+    SessionEntryEvent event = SessionEntryEvent::Add;
+    if (!restore) {
+      if (self->m_store.erase(session->id, entryName)) {
+        self->storeChanged();
       }
-    } else if (stored.erase(entryName) > 0) {
-      self->save();
+    } else if (const SessionPlacement* stored = self->m_store.find(session->id, entryName)) {
+      entry->restore = *stored;
+      event = SessionEntryEvent::Restore;
+    } else {
+      event = SessionEntryEvent::RestoreUnknown;
     }
+    step(entry.get(), event);
     entry->toplevelDestroy.notify = handleToplevelDestroy;
     wl_signal_add(&toplevel->events.destroy, &entry->toplevelDestroy);
-    wl_resource_set_user_data(entryResource, entry);
-    session->toplevels.push_back(entry);
-    self->scheduleSnapshot();
+    wl_resource_set_user_data(entryResource, entry.get());
+    session->toplevels.push_back(std::move(entry));
+    // add_toplevel may name a window that is already mapped.
+    self->m_server.scheduleSessionSave();
   }
 
   void XdgSessionManager::handleRemoveToplevel(wl_client*, wl_resource* resource, const char* name) {
@@ -308,19 +308,18 @@ namespace andromeda {
     }
     XdgSessionManager* self = session->manager;
     const std::string entryName(name);
-    for (Toplevel* entry : std::vector(session->toplevels)) {
-      if (entry->name == entryName) {
-        detach(entry);
-      }
+    const auto entry = std::ranges::find(session->toplevels, entryName, [](const auto& e) { return e->name; });
+    if (entry != session->toplevels.end()) {
+      step(entry->get(), SessionEntryEvent::Remove);
     }
-    if (self->m_store[session->id].erase(entryName) > 0) {
-      self->save();
+    if (self->m_store.erase(session->id, entryName)) {
+      self->storeChanged();
     }
   }
 
   void XdgSessionManager::handleToplevelRename(wl_client*, wl_resource* resource, const char* name) {
     Toplevel* entry = toplevelFrom(resource);
-    if (entry == nullptr || entry->session == nullptr || name == nullptr) {
+    if (entry == nullptr || name == nullptr) {
       return;
     }
     Session* session = entry->session;
@@ -328,134 +327,95 @@ namespace andromeda {
     if (newName == entry->name) {
       return;
     }
-    if (std::ranges::any_of(session->toplevels, [&](const Toplevel* other) { return other->name == newName; })) {
+    if (std::ranges::any_of(session->toplevels, [&](const auto& other) { return other->name == newName; })) {
       wl_resource_post_error(session->resource, XDG_SESSION_V1_ERROR_NAME_IN_USE, "toplevel name is in use");
       return;
     }
-    std::map<std::string, SessionPlacement>& stored = session->manager->m_store[session->id];
-    if (auto node = stored.extract(entry->name); !node.empty()) {
-      node.key() = newName;
-      stored.insert_or_assign(newName, std::move(node.mapped()));
-      session->manager->save();
+    if (session->manager->m_store.rename(session->id, entry->name, newName)) {
+      session->manager->storeChanged();
     }
     entry->name = newName;
   }
 
   void XdgSessionManager::handleToplevelResourceDestroy(wl_resource* resource) {
-    Toplevel* entry = toplevelFrom(resource);
-    if (entry == nullptr) {
-      return;
+    if (Toplevel* entry = toplevelFrom(resource)) {
+      step(entry, SessionEntryEvent::ResourceDestroyed);
     }
-    detach(entry);
-    delete entry;
   }
 
   void XdgSessionManager::handleToplevelDestroy(wl_listener* listener, void* /*data*/) {
     Toplevel* entry = wl_container_of(listener, entry, toplevelDestroy);
-    wl_list_remove(&entry->toplevelDestroy.link);
-    wl_list_init(&entry->toplevelDestroy.link);
-    entry->toplevel = nullptr;
+    step(entry, SessionEntryEvent::ToplevelDestroyed);
   }
 
-  void XdgSessionManager::detach(Toplevel* entry) {
-    if (entry->session != nullptr) {
-      std::erase(entry->session->toplevels, entry);
-      entry->session = nullptr;
+  bool XdgSessionManager::record(const Session& session, const Toplevel& entry) {
+    if (entry.state != SessionEntryState::Tracking) {
+      return false;
     }
-    if (entry->toplevel != nullptr) {
-      wl_list_remove(&entry->toplevelDestroy.link);
-      wl_list_init(&entry->toplevelDestroy.link);
-      entry->toplevel = nullptr;
+    const View* view = View::fromSurface(entry.toplevel->base->surface);
+    if (view == nullptr || !view->mapped()) {
+      return false;
     }
-    entry->pending.reset();
+    return m_store.put(session.id, entry.name, sessionPlacementOf(*view));
   }
 
-  void XdgSessionManager::scheduleSnapshot() {
-    if (m_sessions.empty() || m_snapshotIdle != nullptr) {
-      return;
-    }
-    m_snapshotIdle = wl_event_loop_add_idle(
-        wl_display_get_event_loop(m_server.display()),
-        [](void* data) {
-          auto* self = static_cast<XdgSessionManager*>(data);
-          self->m_snapshotIdle = nullptr;
-          self->snapshot();
-        },
-        this
-    );
+  void XdgSessionManager::storeChanged() {
+    m_unsaved = true;
+    m_server.scheduleSessionSave();
   }
 
-  void XdgSessionManager::snapshot() {
-    const auto live = [](const Toplevel* entry) { return entry->toplevel != nullptr; };
-    if (!std::ranges::any_of(m_sessions, [&](const Session* s) { return std::ranges::any_of(s->toplevels, live); })) {
-      return;
-    }
-    const nlohmann::json windows = IpcCommands::windows(m_server, "")["ok"];
-    bool changed = false;
+  bool XdgSessionManager::wantsFlush() const {
+    return m_unsaved || std::ranges::any_of(m_sessions, [](const Session* session) {
+             return std::ranges::any_of(session->toplevels, [](const auto& entry) {
+               return entry->state == SessionEntryState::Tracking;
+             });
+           });
+  }
+
+  void XdgSessionManager::flush() {
     for (const Session* session : m_sessions) {
-      for (const Toplevel* entry : session->toplevels | std::views::filter(live)) {
-        const View* view = View::fromSurface(entry->toplevel->base->surface);
-        const char* windowId = view != nullptr && view->mapped() ? view->extForeignIdentifier() : nullptr;
-        if (windowId == nullptr) {
-          continue;
-        }
-        const auto window = std::ranges::find_if(windows, [windowId](const nlohmann::json& w) {
-          return w.value("id", "") == windowId;
-        });
-        if (window == windows.end()) {
-          continue;
-        }
-        SessionPlacement placement = placementFrom(*window);
-        // Workspace ids count creations, not positions; store the position (or the name) that a restore resolves.
-        if (const Workspace* workspace = view->workspace(); workspace != nullptr) {
-          placement.workspace = std::format(
-              "{}:{}", placement.output, workspace->named() ? workspace->name() : std::to_string(workspace->index() + 1)
-          );
-        }
-        SessionPlacement& stored = m_store[session->id][entry->name];
-        if (stored != placement) {
-          stored = placement;
-          changed = true;
-        }
+      for (const auto& entry : session->toplevels) {
+        m_unsaved = record(*session, *entry) || m_unsaved;
       }
     }
-    if (changed) {
+    if (m_unsaved) {
       save();
+    }
+  }
+
+  void XdgSessionManager::windowUnmapping(wlr_xdg_toplevel* toplevel) {
+    if (m_server.stopping()) {
+      return;
+    }
+    for (const Session* session : m_sessions) {
+      for (const auto& entry : session->toplevels) {
+        if (entry->toplevel == toplevel && record(*session, *entry)) {
+          storeChanged();
+        }
+      }
     }
   }
 
   std::optional<SessionPlacement> XdgSessionManager::placementFor(wlr_xdg_toplevel* toplevel, bool consume) {
     for (Session* session : m_sessions) {
-      for (Toplevel* entry : session->toplevels) {
-        if (entry->toplevel != toplevel || !entry->pending) {
+      for (const auto& entry : session->toplevels) {
+        if (entry->toplevel != toplevel) {
           continue;
         }
-        if (!std::exchange(entry->restoredSent, true)) {
-          xdg_toplevel_session_v1_send_restored(entry->resource);
+        if (!step(entry.get(), consume ? SessionEntryEvent::Map : SessionEntryEvent::Configure)) {
+          return std::nullopt;
         }
-        std::optional<SessionPlacement> placement = entry->pending;
-        if (consume) {
-          entry->pending.reset();
-        }
-        return placement;
+        return entry->restore;
       }
     }
     return std::nullopt;
   }
 
-  void XdgSessionManager::save() const {
-    if (m_stateFile.empty()) {
-      return;
+  void XdgSessionManager::save() {
+    m_unsaved = false;
+    if (!m_stateFile.empty()) {
+      writeFileAsync(m_stateFile, m_store.toJson().dump());
     }
-    nlohmann::json sessions = nlohmann::json::object();
-    for (const auto& [id, toplevels] : m_store) {
-      nlohmann::json entries = nlohmann::json::object();
-      for (const auto& [name, placement] : toplevels) {
-        entries[name] = placementJson(placement);
-      }
-      sessions[id] = std::move(entries);
-    }
-    writeFileAsync(m_stateFile, nlohmann::json{{"version", 1}, {"sessions", sessions}}.dump());
   }
 
   void XdgSessionManager::load() {
@@ -466,21 +426,10 @@ namespace andromeda {
     if (!in) {
       return;
     }
-    const nlohmann::json file = nlohmann::json::parse(in, nullptr, false);
-    if (file.is_discarded() || !file.contains("sessions") || !file["sessions"].is_object()) {
-      kLog.warn("ignoring unreadable {}", m_stateFile.string());
-      return;
-    }
-    for (const auto& [id, toplevels] : file["sessions"].items()) {
-      std::map<std::string, SessionPlacement>& stored = m_store[id];
-      if (!toplevels.is_object()) {
-        continue;
-      }
-      for (const auto& [name, placement] : toplevels.items()) {
-        if (placement.is_object()) {
-          stored[name] = placementFrom(placement);
-        }
-      }
+    size_t skipped = 0;
+    m_store = SessionStore::fromJson(nlohmann::json::parse(in, nullptr, false), skipped);
+    if (skipped > 0) {
+      kLog.warn("ignoring {} malformed entries in {}", skipped, m_stateFile.string());
     }
   }
 

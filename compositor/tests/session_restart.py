@@ -157,6 +157,9 @@ def main(binary, mode):
                     ipc_env = dict(environment, ANDROMEDA_SOCKET=str(root / "andromeda-wayland-andromeda.sock"))
                     def ipc(*args):
                         return subprocess.run([str(binary), *args], env=ipc_env, capture_output=True, text=True, timeout=5).stdout
+                    # Moving workspace 2 up puts the id ":1" at position 2: the restore must follow the position.
+                    ipc("msg", "workspace-switch:2")
+                    ipc("msg", "workspace-move-up")
                     ipc("msg", "workspace-switch:2")
                     window_env = {k: v for k, v in environment.items() if not k.startswith(("LISTEN_", "WATCHDOG_"))}
                     window_env.update(WAYLAND_DISPLAY="wayland-andromeda", SEAT_LOG_APP_ID="restart.test")
@@ -169,7 +172,7 @@ def main(binary, mode):
                         assert time.monotonic() < deadline, "the mapped window never reached session.json"
                         time.sleep(0.05)
                     assert json.loads(saved.read_text())["windows"][0]["app_id"] == "restart.test"
-                    assert json.loads(saved.read_text())["windows"][0]["workspace"].endswith(":2"), saved.read_text()
+                    assert json.loads(saved.read_text())["windows"][0]["workspace"].endswith(":1"), saved.read_text()
 
                     os.kill(first, signal.SIGSEGV)
                     processes[0].wait(timeout=10)

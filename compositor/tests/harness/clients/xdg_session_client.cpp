@@ -1,6 +1,8 @@
 // Maps one xdg toplevel (app id "xdg-session-test") in an xdg-session-management-v1 session and prints its events:
 // "created <id>", "session-restored", "toplevel-restored", "mapped". With a session id argument it restores that
 // session and its toplevel "main"; without one it starts a new session and adds the toplevel as "main".
+// --drop-handle destroys the xdg_toplevel_session_v1 once mapped and prints "handle-dropped". --empty only creates a
+// session, prints "created <id>" and exits.
 
 #include "xdg-session-management-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
@@ -23,6 +25,8 @@ namespace {
     wl_surface* surface = nullptr;
     wl_buffer* buffer = nullptr;
     bool mapped = false;
+    bool dropHandle = false;
+    xdg_toplevel_session_v1* handle = nullptr;
   };
 
   void print(const char* line) {
@@ -60,6 +64,11 @@ namespace {
     wl_surface_damage_buffer(state.surface, 0, 0, 64, 64);
     wl_surface_commit(state.surface);
     print("mapped");
+    if (state.dropHandle) {
+      xdg_toplevel_session_v1_destroy(state.handle);
+      state.handle = nullptr;
+      print("handle-dropped");
+    }
   }
   constexpr xdg_surface_listener kXdgListener = {.configure = xdgConfigure};
 
@@ -129,13 +138,29 @@ int main(int argc, char** argv) {
     return EXIT_FAILURE;
   }
 
-  const char* restoreId = argc > 1 ? argv[1] : nullptr;
+  const char* restoreId = nullptr;
+  bool empty = false;
+  for (int i = 1; i < argc; ++i) {
+    if (std::strcmp(argv[i], "--drop-handle") == 0) {
+      state.dropHandle = true;
+    } else if (std::strcmp(argv[i], "--empty") == 0) {
+      empty = true;
+    } else {
+      restoreId = argv[i];
+    }
+  }
   xdg_session_v1* session = xdg_session_manager_v1_get_session(
       state.sessionManager,
       restoreId != nullptr ? XDG_SESSION_MANAGER_V1_REASON_SESSION_RESTORE : XDG_SESSION_MANAGER_V1_REASON_LAUNCH,
       restoreId
   );
   xdg_session_v1_add_listener(session, &kSessionListener, &state);
+  if (empty) {
+    wl_display_roundtrip(display);
+    xdg_session_v1_destroy(session);
+    wl_display_roundtrip(display);
+    return EXIT_SUCCESS;
+  }
 
   state.surface = wl_compositor_create_surface(state.compositor);
   xdg_surface* xdgSurface = xdg_wm_base_get_xdg_surface(state.wmBase, state.surface);
@@ -148,6 +173,7 @@ int main(int argc, char** argv) {
       ? xdg_session_v1_restore_toplevel(session, toplevel, "main")
       : xdg_session_v1_add_toplevel(session, toplevel, "main");
   xdg_toplevel_session_v1_add_listener(toplevelSession, &kToplevelSessionListener, &state);
+  state.handle = toplevelSession;
   wl_surface_commit(state.surface);
 
   while (wl_display_dispatch(display) >= 0) {

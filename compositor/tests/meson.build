@@ -13,6 +13,7 @@ unit_tests = [
   ['view-visibility', ['unit/view_visibility.cpp'], []],
   ['configure-state', ['unit/configure_state.cpp'], []],
   ['placement-state', ['unit/placement_state.cpp'], []],
+  ['xdg-session-state', ['unit/xdg_session_state.cpp'], []],
   ['gesture-physics', ['unit/gesture_physics.cpp'], []],
   ['presented-crop', ['unit/presented_crop.cpp'], []],
   ['scene-node', ['unit/scene_node.cpp'], []],
@@ -321,7 +322,13 @@ popup_client = executable(
 # wl_subsurface, the way Firefox presents its chrome and web content.
 subsurface_client = executable(
   'subsurface-client',
-  ['harness/clients/subsurface_client.cpp', xdg_shell_client_h, xdg_shell_client_c],
+  [
+    'harness/clients/subsurface_client.cpp',
+    xdg_shell_client_h,
+    xdg_shell_client_c,
+    dsk_surface_client_h,
+    dsk_surface_client_c,
+  ],
   dependencies: [wayland_client_dep],
 )
 

@@ -749,9 +749,9 @@ namespace andromeda {
       wlr_scene_node_coords(&layer->scene()->tree->node, &x, &y);
       return std::pair{x, y};
     });
-    m_dskSurfaces->setSecureHandler([](wlr_surface* surface, bool secure) {
-      if (View* view = View::fromSurface(surface); view != nullptr && view->rootSurface() == surface) {
-        view->setCaptureHidden(secure);
+    m_dskSurfaces->setSecureHandler([](wlr_surface* surface, bool /*secure*/) {
+      if (View* view = View::fromSurface(wlr_surface_get_root_surface(surface))) {
+        view->refreshCaptureHidden();
       }
     });
     m_dskSurfaces->setLaunchFromHandler([this](wl_client* /*client*/, wlr_surface* surface, const wlr_box& box) {
@@ -1415,17 +1415,14 @@ namespace andromeda {
       return;
     }
     for (const auto& window : session["windows"]) {
-      RestorePlacement placement{
-          .appId = window.value("app_id", ""),
-          .output = window.value("output", ""),
-          .workspace = window.value("workspace", ""),
-          .floating = window.value("floating", false),
-          .fullscreen = window.value("fullscreen", false),
-          .width = window.value("w", 0),
-          .height = window.value("h", 0),
-      };
-      if (!placement.appId.empty()) {
-        m_restorePlacements.push_back(std::move(placement));
+      const auto appId = window.is_object() ? window.find("app_id") : window.end();
+      const auto saved = window.is_object() ? window.find("placement") : window.end();
+      if (appId == window.end() || !appId->is_string() || appId->get_ref<const std::string&>().empty()
+          || saved == window.end()) {
+        continue;
+      }
+      if (std::optional<SessionPlacement> placement = sessionPlacementFrom(*saved)) {
+        m_restorePlacements.push_back({.appId = appId->get<std::string>(), .placement = std::move(*placement)});
       }
     }
     m_restorePlacementDeadlineMs = uptimeMs() + 120000;
@@ -1440,19 +1437,15 @@ namespace andromeda {
     if (it == m_restorePlacements.end()) {
       return;
     }
-    applySessionPlacement(
-        SessionPlacement{
-            .output = it->output,
-            .workspace = it->workspace,
-            .floating = it->floating,
-            .fullscreen = it->fullscreen,
-            .width = it->width,
-            .height = it->height,
-        },
-        rule
-    );
+    applySessionPlacement(it->placement, rule);
     if (consume) {
       m_restorePlacements.erase(it);
+    }
+  }
+
+  void Server::xdgSessionWindowUnmapping(wlr_xdg_toplevel* toplevel) {
+    if (toplevel != nullptr && m_xdgSessions != nullptr) {
+      m_xdgSessions->windowUnmapping(toplevel);
     }
   }
 
@@ -1857,6 +1850,9 @@ namespace andromeda {
   void Server::run() { wl_display_run(m_display); }
 
   void Server::stop() {
+    if (!m_stopping && m_xdgSessions != nullptr) {
+      m_xdgSessions->flush();
+    }
     m_stopping = true;
     wl_display_terminate(m_display);
   }
@@ -1869,11 +1865,11 @@ namespace andromeda {
       stop();
       return;
     }
-    m_sessionExitRequested = true;
     if (m_sessionSavePending) {
       wl_event_source_timer_update(m_sessionSaveTimer, 0);
       saveSession();
     }
+    m_sessionExitRequested = true;
     // Logout hand-off (session/greetd patches): greetd starts the greeter in the background, and it takes the VT from
     // this session in one logind step. The desktop stays on screen until then; the shutdown runs while inactive.
     if (m_session != nullptr && m_session->active && scanout_keeper::requestLogout()) {
