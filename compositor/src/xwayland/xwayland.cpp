@@ -312,14 +312,16 @@ namespace andromeda {
 
   void Xwayland::handleReady() {
     m_shapes->start(m_wlr);
-    const auto atoms =
-        resolveAtoms<4>(m_wlr->display_name, {"_NET_ACTIVE_WINDOW", "_XSETTINGS_S0", "_XSETTINGS_SETTINGS", "MANAGER"});
+    const auto atoms = resolveAtoms<5>(
+        m_wlr->display_name, {"_NET_ACTIVE_WINDOW", "_XSETTINGS_S0", "_XSETTINGS_SETTINGS", "MANAGER", "_NET_WM_PING"}
+    );
     m_netActiveWindow = atoms[0];
     if (m_netActiveWindow == XCB_ATOM_NONE) {
       kLog.warn("could not resolve _NET_ACTIVE_WINDOW");
     }
+    m_netWmPing = atoms[4];
     if (m_xsettingsEnabled) {
-      if (std::ranges::contains(atoms, static_cast<xcb_atom_t>(XCB_ATOM_NONE))) {
+      if (std::ranges::contains(atoms.begin(), atoms.begin() + 4, static_cast<xcb_atom_t>(XCB_ATOM_NONE))) {
         kLog.warn("could not resolve the XSETTINGS atoms");
       } else {
         m_xsettingsSettingsAtom = atoms[2];
@@ -344,6 +346,11 @@ namespace andromeda {
     }
     // Unmanaged X11 windows can activate after entering the seat. Wait until this dispatch has completed.
     wl_event_source_timer_update(m_selectionRefreshTimer, 1);
+  }
+
+  bool Xwayland::supportsPing(const wlr_xwayland_surface* xsurface) const {
+    return m_netWmPing != XCB_ATOM_NONE
+        && std::ranges::contains(xsurface->protocols, xsurface->protocols + xsurface->protocols_len, m_netWmPing);
   }
 
   void Xwayland::clearFocus() {

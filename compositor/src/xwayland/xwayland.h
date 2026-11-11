@@ -71,6 +71,8 @@ namespace andromeda {
     // An Xwayland surface just yielded the keyboard to a native Wayland client. Clear both X focus channels after the
     // Wayland enter has reached the client, so the native client holds keyboard focus before X11 loses it.
     void scheduleFocusClear();
+    // Whether the window lists _NET_WM_PING in WM_PROTOCOLS; EWMH allows a ping only then.
+    [[nodiscard]] bool supportsPing(const wlr_xwayland_surface* xsurface) const;
 
   private:
     static void onServerStart(wl_listener* listener, void* data);
@@ -102,6 +104,7 @@ namespace andromeda {
     std::unique_ptr<XwaylandShapes> m_shapes;
     std::vector<std::unique_ptr<XwaylandWindow>> m_windows;
     uint32_t m_netActiveWindow = 0;
+    uint32_t m_netWmPing = 0;
     // The XSETTINGS manager lives on the window manager's connection, so it neither keeps the lazy Xwayland running
     // nor outlives it. `m_xsettingsConnection` tells whether the window belongs to the current Xwayland.
     xcb_connection_t* m_xsettingsConnection = nullptr;

@@ -248,6 +248,8 @@ namespace andromeda {
       wl_signal_add(&m_xsurface->events.set_parent, &m_setParent);
       wl_signal_add(&m_xsurface->events.set_title, &m_setTitle);
       wl_signal_add(&m_xsurface->events.set_class, &m_setAppId);
+      m_pingTimeout.notify = onPingTimeout;
+      wl_signal_add(&m_xsurface->events.ping_timeout, &m_pingTimeout);
       m_xRequestConfigure.notify = onXwaylandRequestConfigure;
       wl_signal_add(&m_xsurface->events.request_configure, &m_xRequestConfigure);
       m_xRequestActivate.notify = onXwaylandRequestActivate;

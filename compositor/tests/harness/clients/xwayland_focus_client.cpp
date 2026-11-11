@@ -1,5 +1,6 @@
 // Maps a managed X11 window and reports both forms of X focus. Commands on
-// stdin use `state LABEL`; each produces one line after a server round trip.
+// stdin use `state LABEL`; each produces one line after a server round trip. `ignore-close` keeps the window on
+// WM_DELETE_WINDOW but answers _NET_WM_PING; `hang` answers neither.
 
 #include <array>
 #include <cerrno>
@@ -29,7 +30,11 @@ namespace {
     xcb_atom_t netWmWindowTypeUtility = XCB_ATOM_NONE;
   };
 
+  // IgnoresClose still answers _NET_WM_PING; Hung answers nothing.
+  enum class Responsiveness { Responsive, IgnoresClose, Hung };
+
   struct State {
+    Responsiveness responsiveness = Responsiveness::Responsive;
     xcb_connection_t* connection = nullptr;
     xcb_screen_t* screen = nullptr;
     Atoms atoms;
@@ -172,6 +177,12 @@ namespace {
       const uint32_t hints[]{2, 0, command == "decorations on" ? 1U : 0U, 0, 0};
       xcb_change_property(state.connection, XCB_PROP_MODE_REPLACE, state.windows[0], motif, motif, 32, 5, hints);
       xcb_flush(state.connection);
+    } else if (command == "ignore-close") {
+      state.responsiveness = Responsiveness::IgnoresClose;
+      std::println("ignore-close-set");
+    } else if (command == "hang") {
+      state.responsiveness = Responsiveness::Hung;
+      std::println("hang-set");
     } else if (command == "quit") {
       state.running = false;
     } else if (!command.empty()) {
@@ -228,8 +239,22 @@ namespace {
     }
     if (type == XCB_CLIENT_MESSAGE) {
       const auto& message = reinterpret_cast<const xcb_client_message_event_t&>(event);
-      if (message.type == state.atoms.wmProtocols && message.data.data32[0] == state.atoms.wmDeleteWindow) {
+      if (message.type != state.atoms.wmProtocols || state.responsiveness == Responsiveness::Hung) {
+        return;
+      }
+      if (message.data.data32[0] == state.atoms.wmDeleteWindow
+          && state.responsiveness == Responsiveness::Responsive) {
         state.running = false;
+      } else if (message.data.data32[0] == state.atoms.netWmPing) {
+        // EWMH: the pong is the same message, sent back to the root window.
+        xcb_client_message_event_t pong = message;
+        pong.window = state.screen->root;
+        xcb_send_event(
+            state.connection, 0, state.screen->root,
+            XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY | XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT,
+            reinterpret_cast<const char*>(&pong)
+        );
+        xcb_flush(state.connection);
       }
     }
   }
@@ -267,7 +292,7 @@ namespace {
     const std::array<xcb_atom_t, 2> protocols{state.atoms.wmDeleteWindow, state.atoms.netWmPing};
     xcb_change_property(
         state.connection, XCB_PROP_MODE_REPLACE, window, state.atoms.wmProtocols, XCB_ATOM_ATOM, 32,
-        state.inputModel == "none" ? 2 : 1, protocols.data()
+        static_cast<uint32_t>(protocols.size()), protocols.data()
     );
     if (state.inputModel == "none") {
       xcb_change_property(
