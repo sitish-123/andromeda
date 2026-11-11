@@ -379,7 +379,8 @@ fn walk_zip(
 ) -> Result<(), ArchiveError> {
     let mut zip = zip::ZipArchive::new(BufReader::new(Volumes::open(path)?))?;
     for i in 0..zip.len() {
-        let mut file = if !with_data {
+        let raw_xz = with_data && zip_raw_xz(&mut zip.by_index_raw(i)?)?;
+        let mut file = if !with_data || raw_xz {
             zip.by_index_raw(i)?
         } else if password.is_empty() {
             zip.by_index(i)?
@@ -398,20 +399,47 @@ fn walk_zip(
         };
         let entry = Entry { path: inner, kind, size: file.size(), mtime: zip_mtime(file.last_modified()) };
         let mode = file.unix_mode().unwrap_or(0);
+        let mut decoded: Box<dyn Read + '_> = if raw_xz {
+            Box::new(lzma_rust2::XzReader::new_mem_limit(&mut file, false, DECODER_MEMORY_KIB))
+        } else {
+            Box::new(&mut file)
+        };
         let link = if kind == Kind::Link && with_data {
             let mut target = Vec::new();
-            (&mut file).take(MAX_LINK_TARGET).read_to_end(&mut target)?;
+            (&mut decoded).take(MAX_LINK_TARGET).read_to_end(&mut target)?;
             Some(target)
         } else {
             None
         };
         let mut empty = io::empty();
-        let data: &mut dyn Read = if with_data && kind == Kind::File { &mut file } else { &mut empty };
+        let data: &mut dyn Read = if with_data && kind == Kind::File { &mut decoded } else { &mut empty };
         if !each(Item { entry, mode, link, hard_link: false, data })? {
             break;
         }
     }
     Ok(())
+}
+
+/// zip decodes LZMA and xz entries with no memory limit. An LZMA dictionary over the limit is refused here; true means
+/// the caller decodes the raw xz data itself, with the limit. Encrypted LZMA and xz entries cannot be checked before
+/// zip decodes them, so they are refused.
+fn zip_raw_xz<R: Read>(raw: &mut zip::read::ZipFile<'_, R>) -> Result<bool, ArchiveError> {
+    use zip::CompressionMethod;
+    let method = raw.compression();
+    if method != CompressionMethod::Lzma && method != CompressionMethod::Xz {
+        return Ok(false);
+    }
+    if raw.encrypted() {
+        return Err(ArchiveError::Unsupported);
+    }
+    if method == CompressionMethod::Xz {
+        return Ok(true);
+    }
+    // APPNOTE 5.8.8: 2-byte version, 2-byte properties size, then the LZMA properties byte and a 4-byte dictionary size.
+    let mut header = [0; 9];
+    raw.read_exact(&mut header)?;
+    let dict = u32::from_le_bytes([header[5], header[6], header[7], header[8]]);
+    if dict / 1024 > DECODER_MEMORY_KIB { Err(ArchiveError::TooMuchMemory) } else { Ok(false) }
 }
 
 fn walk_7z(
@@ -1194,14 +1222,65 @@ mod tests {
             0x00, 0x2e, 0x00, 0x74, 0x00, 0x78, 0x00, 0x74, 0x00, 0x00, 0x00, 0x14, 0x0a, 0x01, 0x00, 0x8a, 0x6d, 0x22,
             0x52, 0xe3, 0x71, 0xdd, 0x01, 0x15, 0x06, 0x01, 0x00, 0x20, 0x80, 0xa4, 0x81, 0x00, 0x00,
         ];
+        // APPNOTE 5.8.8 LZMA header: version, properties size 5, properties byte, 1536 MiB dictionary.
+        let lzma = [9, 20, 5, 0, 0x5d, 0, 0, 0, 0x60, 0, 0, 0, 0, 0, 0];
+        let zip_lzma = one_entry_zip(14, 1 << 30, &lzma);
+        let zip_xz = one_entry_zip(95, 10240, TAR_XZ);
         let root = tempfile::tempdir().unwrap();
-        for (name, bytes) in [("big-dict.tar.xz", TAR_XZ), ("big-dict.7z", SEVEN_Z)] {
+        for (name, bytes) in [
+            ("big-dict.tar.xz", TAR_XZ),
+            ("big-dict.7z", SEVEN_Z),
+            ("big-dict-lzma.zip", &zip_lzma),
+            ("big-dict-xz.zip", &zip_xz),
+        ] {
             let archive = root.path().join(name);
             fs::write(&archive, bytes).unwrap();
             let limits = Limits { stop: &|| false, max_bytes: u64::MAX, deadline: None };
-            let result = walk(&archive, "", true, &limits, &mut |_| Ok(true));
+            let result = walk(&archive, "", true, &limits, &mut |item| {
+                io::copy(item.data, &mut io::sink())?;
+                Ok(true)
+            });
             assert!(matches!(result, Err(ArchiveError::TooMuchMemory)), "{name}: {result:?}");
         }
+    }
+
+    /// A zip with one file "a" whose data is already compressed with `method`.
+    fn one_entry_zip(method: u16, size: u32, data: &[u8]) -> Vec<u8> {
+        let (crc, packed, dos_date) = (0u32, u32::try_from(data.len()).unwrap(), 0x21u16);
+        let mut out = 0x0403_4b50u32.to_le_bytes().to_vec();
+        for v in [20u16, 0, method, 0, dos_date] {
+            out.extend(v.to_le_bytes());
+        }
+        for v in [crc, packed, size] {
+            out.extend(v.to_le_bytes());
+        }
+        out.extend([1u8, 0, 0, 0, b'a']);
+        out.extend(data);
+        let central = u32::try_from(out.len()).unwrap();
+        out.extend(0x0201_4b50u32.to_le_bytes());
+        for v in [0x031eu16, 20, 0, method, 0, dos_date] {
+            out.extend(v.to_le_bytes());
+        }
+        for v in [crc, packed, size] {
+            out.extend(v.to_le_bytes());
+        }
+        for v in [1u16, 0, 0, 0, 0] {
+            out.extend(v.to_le_bytes());
+        }
+        for v in [0o100_644u32 << 16, 0] {
+            out.extend(v.to_le_bytes());
+        }
+        out.push(b'a');
+        let central_size = u32::try_from(out.len()).unwrap() - central;
+        out.extend(0x0605_4b50u32.to_le_bytes());
+        for v in [0u16, 0, 1, 1] {
+            out.extend(v.to_le_bytes());
+        }
+        for v in [central_size, central] {
+            out.extend(v.to_le_bytes());
+        }
+        out.extend([0u8, 0]);
+        out
     }
 
     struct Quietly;
