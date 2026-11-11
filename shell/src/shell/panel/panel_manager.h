@@ -6,6 +6,7 @@
 #include "render/scene/input_dispatcher.h"
 #include "shell/panel/attached_panel_context.h"
 #include "shell/panel/panel_click_shield.h"
+#include "shell/panel/panel_lifecycle.h"
 #include "shell/panel/persistent_panel_host.h"
 #include "ui/dialogs/layer_popup_host.h"
 #include "wayland/dsk_surface_client.h"
@@ -137,8 +138,6 @@ public:
   // The tracker of a gesture open came to rest: settle the sheet open, or drop it when closed.
   void finishTrackerOpen(bool open);
   void closePanel(bool animateClose = true);
-  // Call outside input dispatch to clear the displayed buffer before closing and running the action.
-  void closePanelForCapture(std::function<void()> afterClose);
   void togglePanel(const std::string& panelId, PanelOpenRequest request);
   // IPC-friendly overload: asks CompositorPlatform for preferred interactive output.
   void togglePanel(const std::string& panelId);
@@ -224,7 +223,7 @@ private:
   void prepareFrame(bool needsUpdate, bool needsLayout);
   void applyPendingPanelFocus();
   void destroyPanel();
-  static void handleCaptureCloseFrame(void* data, wl_callback* callback, std::uint32_t time);
+  void endInitialization(bool ok);
   // Called before the panel surface commits so outside-click dismissal is ready
   // for its first frame. The panel rect is excluded separately because
   // same-layer stacking order is compositor-defined.
@@ -446,15 +445,17 @@ private:
   void driveContentMorph(float target, bool open);
   void applyContentMorph();
   void startContentGate();
-  Timer m_captureCloseTimer;
-  wl_callback* m_captureCloseFrame = nullptr;
-  std::function<void()> m_afterCaptureClose;
+  struct PendingOpen {
+    std::string panelId;
+    PanelOpenRequest request;
+    std::string context;
+    std::string sourceBarName;
+  };
+  panel_lifecycle::Lifecycle<PendingOpen> m_lifecycle;
   std::string m_attachedBarPosition; // "top" / "bottom" / "left" / "right" while attached, empty otherwise
   std::string m_sourceBarName;       // name of the bar that opened the current panel
   std::optional<AttachedPanelGeometry> m_attachedPanelGeometry;
   bool m_pointerInside = false;
-  bool m_inTransition = false;
-  bool m_closing = false;
   bool m_attachedToBar = false;
   bool m_attachedOpenAnimationPending = false;
   std::size_t m_attachedPopupCount = 0;

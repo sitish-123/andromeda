@@ -57,7 +57,6 @@ namespace {
 
   constexpr Logger kLog("panel");
   constexpr auto kKeyboardRelaxDelay = std::chrono::milliseconds(100);
-  constexpr auto kCaptureCloseTimeout = std::chrono::milliseconds(250);
 
   // Layer-shell keyboard interactivity for a panel surface: `initial` is applied at
   // map time, `relaxed` (when set) shortly after by m_keyboardRelaxTimer.
@@ -396,10 +395,6 @@ namespace {
 PanelManager::PanelManager() { s_instance = this; }
 
 PanelManager::~PanelManager() {
-  m_captureCloseTimer.stop();
-  if (m_captureCloseFrame != nullptr) {
-    wl_callback_destroy(m_captureCloseFrame);
-  }
   m_persistentHost.setPanelClosedCallback(nullptr);
   if (s_instance == this) {
     s_instance = nullptr;
@@ -475,7 +470,7 @@ void PanelManager::setCloseDesktopWidgetsEditorCallback(std::function<void()> ca
 }
 
 void PanelManager::openSettingsWindow(std::string context) {
-  if (isOpen() && !m_closing) {
+  if (isOpen() && !m_lifecycle.closing()) {
     closePanel();
   }
   if (m_openSettingsWindow) {
@@ -487,7 +482,7 @@ bool PanelManager::openPluginSettings(const std::string& pluginId) {
   if (!m_openPluginSettings) {
     return false;
   }
-  if (isOpen() && !m_closing) {
+  if (isOpen() && !m_lifecycle.closing()) {
     closePanel();
   }
   return m_openPluginSettings(pluginId);
@@ -500,7 +495,7 @@ void PanelManager::closeSettingsWindow() {
 }
 
 void PanelManager::toggleSettingsWindow(std::string context) {
-  if (isOpen() && !m_closing) {
+  if (isOpen() && !m_lifecycle.closing()) {
     closePanel();
   }
   if (m_toggleSettingsWindow) {
@@ -588,7 +583,7 @@ void PanelManager::unregisterPanel(const std::string& id) {
     return;
   }
   if (isOpenPanel(id)) {
-    if (m_inTransition) {
+    if (m_lifecycle.initializing()) {
       // initialize() is still on the stack and destroyPanel would free its surface: keep the
       // panel alive and destroy it from the main loop once the open has returned.
       m_retiredActivePanel = std::move(it->second);
@@ -624,7 +619,13 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
     window->second.open(false, request.output);
     return;
   }
-  if (m_inTransition || m_afterCaptureClose) {
+  if (m_lifecycle.initializing()) {
+    m_lifecycle.apply(panel_lifecycle::Requested<PendingOpen>{PendingOpen{
+        .panelId = panelId,
+        .request = request,
+        .context = std::string(request.context),
+        .sourceBarName = std::string(request.sourceBarName),
+    }});
     return;
   }
   // tools/measure-launch.py reads this line: it has no poll delay, unlike the compositor commit probe.
@@ -681,9 +682,8 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
 
   // If a panel is open or closing, destroy it immediately with no close animation.
   // Bump the generation first so any in-flight deferred destroyPanel is a no-op.
-  if (isOpen() || m_closing) {
+  if (isOpen() || m_lifecycle.closing()) {
     ++m_destroyGeneration;
-    m_closing = false;
     destroyPanel();
   }
 
@@ -1351,9 +1351,9 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
       m_clickShield.setPanelInputRect(request.output, *m_panelOutputInputRect);
     }
 
-    m_inTransition = true;
+    m_lifecycle.apply(panel_lifecycle::BeginInit{});
     const bool ok = m_layerSurface->initialize(request.output);
-    m_inTransition = false;
+    endInitialization(ok);
 
     if (ok) {
       m_output = request.output;
@@ -1376,7 +1376,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
         const std::uint64_t gen = m_destroyGeneration;
         const LayerShellKeyboard relaxed = *attachedKeyboardPlan.relaxed;
         m_keyboardRelaxTimer.start(kKeyboardRelaxDelay, [this, gen, relaxed] {
-          if (m_destroyGeneration != gen || !isAttachedOpen() || m_layerSurface == nullptr || m_closing) {
+          if (m_destroyGeneration != gen || !isAttachedOpen() || m_layerSurface == nullptr || m_lifecycle.closing()) {
             return;
           }
           applyKeyboardRelaxation(relaxed);
@@ -1450,9 +1450,9 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
   }
 
   // Guard against re-entrancy: initialize can process queued Wayland events.
-  m_inTransition = true;
+  m_lifecycle.apply(panel_lifecycle::BeginInit{});
   bool ok = m_layerSurface->initialize(request.output);
-  m_inTransition = false;
+  endInitialization(ok);
 
   if (!ok) {
     kLog.warn("panel manager: failed to initialize surface for panel \"{}\"", panelId);
@@ -1474,7 +1474,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
     const std::uint64_t gen = m_destroyGeneration;
     const LayerShellKeyboard relaxed = *keyboardPlan.relaxed;
     m_keyboardRelaxTimer.start(kKeyboardRelaxDelay, [this, gen, relaxed] {
-      if (m_destroyGeneration != gen || m_layerSurface == nullptr || m_closing) {
+      if (m_destroyGeneration != gen || m_layerSurface == nullptr || m_lifecycle.closing()) {
         return;
       }
       applyKeyboardRelaxation(relaxed);
@@ -1522,7 +1522,7 @@ void PanelManager::activateFocusGrab() {
     return;
   }
   m_focusGrab->setOnCleared([this] {
-    if (isOpen() && !m_closing) {
+    if (isOpen() && !m_lifecycle.closing()) {
       closePanel();
     }
   });
@@ -1558,7 +1558,7 @@ void PanelManager::applyKeyboardRelaxation(LayerShellKeyboard mode) {
     return;
   }
   replacement->setOnCleared([this] {
-    if (isOpen() && !m_closing) {
+    if (isOpen() && !m_lifecycle.closing()) {
       closePanel();
     }
   });
@@ -1629,7 +1629,11 @@ void PanelManager::deactivateOutsideClickHandlers() {
 }
 
 void PanelManager::closePanel(bool animateClose) {
-  if (!isOpen() || m_inTransition || m_closing) {
+  if (m_lifecycle.initializing()) {
+    m_lifecycle.apply(panel_lifecycle::Requested<PendingOpen>{panel_lifecycle::CloseRequest{animateClose}});
+    return;
+  }
+  if (!isOpen() || !m_lifecycle.apply(panel_lifecycle::BeginClose{}).accepted) {
     return;
   }
 
@@ -1644,7 +1648,6 @@ void PanelManager::closePanel(bool animateClose) {
   if (m_layerSurface != nullptr) {
     m_layerSurface->setKeyboardInteractivity(LayerShellKeyboard::None);
   }
-  m_closing = true;
   m_attachedOpenAnimationPending = false;
 
   if (animateClose && m_sceneRoot != nullptr && m_activePanel != nullptr && m_activePanel->wantsCloseAnimation()) {
@@ -1683,81 +1686,25 @@ void PanelManager::closePanel(bool animateClose) {
   }
 }
 
-void PanelManager::closePanelForCapture(std::function<void()> afterClose) {
-  if (m_afterCaptureClose) {
-    return;
+void PanelManager::endInitialization(bool ok) {
+  auto ended = m_lifecycle.apply(panel_lifecycle::InitEnded{ok});
+  if (auto* open = std::get_if<PendingOpen>(&ended.replay)) {
+    DeferredCall::callLater([this, open = std::move(*open)]() mutable {
+      open.request.context = open.context;
+      open.request.sourceBarName = open.sourceBarName;
+      openPanel(open.panelId, open.request);
+    });
+  } else if (const auto* close = std::get_if<panel_lifecycle::CloseRequest>(&ended.replay)) {
+    DeferredCall::callLater([this, animate = close->animate] { closePanel(animate); });
   }
-  if (!isOpen() || m_surface == nullptr || m_wlSurface == nullptr || m_inTransition) {
-    closePanel(/*animateClose=*/false);
-    DeferredCall::callLater(std::move(afterClose));
-    return;
-  }
-
-  m_afterCaptureClose = std::move(afterClose);
-  m_closing = true;
-  m_attachedOpenAnimationPending = false;
-  const std::uint64_t generation = ++m_destroyGeneration;
-  deactivateOutsideClickHandlers();
-  m_inputDispatcher.setSceneRoot(nullptr);
-  TooltipManager::instance().forceDestroy();
-  if (m_activePopup != nullptr) {
-    m_activePopup->close();
-    m_activePopup = nullptr;
-  }
-  m_animations.cancelAll();
-  m_keyboardRelaxTimer.stop();
-  m_surface->setPrepareFrameCallback({});
-  m_surface->setFrameTickCallback({});
-  m_surface->setUpdateCallback({});
-  m_surface->setSceneRoot(nullptr);
-  m_surface->clearBlurRegion();
-  m_surface->setOpaque(false);
-  m_surface->setInputRegion({});
-  m_surface->discardPendingFrameCallback();
-
-  static const wl_callback_listener listener = {.done = &PanelManager::handleCaptureCloseFrame};
-  m_captureCloseFrame = wl_surface_frame(m_wlSurface);
-  if (m_captureCloseFrame == nullptr || wl_callback_add_listener(m_captureCloseFrame, &listener, this) != 0) {
-    kLog.warn("could not wait for the panel's clear frame; closing before capture");
-    destroyPanel();
-    return;
-  }
-
-  m_captureCloseTimer.start(kCaptureCloseTimeout, [this, generation] {
-    if (m_destroyGeneration == generation && m_closing) {
-      kLog.warn("panel clear frame timed out; closing before capture");
-      destroyPanel();
-    }
-  });
-  // The caller defers this handoff out of input dispatch. Submit the clear buffer
-  // now so no intervening state-only commit can claim its frame callback.
-  m_surface->renderNow();
-}
-
-void PanelManager::handleCaptureCloseFrame(void* data, wl_callback* callback, std::uint32_t /*time*/) {
-  auto* self = static_cast<PanelManager*>(data);
-  if (callback != self->m_captureCloseFrame) {
-    return;
-  }
-  wl_callback_destroy(callback);
-  self->m_captureCloseFrame = nullptr;
-  self->m_captureCloseTimer.stop();
-  const std::uint64_t generation = self->m_destroyGeneration;
-  DeferredCall::callLater([self, generation] {
-    if (self->m_destroyGeneration == generation && self->m_closing) {
-      self->destroyPanel();
-    }
-  });
 }
 
 void PanelManager::destroyPanel() {
-  m_captureCloseTimer.stop();
+  if (!m_lifecycle.apply(panel_lifecycle::Destroyed{}).accepted) {
+    return;
+  }
   m_contentGateTimer.stop();
   m_contentGate = 1.0F;
-  if (m_captureCloseFrame != nullptr) {
-    wl_callback_destroy(m_captureCloseFrame);
-    m_captureCloseFrame = nullptr;
-  }
   if (m_attachedToBar && m_attachedPanelGeometryCallback && m_output != nullptr) {
     m_attachedPanelGeometryCallback(m_output, m_sourceBarName, std::nullopt);
   }
@@ -1765,7 +1712,6 @@ void PanelManager::destroyPanel() {
   // reached directly when openPanel preempts an open panel.
   deactivateOutsideClickHandlers();
   m_animations.cancelAll();
-  m_closing = false;
   m_pointerInside = false;
   m_attachedPopupCount = 0;
   m_inputDispatcher.setSceneRoot(nullptr);
@@ -1841,10 +1787,6 @@ void PanelManager::destroyPanel() {
   if (m_panelClosedCallback) {
     m_panelClosedCallback();
   }
-  if (m_afterCaptureClose) {
-    m_afterCaptureClose();
-    m_afterCaptureClose = {};
-  }
 }
 
 void PanelManager::togglePanel(const std::string& panelId, PanelOpenRequest request) {
@@ -1866,7 +1808,7 @@ void PanelManager::togglePanel(const std::string& panelId, PanelOpenRequest requ
     return;
   }
   // Treat a closing panel as closed: re-clicking while it animates out reopens it immediately.
-  if (isOpen() && !m_closing && m_activePanelId == panelId) {
+  if (isOpen() && !m_lifecycle.closing() && m_activePanelId == panelId) {
     if (!request.context.empty() && m_activePanel != nullptr) {
       if (m_activePanel->isContextActive(request.context)) {
         closePanel();
@@ -1905,7 +1847,7 @@ void PanelManager::togglePanel(const std::string& panelId) {
     openPanel(panelId, PanelOpenRequest{});
     return;
   }
-  if (isOpen() && !m_closing && m_activePanelId == panelId) {
+  if (isOpen() && !m_lifecycle.closing() && m_activePanelId == panelId) {
     closePanel();
     return;
   }
@@ -1936,7 +1878,7 @@ bool PanelManager::onPointerEvent(const PointerEvent& event) {
   if (m_persistentHost.onPointerEvent(event)) {
     return true;
   }
-  if (!isOpen() || m_inTransition) {
+  if (!isOpen() || m_lifecycle.initializing()) {
     return false;
   }
 
@@ -2063,10 +2005,10 @@ bool PanelManager::isOpenPanel(std::string_view panelId) const noexcept {
 }
 
 bool PanelManager::isPanelTransitionActive() const noexcept {
-  if (!isOpen() && !m_closing) {
+  if (!isOpen() && !m_lifecycle.closing()) {
     return false;
   }
-  if (m_closing || m_attachedOpenAnimationPending) {
+  if (m_lifecycle.closing() || m_attachedOpenAnimationPending) {
     return true;
   }
   if (m_attachedToBar) {
@@ -2295,9 +2237,8 @@ void PanelManager::onKeyboardEvent(const KeyboardEvent& event) {
   if (m_persistentHost.onKeyboardEvent(event)) {
     return;
   }
-  // m_inTransition means the surface is still initializing.
-  // Keyboard events during this window must be ignored.
-  if (!isOpen() || m_inTransition) {
+  // Keyboard events while the surface initializes must be ignored.
+  if (!isOpen() || m_lifecycle.initializing()) {
     return;
   }
 
@@ -2945,7 +2886,7 @@ void PanelManager::animateMorphClip() {
 
 bool PanelManager::morphCardHeight(std::uint32_t target) {
   using Property = DskSurfaceClient::Property;
-  if (m_attachedToBar || m_dsk == nullptr || m_closing || m_morphClipRunning || !MotionService::instance().enabled()) {
+  if (m_attachedToBar || m_dsk == nullptr || m_lifecycle.closing() || m_morphClipRunning || !MotionService::instance().enabled()) {
     return false;
   }
   if (m_contentFit.animation != 0) {
@@ -2976,7 +2917,7 @@ bool PanelManager::morphCardHeight(std::uint32_t target) {
   m_cardClipRunning = true;
   m_dsk->animate(Property::Radius, openCurve(), {radiusFor(to), 0.0, 0.0, 0.0});
   m_dsk->animate(Property::Clip, openCurve(), to, [this, target](DskSurfaceClient::EndReason reason) {
-    if (reason != DskSurfaceClient::EndReason::Finished || m_dsk == nullptr || m_closing) {
+    if (reason != DskSurfaceClient::EndReason::Finished || m_dsk == nullptr || m_lifecycle.closing()) {
       return;
     }
     m_cardClipRunning = false;
@@ -3059,7 +3000,7 @@ void PanelManager::applyContentMorph() {
 void PanelManager::settleDetachedMorph() {
   using Property = DskSurfaceClient::Property;
   // Settled: drop the clip so the sheet's own shadow shows.
-  if (m_dsk == nullptr || m_closing) {
+  if (m_dsk == nullptr || m_lifecycle.closing()) {
     return;
   }
   m_dsk->set(Property::Clip, {0.0, 0.0, 0.0, 0.0});
@@ -3078,7 +3019,7 @@ void PanelManager::settleDetachedMorph() {
 void PanelManager::bindTrackerOpen(const DskSurfaceClient::Value& islandClip) {
   using Property = DskSurfaceClient::Property;
   const auto tracker = m_gestureTracker.lock();
-  if (tracker == nullptr || m_dsk == nullptr || m_activePanel == nullptr || m_closing) {
+  if (tracker == nullptr || m_dsk == nullptr || m_activePanel == nullptr || m_lifecycle.closing()) {
     return;
   }
   const double range = m_gestureRange;
@@ -3158,7 +3099,7 @@ bool PanelManager::startDetachedMorphClose(std::uint64_t gen) {
 }
 
 void PanelManager::startAttachedOpenAnimation() {
-  if (!m_attachedOpenAnimationPending || !m_attachedToBar || m_attachedRevealClipNode == nullptr || m_closing) {
+  if (!m_attachedOpenAnimationPending || !m_attachedToBar || m_attachedRevealClipNode == nullptr || m_lifecycle.closing()) {
     return;
   }
   if (m_attachedPanelBarSettledCallback != nullptr
@@ -3178,7 +3119,7 @@ void PanelManager::startAttachedOpenAnimation() {
     m_dsk->set(Property::Clip, attachedRevealClip(travel));
     m_dsk->animate(Property::Translate, openCurve(), attachedRevealShift(0.0));
     m_dsk->animate(Property::Clip, openCurve(), attachedRevealClip(0.0), [this](DskSurfaceClient::EndReason reason) {
-      if (reason == DskSurfaceClient::EndReason::Finished && m_dsk != nullptr && !m_closing) {
+      if (reason == DskSurfaceClient::EndReason::Finished && m_dsk != nullptr && !m_lifecycle.closing()) {
         m_dsk->set(DskSurfaceClient::Property::Clip, {0.0, 0.0, 0.0, 0.0});
       }
     });
@@ -3735,7 +3676,7 @@ void PanelManager::placePanelChrome() {
     m_bgNode->setSize(bgW + extendBothX, bgH + extendY + extendUp);
   }
   // A content-fitted card changes height while the open spring runs: the clip follows it.
-  if (m_morphClipRunning && m_dsk != nullptr && !m_closing && m_morphClipTarget != detachedSheetRect()) {
+  if (m_morphClipRunning && m_dsk != nullptr && !m_lifecycle.closing() && m_morphClipTarget != detachedSheetRect()) {
     animateMorphClip();
   }
 
@@ -4012,7 +3953,7 @@ void PanelManager::registerIpc(IpcService& ipc) {
           return unknownPanelError(panelId);
         }
 
-        if (isOpen() && !m_closing && m_activePanelId == panelId) {
+        if (isOpen() && !m_lifecycle.closing() && m_activePanelId == panelId) {
           if (!context.empty() && m_activePanel != nullptr) {
             m_activePanel->onOpen(context);
             refresh();

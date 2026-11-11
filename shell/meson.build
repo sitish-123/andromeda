@@ -1238,6 +1238,7 @@ if build_tests
     'notification_settings_page',
     'notification_internal_history',
     'palette_tone',
+    'panel_lifecycle',
     'path_browse',
     'pipewire_error',
     'andromeda_audio_provider',
