@@ -110,7 +110,6 @@ namespace {
   float ceil4(float v) { return std::ceil(v / 4.0F) * 4.0F; }
   // The island lays out in tokens px; the surface, clip, blur and input regions are that times the bar's content scale.
   float islandScale(const CenterIslandSpace& space) { return std::clamp(space.scale, 0.25F, 4.0F); }
-  constexpr auto kStartWait = std::chrono::milliseconds(500);
   TOKENS_LIVE(kLiveRadius, Tokens::radiusR28);
   TOKENS_LIVE(kDot, Tokens::componentIslandPrivacyDot);
   TOKENS_LIVE(kRestWidth, Tokens::componentIslandCenterRestWidth);
@@ -756,6 +755,40 @@ DskSurfaceClient::Value LiveActivityIsland::islandTint(const Instance& inst, Fac
                             : glassTintValue(panelMaterialRole(), Style::glassMaterial(glass::Kind::Sheet).tint, inst.tint);
 }
 
+namespace {
+  std::uint32_t monotonicMs() {
+    return static_cast<std::uint32_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count()
+    );
+  }
+} // namespace
+
+struct LiveActivityIsland::MorphHost {
+  LiveActivityIsland& self;
+  Instance& inst;
+
+  static std::uint32_t nowMs() { return monotonicMs(); }
+  AnimationManager::Id startDriver() { return self.startMirrorDriver(inst); }
+  void cancel(AnimationManager::Id driver) { inst.animations.cancel(driver); }
+  // AnimationManager cannot cancel a driver from inside its own tick.
+  void reapSoon() {
+    auto* selfPtr = &self;
+    auto* instPtr = &inst;
+    inst.driverReaper.start(std::chrono::milliseconds(1), [selfPtr, instPtr] {
+      MorphHost host{*selfPtr, *instPtr};
+      instPtr->morph.reap(host);
+    });
+  }
+  void redraw() { inst.surface->requestRedraw(); }
+  void reveal(float t) { self.applyReveal(inst, t); }
+  void settle() {
+    inst.reveal = 1.0F;
+    inst.from = inst.to;
+    self.applyReveal(inst, 1.0F);
+    self.finishReveal(inst);
+  }
+};
+
 bool LiveActivityIsland::syncDsk(Instance& inst, bool animate, bool continueMirror) {
   if (inst.dsk == nullptr) {
     return false;
@@ -782,27 +815,14 @@ bool LiveActivityIsland::syncDsk(Instance& inst, bool animate, bool continueMirr
   } else {
     const auto curve = expanded ? DskSurfaceClient::Curve::SpringIslandExpand : DskSurfaceClient::Curve::SpringIslandCollapse;
     startMirror(inst, r, expanded, continueMirror);
-    if (inst.mirror.fade.settled()) {
-      // A retarget outside animateReveal (content width): the faces stay shown while the shape moves.
-      inst.mirror.fade = desk::motion::Spring(1.0, 1.0, clipSpring(*inst.dsk, expanded));
-    }
-    const AnimationManager::Id driver = inst.morph.settled() ? startMirrorDriver(inst) : inst.morph.driver();
-    inst.morph.apply(Morph::Retarget{driver});
+    MorphHost host{*this, inst};
+    const std::uint32_t generation = inst.morph.retarget(host, clipSpring(*inst.dsk, expanded));
     auto* instPtr = &inst;
-    const std::uint32_t generation = inst.morph.gen();
     inst.dsk->animate(
         DskSurfaceClient::Property::Clip, curve, clip, {},
-        [instPtr, generation, continueMirror](std::uint32_t timeMs) {
-          if (!instPtr->morph.apply(Morph::Started{generation}).accepted) {
-            return;
-          }
-          Instance::Mirror& m = instPtr->mirror;
-          // A retargeted compositor spring already steps one frame on its first tick.
-          m.startMs = continueMirror ? timeMs - m.frameMs : timeMs;
-          m.shapeSec = 0.0;
-          m.fadeStartMs = timeMs;
-          m.fadeSec = 0.0;
-          instPtr->surface->requestRedraw();
+        [this, instPtr, generation, continueMirror](std::uint32_t timeMs) {
+          MorphHost startedHost{*this, *instPtr};
+          instPtr->morph.started(startedHost, generation, timeMs, continueMirror);
         }
     );
     inst.dsk->animate(DskSurfaceClient::Property::Radius, curve, radius);
@@ -826,7 +846,8 @@ bool LiveActivityIsland::syncDsk(Instance& inst, bool animate, bool continueMirr
   inst.dskTarget = r;
   // A jump while a morph runs (surface size or margin change) ends that morph: the shell settles on the new rect.
   if (jump && !inst.morph.settled()) {
-    inst.animations.cancel(inst.morph.apply(Morph::Jump{}).cancel);
+    MorphHost host{*this, inst};
+    inst.morph.jump(host);
     inst.reveal = 1.0F;
     inst.from = inst.to;
     finishReveal(inst);
@@ -838,75 +859,18 @@ bool LiveActivityIsland::syncDsk(Instance& inst, bool animate, bool continueMirr
 
 bool LiveActivityIsland::mirrored(const Instance& inst) { return inst.dsk != nullptr && MotionService::instance().enabled(); }
 
-namespace {
-  std::uint32_t monotonicMs() {
-    return static_cast<std::uint32_t>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count()
-    );
-  }
-  // Wrap-safe seconds from startMs to nowMs, never negative.
-  double secondsSince(std::uint32_t nowMs, std::uint32_t startMs) {
-    return std::max(0, static_cast<std::int32_t>(nowMs - startMs)) / 1000.0;
-  }
-} // namespace
-
 // Same springs as the compositor's clip and radius (SurfaceMotion::animate): a running one keeps its velocity.
 void LiveActivityIsland::startMirror(Instance& inst, const Rect& target, bool grow, bool continueFrom) {
-  Instance::Mirror& m = inst.mirror;
-  const auto config = clipSpring(*inst.dsk, grow);
-  const std::array<double, 5> to{target.x, target.y, target.w, target.h, target.radius};
-  const std::array<double, 5> now{inst.cur.x, inst.cur.y, inst.cur.w, inst.cur.h, inst.cur.radius};
-  for (std::size_t i = 0; i < to.size(); ++i) {
-    m.shape[i] = continueFrom ? desk::motion::Spring(m.shape[i].value(), to[i], config, m.shape[i].velocity())
-                              : desk::motion::Spring(now[i], to[i], config);
-  }
-  m.requested = std::chrono::steady_clock::now();
-  m.startMs = monotonicMs();
-  m.shapeSec = 0.0;
+  MorphHost host{*this, inst};
+  inst.morph.startShape(
+      host, {inst.cur.x, inst.cur.y, inst.cur.w, inst.cur.h, inst.cur.radius},
+      {target.x, target.y, target.w, target.h, target.radius}, clipSpring(*inst.dsk, grow), continueFrom
+  );
 }
 
 void LiveActivityIsland::stepMirror(Instance& inst) {
-  Instance::Mirror& m = inst.mirror;
-  if (inst.morph.settled()) {
-    return;
-  }
-  const std::uint32_t now = monotonicMs();
-  const std::uint32_t interval = now - m.lastStepMs;
-  if (m.lastStepMs != 0 && interval > 0 && interval <= 50) {
-    m.frameMs = interval;
-  }
-  m.lastStepMs = now;
-  if (inst.morph.phase() == Morph::Phase::AwaitStart) {
-    if (std::chrono::steady_clock::now() - m.requested <= kStartWait) {
-      inst.surface->requestRedraw();
-      return;
-    }
-    inst.morph.apply(Morph::StartTimeout{});
-    m.startMs = now;
-    m.shapeSec = 0.0;
-    m.fadeStartMs = now;
-    m.fadeSec = 0.0;
-  }
-  const double shapeSec = secondsSince(now, m.startMs);
-  bool settled = true;
-  for (auto& spring : m.shape) {
-    spring.step(shapeSec - m.shapeSec);
-    settled = settled && spring.settled();
-  }
-  m.shapeSec = shapeSec;
-  const double fadeSec = secondsSince(now, m.fadeStartMs);
-  m.fade.step(fadeSec - m.fadeSec);
-  m.fadeSec = fadeSec;
-  settled = settled && m.fade.settled();
-  if (settled) {
-    cancelLater(inst, inst.morph.apply(Morph::Settle{}).cancel);
-    inst.reveal = 1.0F;
-    inst.from = inst.to;
-    applyReveal(inst, 1.0F);
-    finishReveal(inst);
-    return;
-  }
-  applyReveal(inst, static_cast<float>(m.fade.value()));
+  MorphHost host{*this, inst};
+  inst.morph.step(host);
 }
 
 // The timer drives stepMirror; the mirror springs settle the morph, or the cap ends it at the target.
@@ -921,30 +885,8 @@ AnimationManager::Id LiveActivityIsland::startMirrorDriver(Instance& inst) {
 }
 
 void LiveActivityIsland::driverDone(Instance& inst, AnimationManager::Id driver) {
-  if (!inst.morph.apply(Morph::DriverDone{driver}).accepted) {
-    return;
-  }
-  inst.reveal = 1.0F;
-  inst.from = inst.to;
-  applyReveal(inst, 1.0F);
-  finishReveal(inst);
-}
-
-void LiveActivityIsland::cancelLater(Instance& inst, AnimationManager::Id driver) {
-  if (driver == 0) {
-    return;
-  }
-  inst.endedDrivers.push_back(driver);
-  if (inst.driverReaper.active()) {
-    return;
-  }
-  auto* instPtr = &inst;
-  inst.driverReaper.start(std::chrono::milliseconds(1), [instPtr] {
-    for (const AnimationManager::Id id : instPtr->endedDrivers) {
-      instPtr->animations.cancel(id);
-    }
-    instPtr->endedDrivers.clear();
-  });
+  MorphHost host{*this, inst};
+  inst.morph.driverDone(host, driver);
 }
 
 void LiveActivityIsland::finishReveal(Instance& inst) {
@@ -1825,7 +1767,7 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
   const float maxW = inst.width;
   const float maxH = surfaceHeight(inst.scale);
   // Mirror on: the compositor's own clip curve; else a lerp on the shell's spring.
-  const auto& ms = inst.mirror.shape;
+  const auto& ms = inst.morph.shape();
   const bool follow = inst.dsk != nullptr && !inst.morph.settled();
   const auto at = [&](std::size_t i, float from, float to) {
     return follow ? static_cast<float>(ms[i].value()) : lerp(from, to, sizeT);
@@ -1951,16 +1893,12 @@ void LiveActivityIsland::animateReveal(Instance& inst, Face face, float velocity
   const bool grow = face != Face::Rest;
   if (mirrored(inst)) {
     // One clock: shape, shadow and fade all start at the compositor's `started` frame (syncDsk).
-    Instance::Mirror& m = inst.mirror;
-    m.fade = desk::motion::Spring(0.0, 1.0, revealSpring(grow));
-    m.fadeSec = 0.0;
-    const auto begun = inst.morph.apply(Morph::Begin{face, fromRect, startMirrorDriver(inst)});
-    inst.animations.cancel(begun.cancel);
+    MorphHost host{*this, inst};
+    const auto begun = inst.morph.begin(host, face, fromRect, revealSpring(grow));
     inst.to = faceRect(inst, face);
     if (!syncDsk(inst, true, begun.wasMoving)) {
-      // The rect did not change: no compositor animation, so no `started`; the fade starts now.
       startMirror(inst, inst.to, grow, begun.wasMoving);
-      m.fadeStartMs = m.startMs;
+      inst.morph.startFadeNow();
     }
     inst.surface->requestRedraw();
     return;
@@ -2145,7 +2083,8 @@ void LiveActivityIsland::finishBannerDrag(Instance& inst, bool dismiss) {
   if (dismiss && m_banner.has_value() && m_banner->id == inst.dragBannerId) {
     endBanner();
     // The card is off the output: settle the new face at once, then bring the surface back.
-    instPtr->animations.cancel(instPtr->morph.apply(Morph::Jump{}).cancel);
+    MorphHost host{*this, *instPtr};
+    instPtr->morph.jump(host);
     instPtr->reveal = 1.0F;
     instPtr->from = instPtr->to;
     instPtr->dskTarget.reset();

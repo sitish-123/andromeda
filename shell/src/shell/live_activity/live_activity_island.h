@@ -6,7 +6,7 @@
 #include "render/scene/input_dispatcher.h"
 #include "notification/notification.h"
 #include "shell/bar/center_island_space.h"
-#include "shell/live_activity/island_morph.h"
+#include "shell/live_activity/island_morph_driver.h"
 #include "shell/live_activity/island_queue.h"
 #include "system/icon_resolver.h"
 #include "shell/osd/osd_overlay.h"
@@ -125,7 +125,8 @@ private:
 
   enum class Face : std::uint8_t { Rest, HoverMedia, HoverIdle, Osd, Banner, Live };
   static constexpr std::size_t kFaceCount = 6;
-  using Morph = IslandMorph<Face, Rect, AnimationManager::Id>;
+  using MorphDriver = IslandMorphDriver<Face, Rect, AnimationManager::Id>;
+  using Morph = MorphDriver::Morph;
 
   struct Instance {
     wl_output* output = nullptr;
@@ -206,7 +207,7 @@ private:
     std::array<Button*, 3> bannerActions{};
     std::string artUrl;
     std::string hoverArtUrl;
-    Morph morph{Face::Rest};
+    MorphDriver morph{Face::Rest};
     bool hovered = false;
     bool hoverMedia = false; // latched when the hover starts, so a pause does not swap the face under the pointer
     Timer collapse;
@@ -229,22 +230,6 @@ private:
     Rect cur;
     bool shapeInit = false;
     std::optional<Rect> dskTarget;
-    // Mirror of the compositor's clip and radius springs (x, y, w, h, radius), started by the `started` event, so
-    // `cur`, the face fades, the blur and the input region follow the clip frame for frame. Followed while `morph`
-    // runs with a compositor.
-    struct Mirror {
-      std::array<desk::motion::Spring, 5> shape;
-      desk::motion::Spring fade; // 0..1 from the last face change
-      std::uint32_t lastStepMs = 0;
-      std::uint32_t frameMs = 16; // last measured step interval
-      std::uint32_t startMs = 0;
-      std::uint32_t fadeStartMs = 0;
-      double shapeSec = 0.0;
-      double fadeSec = 0.0;
-      std::chrono::steady_clock::time_point requested;
-    } mirror;
-    // Drivers ended from inside their own tick: AnimationManager cannot cancel there, so they go on the next turn.
-    std::vector<AnimationManager::Id> endedDrivers;
     Timer driverReaper;
     double dskLevel = 0.0; // last elevation level sent (protocol version 4)
     bool compositorTint = false; // the compositor draws the glass tint; the fills paint nothing
@@ -302,8 +287,7 @@ private:
   [[nodiscard]] AnimationManager::Id startMirrorDriver(Instance& inst);
   // A driver that ended on its own ends its morph at the target.
   void driverDone(Instance& inst, AnimationManager::Id driver);
-  // Cancels a driver from inside its own tick.
-  static void cancelLater(Instance& inst, AnimationManager::Id driver);
+  struct MorphHost;
   [[nodiscard]] static bool mirrored(const Instance& inst);
   // The morph just settled: the layer, elevation and swipe offset of the shown face.
   void finishReveal(Instance& inst);

@@ -1,7 +1,6 @@
-#include "shell/live_activity/island_morph.h"
+#include "shell/live_activity/island_morph_driver.h"
 #include "tests/test_check.h"
 
-#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <map>
@@ -10,29 +9,13 @@
 #include <string>
 #include <vector>
 
-// Drives the island morph through random event sequences against a model of its surroundings: drivers are
-// AnimationManager timers (4 s cap, a stalled frame jumps past it), the compositor sends `started` late, stale or
-// never, and the mirror springs settle 600 ms after they start. The glue follows LiveActivityIsland's mirrored path.
+// Drives the island morph and its driver glue through random event sequences: drivers are fake AnimationManager
+// timers (4 s cap, a stalled frame jumps past it), and the compositor sends `started` late, stale or never.
 namespace {
 
   enum class Face : std::uint8_t { Rest, Osd, Banner };
   constexpr int kFaces = 3;
-  constexpr int kDriverMaxMs = 4000; // kMirrorMaxMs
-  constexpr int kStartWaitMs = 500;  // kStartWait
-  constexpr int kSettleMs = 600;
-
-  struct Env {
-    int now = 0;
-    std::uint32_t nextId = 1;
-    std::map<std::uint32_t, int> live; // driver -> start time
-
-    std::uint32_t startDriver() {
-      live[nextId] = now;
-      return nextId++;
-    }
-    void cancel(std::uint32_t id) { live.erase(id); }
-    [[nodiscard]] bool alive(std::uint32_t id) const { return live.contains(id); }
-  };
+  constexpr std::uint32_t kDriverMaxMs = 4000; // kMirrorMaxMs
 
   enum class Kind : std::uint8_t { Want, Retarget, Started, Tick, Jump };
   struct Event {
@@ -57,102 +40,121 @@ namespace {
     int id = 0;
   };
 
-  class MorphSim {
+  constexpr desk::motion::SpringConfig kSpring{.damping = 0.9, .stiffness = 300.0};
+
+  IslandMorphDriver<Face, Rect, std::uint32_t>::Shape shapeOf(Face face) {
+    switch (face) {
+    case Face::Rest: return {0.0, 0.0, 40.0, 10.0, 5.0};
+    case Face::Osd: return {0.0, 0.0, 200.0, 50.0, 25.0};
+    case Face::Banner: return {0.0, 0.0, 300.0, 100.0, 25.0};
+    }
+    return {};
+  }
+
+  // AnimationManager timers capped at kDriverMaxMs, the 1 ms reaper timer, the clock and the island's fade.
+  struct Host {
+    std::uint32_t now = 1;
+    std::uint32_t nextId = 1;
+    std::map<std::uint32_t, std::uint32_t> live; // driver -> start time
+    bool reapPending = false;
+    float revealed = 1.0F;
+
+    [[nodiscard]] std::uint32_t nowMs() const { return now; }
+    std::uint32_t startDriver() {
+      live[nextId] = now;
+      return nextId++;
+    }
+    void cancel(std::uint32_t id) { live.erase(id); }
+    void reapSoon() {
+      TEST_CHECK(!reapPending);
+      reapPending = true;
+    }
+    void redraw() {}
+    void reveal(float t) { revealed = t; }
+    void settle() { revealed = 1.0F; }
+  };
+
+  // The call order of LiveActivityIsland's mirrored path (animateReveal, syncDsk, the timer's tick and onComplete)
+  // around the real IslandMorphDriver.
+  class Island {
   public:
-    using Morph = IslandMorph<Face, Rect, std::uint32_t>;
+    using Driver = IslandMorphDriver<Face, Rect, std::uint32_t>;
+    using Morph = Driver::Morph;
 
     void want(Face face, bool rectChanged) {
-      if (face == m.shown()) {
+      if (face == d.shown()) {
         return;
       }
-      fadeHeld = true;
-      reveal = 0.0F;
-      const auto r = m.apply(Morph::Begin{face, Rect{}, env.startDriver()});
-      TEST_CHECK(r.accepted);
-      env.cancel(r.cancel);
+      host.revealed = 0.0F;
+      const auto begun = d.begin(host, face, Rect{static_cast<int>(d.shown())}, kSpring);
+      TEST_CHECK(begun.accepted && d.fromRect().id == static_cast<int>(d.from()));
       if (rectChanged) {
-        request();
+        sync(begun.wasMoving);
       } else {
-        startClocks();
+        d.startShape(host, current(), shapeOf(face), kSpring, begun.wasMoving);
+        d.startFadeNow();
       }
     }
-    void retarget() {
-      if (m.settled()) {
-        fadeHeld = false;
-        reveal = 1.0F;
-      }
-      const std::uint32_t driver = m.settled() ? env.startDriver() : m.driver();
-      TEST_CHECK(m.apply(Morph::Retarget{driver}).accepted);
-      requested = env.now;
-    }
+    // A content width change while shown.
+    void retarget() { sync(!d.settled()); }
     void started(int back) {
-      if (m.apply(Morph::Started{m.gen() - static_cast<std::uint32_t>(back)}).accepted) {
-        startClocks();
-      }
+      const std::uint32_t gen = d.gen() - static_cast<std::uint32_t>(back);
+      d.started(host, gen, host.now, continued[gen]);
     }
     void jump() {
-      const auto r = m.apply(Morph::Jump{});
-      env.cancel(r.cancel);
-      reveal = 1.0F;
+      d.jump(host);
+      host.revealed = 1.0F;
     }
+    // A stalled frame jumps past a driver's cap: it ticks once more, then ends on its own.
     void tick(int ms) {
-      env.now += ms;
-      const std::uint32_t driver = m.driver();
-      if (!env.alive(driver)) {
-        return;
+      host.now += static_cast<std::uint32_t>(ms);
+      if (host.reapPending) {
+        host.reapPending = false;
+        d.reap(host);
       }
-      step();
-      if (env.alive(driver) && env.now - env.live[driver] >= kDriverMaxMs) {
-        env.live.erase(driver);
-        if (m.apply(Morph::DriverDone{driver}).accepted) {
-          reveal = 1.0F;
+      std::vector<std::uint32_t> ids;
+      for (const auto& [id, start] : host.live) {
+        ids.push_back(id);
+      }
+      for (const std::uint32_t id : ids) {
+        if (!host.live.contains(id)) {
+          continue;
+        }
+        d.step(host);
+        if (host.live.contains(id) && host.now - host.live[id] >= kDriverMaxMs) {
+          host.live.erase(id);
+          d.driverDone(host, id);
         }
       }
     }
 
-    [[nodiscard]] Face shown() const { return m.shown(); }
-    [[nodiscard]] Face from() const { return m.from(); }
-    [[nodiscard]] bool settled() const { return m.settled(); }
-    [[nodiscard]] std::uint32_t driver() const { return m.driver(); }
-    [[nodiscard]] bool driverLive() const { return env.alive(m.driver()); }
-    [[nodiscard]] float revealT() const { return m.settled() ? 1.0F : reveal; }
+    [[nodiscard]] Face shown() const { return d.shown(); }
+    [[nodiscard]] Face from() const { return d.from(); }
+    [[nodiscard]] bool settled() const { return d.settled(); }
+    [[nodiscard]] Morph::Phase phase() const { return d.phase(); }
+    [[nodiscard]] std::uint32_t driver() const { return d.driver(); }
+    [[nodiscard]] bool driverLive() const { return host.live.contains(d.driver()); }
+    [[nodiscard]] bool anyDriverLive() const { return !host.live.empty(); }
+    [[nodiscard]] float revealT() const { return d.settled() ? 1.0F : host.revealed; }
 
   private:
-    void request() {
-      TEST_CHECK(m.apply(Morph::Retarget{m.driver()}).accepted);
-      requested = env.now;
+    // syncDsk, animated: the compositor gets the new clip and answers with `started` for this generation.
+    void sync(bool continueFrom) {
+      d.startShape(host, current(), shapeOf(d.shown()), kSpring, continueFrom);
+      continued[d.retarget(host, kSpring)] = continueFrom;
+      TEST_CHECK(d.phase() == Morph::Phase::AwaitStart && driverLive());
     }
-    void startClocks() {
-      startMs = env.now;
-      fadeMs = env.now;
-      fadeHeld = false;
-    }
-    // stepMirror
-    void step() {
-      if (m.phase() == Morph::Phase::AwaitStart) {
-        if (env.now - requested <= kStartWaitMs) {
-          return;
-        }
-        TEST_CHECK(m.apply(Morph::StartTimeout{}).accepted);
-        startClocks();
+    [[nodiscard]] Driver::Shape current() const {
+      Driver::Shape s{};
+      for (std::size_t i = 0; i < s.size(); ++i) {
+        s[i] = d.shape()[i].value();
       }
-      const bool fadeDone = fadeHeld ? false : reveal >= 1.0F || env.now - fadeMs >= kSettleMs;
-      if (!fadeHeld && reveal < 1.0F) {
-        reveal = std::min(1.0F, static_cast<float>(env.now - fadeMs) / kSettleMs);
-      }
-      if (env.now - startMs >= kSettleMs && fadeDone) {
-        env.cancel(m.apply(Morph::Settle{}).cancel);
-        reveal = 1.0F;
-      }
+      return s;
     }
 
-    Env env;
-    Morph m{Face::Rest};
-    int requested = 0;
-    int startMs = 0;
-    int fadeMs = 0;
-    bool fadeHeld = false;
-    float reveal = 1.0F;
+    Host host;
+    Driver d{Face::Rest};
+    std::map<std::uint32_t, bool> continued; // gen -> the retarget continued a running morph
   };
 
   template <typename Sim> void play(Sim& sim, const Event& e) {
@@ -199,6 +201,10 @@ namespace {
     }
     if (!sim.settled()) {
       return std::string("never settles");
+    }
+    sim.tick(16);
+    if (sim.anyDriverLive()) {
+      return std::string("a driver outlives its morph");
     }
     return std::nullopt;
   }
@@ -250,11 +256,34 @@ namespace {
   // The brightness OSD hides, then frames stall past the driver's 4 s cap before the compositor's `started` arrives.
   void osdHideThroughStallSettles() {
     const std::vector<Event> events{{Kind::Want, 1}, {Kind::Want, 0}, {Kind::Tick, 4100}};
-    TEST_CHECK(!check<MorphSim>(events).has_value());
+    TEST_CHECK(!check<Island>(events).has_value());
+  }
+
+  // The springs end a morph long before the driver cap ends it.
+  void springsSettleBeforeCap() {
+    Island sim;
+    sim.want(Face::Osd, false);
+    std::uint32_t ms = 0;
+    while (!sim.settled() && ms < kDriverMaxMs) {
+      sim.tick(16);
+      ms += 16;
+    }
+    TEST_CHECK(sim.settled() && ms < 2000);
+  }
+
+  // With no `started`, the morph waits kStartWaitMs, then runs on its own.
+  void startWaitTimesOut() {
+    using Morph = Island::Morph;
+    Island sim;
+    sim.want(Face::Osd, true);
+    sim.tick(Island::Driver::kStartWaitMs);
+    TEST_CHECK(sim.phase() == Morph::Phase::AwaitStart);
+    sim.tick(16);
+    TEST_CHECK(!sim.settled() && sim.phase() != Morph::Phase::AwaitStart);
   }
 
   void staleStartedIsRejected() {
-    using Morph = MorphSim::Morph;
+    using Morph = Island::Morph;
     Morph m{Face::Rest};
     TEST_CHECK(m.apply(Morph::Begin{Face::Osd, Rect{}, 7}).accepted);
     TEST_CHECK(m.apply(Morph::Retarget{7}).accepted);
@@ -273,6 +302,8 @@ namespace {
 int main() {
   osdHideThroughStallSettles();
   staleStartedIsRejected();
-  TEST_CHECK(!fuzz<MorphSim>(5000).has_value());
+  springsSettleBeforeCap();
+  startWaitTimesOut();
+  TEST_CHECK(!fuzz<Island>(5000).has_value());
   return 0;
 }
