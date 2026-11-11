@@ -197,10 +197,38 @@ namespace {
     TEST_CHECK(machine.phase() == Phase::Off);
   }
 
+  // Each miss re-arms the verify until kMaxRetries re-arms ran; the next miss ends the attempt without another retry.
+  void missesStopAtRetryLimit(Status miss) {
+    Machine machine;
+    machine.start();
+    machine.deviceReply(machine.attempt(), true);
+    TEST_CHECK(machine.claimReply(true) == fingerprint_auth::VerifyStart);
+    machine.verifyStartReply(machine.attempt(), true, false);
+    for (int retry = 1; retry <= fingerprint_auth::kMaxRetries; ++retry) {
+      const Commands commands = machine.verifyStatus(miss, true);
+      TEST_CHECK((commands & fingerprint_auth::VerifyStop) != 0);
+      if (machine.phase() == Phase::RetryWait) {
+        TEST_CHECK(commands == fingerprint_auth::VerifyStop);
+        TEST_CHECK(machine.retryDue() == fingerprint_auth::VerifyStart);
+      } else {
+        TEST_CHECK(commands == (fingerprint_auth::VerifyStop | fingerprint_auth::VerifyStart));
+      }
+      TEST_CHECK(machine.phase() == Phase::StartingVerify);
+      machine.verifyStartReply(machine.attempt(), true, false);
+      TEST_CHECK(machine.retries() == retry);
+    }
+    TEST_CHECK(machine.verifyStatus(miss, true) == fingerprint_auth::VerifyStop);
+    TEST_CHECK(machine.phase() == Phase::Idle);
+    TEST_CHECK(machine.retryDue() == fingerprint_auth::None);
+    TEST_CHECK(machine.claimed());
+  }
+
 } // namespace
 
 int main() {
   lateRepliesAfterStop();
+  missesStopAtRetryLimit(Status::NoMatch);
+  missesStopAtRetryLimit(Status::Invalid);
   for (std::uint32_t seed = 1; seed <= 5000; ++seed) {
     runSequence(seed);
   }
