@@ -867,9 +867,10 @@ namespace andromeda {
     }
   }
 
-  // docs/resilience.md §5: the window list is current at a crash, at most one write per second.
+  // docs/resilience.md §5: the window list is current at a crash, at most one write per second. After a log-out request
+  // the user manager stops the apps before the compositor, so their unmaps must not reach session.json.
   void Server::scheduleSessionSave() {
-    if (!m_lockFileManaged || m_stopping) {
+    if (!m_lockFileManaged || m_stopping || m_sessionExitRequested) {
       return;
     }
     if (m_sessionSaveTimer == nullptr) {

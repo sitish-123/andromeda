@@ -1849,6 +1849,10 @@ namespace andromeda {
       return;
     }
     m_sessionExitRequested = true;
+    if (m_sessionSavePending) {
+      wl_event_source_timer_update(m_sessionSaveTimer, 0);
+      saveSession();
+    }
     // Logout hand-off (session/greetd patches): greetd starts the greeter in the background, and it takes the VT from
     // this session in one logind step. The desktop stays on screen until then; the shutdown runs while inactive.
     if (m_session != nullptr && m_session->active && scanout_keeper::requestLogout()) {
