@@ -5,9 +5,14 @@ extern "C" {
 #include <wlr/util/box.h>
 }
 
+#include <functional>
+
 struct wlr_buffer;
 struct wlr_output;
+struct wlr_output_state;
+struct wlr_render_pass;
 struct wlr_renderer;
+struct wlr_texture;
 
 namespace andromeda {
 
@@ -31,9 +36,18 @@ namespace andromeda {
       int targetHeight, wl_output_transform targetTransform
   );
 
-  // Renders `frame` onto `target` letterboxed on black and commits it. Returns false when rendering or the commit
-  // fails.
-  bool
-  renderMirrorFrame(wlr_output* target, wlr_renderer* renderer, wlr_buffer* frame, wl_output_transform sourceTransform);
+  // Draws `frame` letterboxed on black into `pass`, whose buffer is a target of `targetWidth` x `targetHeight` pixels.
+  // Returns the texture the pass reads, for the caller to destroy after the submit; null when `frame` has none.
+  [[nodiscard]] wlr_texture* drawMirrorFrame(
+      wlr_render_pass* pass, wlr_renderer* renderer, wlr_buffer* frame, wl_output_transform sourceTransform,
+      int targetWidth, int targetHeight, wl_output_transform targetTransform
+  );
+
+  // Renders `frame` onto `target` letterboxed on black and hands the state to `commit`. Returns false when rendering or
+  // the commit fails.
+  bool renderMirrorFrame(
+      wlr_output* target, wlr_renderer* renderer, wlr_buffer* frame, wl_output_transform sourceTransform,
+      const std::function<bool(const wlr_output_state&)>& commit
+  );
 
 } // namespace andromeda

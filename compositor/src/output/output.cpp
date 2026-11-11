@@ -42,6 +42,7 @@
 extern "C" {
 #include <andromedafx/render/effect.h>
 #include <andromedafx/render/frame_stats.h>
+#include <wlr/interfaces/wlr_buffer.h>
 #include <wlr/util/transform.h>
 }
 
@@ -1553,9 +1554,9 @@ namespace andromeda {
     return zoomBox(cursor->x - box.x, cursor->y - box.y, box.width, box.height, m_zoom);
   }
 
-  void Output::applyZoom(wlr_output_state& state) {
+  std::optional<wlr_fbox> Output::applyZoom(wlr_output_state& state) {
     if (m_output->swapchain == nullptr) {
-      return;
+      return std::nullopt;
     }
     const int width = m_output->swapchain->width;
     const int height = m_output->swapchain->height;
@@ -1565,10 +1566,12 @@ namespace andromeda {
     if (m_zoomSwapchain == nullptr) {
       m_zoomSwapchain = wlr_swapchain_create(m_output->allocator, width, height, &m_output->swapchain->format);
     }
-    if (m_zoomSwapchain == nullptr
-        || !renderZoom(m_server->renderer(), m_zoomSwapchain, state, zoomView(), m_output->scale)) {
+    const wlr_fbox view = zoomView();
+    if (m_zoomSwapchain == nullptr || !renderZoom(m_server->renderer(), m_zoomSwapchain, state, view, m_output->scale)) {
       kLog.warn("{}: the magnified frame could not be drawn; showing it unmagnified", m_output->name);
+      return std::nullopt;
     }
+    return view;
   }
 
   // One line per rendered frame: monotonic ns at build, output name, CPU build ns, GPU render ns, then effect work
@@ -2060,8 +2063,101 @@ namespace andromeda {
     return 0;
   }
 
-  Output::SceneCommit::SceneCommit(Output& output, const wlr_output_state& state, bool grouped)
-      : m_output(output), m_grouped(grouped) {
+  namespace {
+    // Opaque black ARGB8888 pixels in memory: what a capture gets when its redacted copy cannot be drawn.
+    struct BlackBuffer {
+      wlr_buffer base{};
+      std::vector<uint32_t> pixels;
+    };
+
+    void blackBufferDestroy(wlr_buffer* buffer) {
+      BlackBuffer* self = wl_container_of(buffer, self, base);
+      wlr_buffer_finish(buffer);
+      delete self;
+    }
+
+    bool blackBufferBeginAccess(wlr_buffer* buffer, uint32_t /*flags*/, void** data, uint32_t* format, size_t* stride) {
+      BlackBuffer* self = wl_container_of(buffer, self, base);
+      *data = self->pixels.data();
+      *format = DRM_FORMAT_ARGB8888;
+      *stride = static_cast<size_t>(buffer->width) * sizeof(uint32_t);
+      return true;
+    }
+
+    void blackBufferEndAccess(wlr_buffer* /*buffer*/) {}
+
+    const wlr_buffer_impl kBlackBufferImpl = {
+        .destroy = blackBufferDestroy,
+        .get_dmabuf = nullptr,
+        .get_shm = nullptr,
+        .begin_data_ptr_access = blackBufferBeginAccess,
+        .end_data_ptr_access = blackBufferEndAccess,
+    };
+
+    wlr_buffer* lockedBlackBuffer(int width, int height) {
+      constexpr uint32_t kOpaqueBlack = 0xFF000000U;
+      auto* buffer = new BlackBuffer{
+          .base = {},
+          .pixels = std::vector<uint32_t>(static_cast<size_t>(width) * static_cast<size_t>(height), kOpaqueBlack),
+      };
+      wlr_buffer_init(&buffer->base, &kBlackBufferImpl, width, height);
+      wlr_buffer_lock(&buffer->base);
+      wlr_buffer_drop(&buffer->base);
+      return &buffer->base;
+    }
+  } // namespace
+
+  Output::CaptureRedaction::CaptureRedaction(Output& output, const wlr_output_state& state, std::optional<wlr_fbox> zoom)
+      : m_output(output), m_zoom(zoom) {
+    if ((state.committed & WLR_OUTPUT_STATE_BUFFER) == 0 || state.buffer == nullptr) {
+      return;
+    }
+    m_buffer = state.buffer;
+    m_first.notify = onFirst;
+    wl_list_insert(&output.m_output->events.commit.listener_list, &m_first.link);
+    m_last.notify = onLast;
+    wl_signal_add(&output.m_output->events.commit, &m_last);
+  }
+
+  Output::CaptureRedaction::~CaptureRedaction() {
+    if (m_buffer == nullptr) {
+      return;
+    }
+    wl_list_remove(&m_first.link);
+    wl_list_remove(&m_last.link);
+    if (m_redacted != nullptr) {
+      wlr_buffer_unlock(m_redacted);
+    }
+  }
+
+  // The event's state is wlr_output_commit_state's own copy of the caller's state, read after the signal only to
+  // unlock a back buffer wlroots allocated itself; m_buffer equality rules that case out.
+  void Output::CaptureRedaction::onFirst(wl_listener* listener, void* data) {
+    CaptureRedaction* self = wl_container_of(listener, self, m_first);
+    auto* state = const_cast<wlr_output_state*>(static_cast<wlr_output_event_commit*>(data)->state);
+    if ((state->committed & WLR_OUTPUT_STATE_BUFFER) == 0 || state->buffer != self->m_buffer
+        || self->m_redacted != nullptr) {
+      return;
+    }
+    self->m_redacted = self->m_output.redactedCaptureFrame(state->buffer, self->m_zoom);
+    if (self->m_redacted != nullptr) {
+      state->buffer = self->m_redacted;
+    }
+  }
+
+  void Output::CaptureRedaction::onLast(wl_listener* listener, void* data) {
+    CaptureRedaction* self = wl_container_of(listener, self, m_last);
+    auto* state = const_cast<wlr_output_state*>(static_cast<wlr_output_event_commit*>(data)->state);
+    if (self->m_redacted != nullptr && state->buffer == self->m_redacted) {
+      state->buffer = self->m_buffer;
+      wlr_buffer_unlock(std::exchange(self->m_redacted, nullptr));
+    }
+  }
+
+  Output::SceneCommit::SceneCommit(
+      Output& output, const wlr_output_state& state, bool grouped, std::optional<wlr_fbox> zoom
+  )
+      : m_output(output), m_redaction(output, state, zoom), m_grouped(grouped) {
     if ((state.committed & WLR_OUTPUT_STATE_BUFFER) == 0 || state.buffer == nullptr) {
       return;
     }
@@ -2070,40 +2166,12 @@ namespace andromeda {
     m_buffer = state.buffer;
     m_state = output.builtDirectScanout();
     m_commit.connect(&output.m_output->events.commit, this, onCommit);
-    m_redact.notify = onRedact;
-    wl_list_insert(&output.m_output->events.commit.listener_list, &m_redact.link);
   }
 
-  Output::SceneCommit::~SceneCommit() {
-    if (m_redact.link.next != nullptr) {
-      wl_list_remove(&m_redact.link);
-    }
-    if (m_redacted != nullptr) {
-      wlr_buffer_unlock(m_redacted);
-    }
-  }
-
-  // The event's state is wlr_output_commit_state's own copy of the caller's state, read after the signal only to
-  // unlock a back buffer wlroots allocated itself; m_buffer equality rules that case out.
-  void Output::SceneCommit::onRedact(wl_listener* listener, void* data) {
-    SceneCommit* self = wl_container_of(listener, self, m_redact);
-    auto* state = const_cast<wlr_output_state*>(static_cast<wlr_output_event_commit*>(data)->state);
-    if ((state->committed & WLR_OUTPUT_STATE_BUFFER) == 0 || state->buffer != self->m_buffer
-        || self->m_redacted != nullptr || !self->m_commit.connected()) {
-      return;
-    }
-    self->m_redacted = self->m_output.redactedCaptureFrame(state->buffer);
-    if (self->m_redacted != nullptr) {
-      state->buffer = self->m_redacted;
-    }
-  }
+  Output::SceneCommit::~SceneCommit() = default;
 
   void Output::SceneCommit::onCommit(SceneCommit* self, void* data) {
     const auto* event = static_cast<wlr_output_event_commit*>(data);
-    if (self->m_redacted != nullptr && event->state->buffer == self->m_redacted) {
-      const_cast<wlr_output_state*>(event->state)->buffer = self->m_buffer;
-      wlr_buffer_unlock(std::exchange(self->m_redacted, nullptr));
-    }
     if ((event->state->committed & WLR_OUTPUT_STATE_BUFFER) == 0 || event->state->buffer != self->m_buffer) {
       return;
     }
@@ -2120,94 +2188,158 @@ namespace andromeda {
     self->m_commit.disconnect();
   }
 
-  wlr_buffer* Output::redactedCaptureFrame(wlr_buffer* frame) {
-    DskSurfaceManager* dsk = m_server->dskSurfaces();
-    if (dsk == nullptr || !dsk->anySecure() || !m_server->outputCaptureListening(m_output)) {
-      return nullptr;
-    }
+  std::vector<wlr_box> Output::secureFrameBoxes(const DskSurfaceManager& dsk, const std::optional<wlr_fbox>& zoom) const {
     struct Collect {
       const DskSurfaceManager* dsk;
-      wlr_box output;
+      int x;
+      int y;
       std::vector<wlr_box> boxes;
     };
-    Collect collect{.dsk = dsk, .output = {.x = m_sceneOutput->x, .y = m_sceneOutput->y, .width = 0, .height = 0}, .boxes = {}};
+    Collect collect{.dsk = &dsk, .x = m_sceneOutput->x, .y = m_sceneOutput->y, .boxes = {}};
     wlr_scene_output_for_each_buffer(
         m_sceneOutput,
         [](wlr_scene_buffer* buffer, int lx, int ly, void* data) {
           auto* collect = static_cast<Collect*>(data);
           wlr_scene_surface* sceneSurface = wlr_scene_surface_try_from_buffer(buffer);
-          if (sceneSurface == nullptr || !collect->dsk->secureTree(sceneSurface->surface)) {
+          const bool secure = sceneSurface != nullptr ? collect->dsk->secureTree(sceneSurface->surface)
+                                                      : collect->dsk->secureCopy(buffer);
+          if (!secure) {
             return;
           }
-          const int width = buffer->dst_width > 0 ? buffer->dst_width : sceneSurface->surface->current.width;
-          const int height = buffer->dst_height > 0 ? buffer->dst_height : sceneSurface->surface->current.height;
-          collect->boxes.push_back({lx - collect->output.x, ly - collect->output.y, width, height});
+          int width = buffer->dst_width;
+          int height = buffer->dst_height;
+          if (width <= 0 || height <= 0) {
+            if (sceneSurface != nullptr) {
+              width = sceneSurface->surface->current.width;
+              height = sceneSurface->surface->current.height;
+            } else if (buffer->buffer != nullptr) {
+              const bool swapped = (buffer->transform & WL_OUTPUT_TRANSFORM_90) != 0;
+              width = swapped ? buffer->buffer->height : buffer->buffer->width;
+              height = swapped ? buffer->buffer->width : buffer->buffer->height;
+            }
+          }
+          collect->boxes.push_back({lx - collect->x, ly - collect->y, width, height});
         },
         &collect
     );
     if (collect.boxes.empty()) {
-      return nullptr;
+      return {};
     }
-    if (m_output->swapchain == nullptr) {
-      kLog.error("output '{}': no swapchain to redact a secure surface from a capture", m_output->name);
-      return nullptr;
-    }
-    if (m_redactSwapchain != nullptr
-        && (m_redactSwapchain->width != frame->width || m_redactSwapchain->height != frame->height)) {
-      wlr_swapchain_destroy(std::exchange(m_redactSwapchain, nullptr));
-    }
-    if (m_redactSwapchain == nullptr) {
-      m_redactSwapchain =
-          wlr_swapchain_create(m_output->allocator, frame->width, frame->height, &m_output->swapchain->format);
-    }
-    wlr_buffer* copy = m_redactSwapchain != nullptr ? wlr_swapchain_acquire(m_redactSwapchain) : nullptr;
-    wlr_texture* texture = copy != nullptr ? wlr_texture_from_buffer(m_server->renderer(), frame) : nullptr;
-    wlr_render_pass* pass =
-        texture != nullptr ? wlr_renderer_begin_buffer_pass(m_server->renderer(), copy, nullptr) : nullptr;
-    if (pass == nullptr) {
-      kLog.error("output '{}': failed to redact a secure surface from a capture", m_output->name);
-      if (texture != nullptr) {
-        wlr_texture_destroy(texture);
-      }
-      if (copy != nullptr) {
-        wlr_buffer_unlock(copy);
-      }
-      return nullptr;
-    }
-    wlr_render_texture_options image{};
-    image.texture = texture;
-    image.dst_box = {.x = 0, .y = 0, .width = frame->width, .height = frame->height};
-    image.blend_mode = WLR_RENDER_BLEND_MODE_NONE;
-    wlr_render_pass_add_texture(pass, &image);
     int transformedWidth = 0;
     int transformedHeight = 0;
     wlr_output_transformed_resolution(m_output, &transformedWidth, &transformedHeight);
     const double scale = m_output->scale;
+    // The magnifier draws its view over the whole frame, `magnify` times larger, with bilinear filtering: a pixel up
+    // to `magnify` past a box edge still blends secure content.
+    const double magnify = zoom ? layoutBox().width / zoom->width : 1.0;
+    const int pad = zoom ? static_cast<int>(std::ceil(magnify)) : 0;
+    std::vector<wlr_box> pixels;
+    pixels.reserve(collect.boxes.size());
     for (const wlr_box& box : collect.boxes) {
-      const int x0 = static_cast<int>(std::floor(box.x * scale));
-      const int y0 = static_cast<int>(std::floor(box.y * scale));
+      const double x = zoom ? (box.x - zoom->x) * magnify : box.x;
+      const double y = zoom ? (box.y - zoom->y) * magnify : box.y;
+      const int x0 = static_cast<int>(std::floor(x * scale)) - pad;
+      const int y0 = static_cast<int>(std::floor(y * scale)) - pad;
       const wlr_box scaled{
           .x = x0,
           .y = y0,
-          .width = static_cast<int>(std::ceil((box.x + box.width) * scale)) - x0,
-          .height = static_cast<int>(std::ceil((box.y + box.height) * scale)) - y0,
+          .width = static_cast<int>(std::ceil((x + (box.width * magnify)) * scale)) + pad - x0,
+          .height = static_cast<int>(std::ceil((y + (box.height * magnify)) * scale)) + pad - y0,
       };
-      wlr_render_rect_options black{};
+      wlr_box transformed{};
       wlr_box_transform(
-          &black.box, &scaled, wlr_output_transform_invert(m_output->transform), transformedWidth, transformedHeight
+          &transformed, &scaled, wlr_output_transform_invert(m_output->transform), transformedWidth, transformedHeight
       );
-      black.color = {.r = 0.0F, .g = 0.0F, .b = 0.0F, .a = 1.0F};
-      black.blend_mode = WLR_RENDER_BLEND_MODE_NONE;
-      wlr_render_pass_add_rect(pass, &black);
+      pixels.push_back(transformed);
     }
-    const bool ok = wlr_render_pass_submit(pass);
-    wlr_texture_destroy(texture);
-    if (!ok) {
-      kLog.error("output '{}': failed to redact a secure surface from a capture", m_output->name);
-      wlr_buffer_unlock(copy);
+    return pixels;
+  }
+
+  wlr_buffer* Output::acquireRedactBuffer(int width, int height) {
+    if (m_output->swapchain == nullptr) {
       return nullptr;
     }
-    return copy;
+    if (m_redactSwapchain != nullptr && (m_redactSwapchain->width != width || m_redactSwapchain->height != height)) {
+      wlr_swapchain_destroy(std::exchange(m_redactSwapchain, nullptr));
+    }
+    if (m_redactSwapchain == nullptr) {
+      m_redactSwapchain = wlr_swapchain_create(m_output->allocator, width, height, &m_output->swapchain->format);
+    }
+    return m_redactSwapchain != nullptr ? wlr_swapchain_acquire(m_redactSwapchain) : nullptr;
+  }
+
+  wlr_buffer* Output::redactFrame(wlr_buffer* frame, const std::vector<wlr_box>& boxes) {
+    wlr_buffer* copy = acquireRedactBuffer(frame->width, frame->height);
+    wlr_texture* texture = copy != nullptr ? wlr_texture_from_buffer(m_server->renderer(), frame) : nullptr;
+    wlr_render_pass* pass =
+        texture != nullptr ? wlr_renderer_begin_buffer_pass(m_server->renderer(), copy, nullptr) : nullptr;
+    bool ok = pass != nullptr;
+    if (ok) {
+      wlr_render_texture_options image{};
+      image.texture = texture;
+      image.dst_box = {.x = 0, .y = 0, .width = frame->width, .height = frame->height};
+      image.blend_mode = WLR_RENDER_BLEND_MODE_NONE;
+      wlr_render_pass_add_texture(pass, &image);
+      for (const wlr_box& box : boxes) {
+        wlr_render_rect_options black{};
+        black.box = box;
+        black.color = {.r = 0.0F, .g = 0.0F, .b = 0.0F, .a = 1.0F};
+        black.blend_mode = WLR_RENDER_BLEND_MODE_NONE;
+        wlr_render_pass_add_rect(pass, &black);
+      }
+      ok = wlr_render_pass_submit(pass);
+    }
+    if (texture != nullptr) {
+      wlr_texture_destroy(texture);
+    }
+    if (ok) {
+      return copy;
+    }
+    kLog.error("output '{}': failed to redact a secure surface from a capture; the capture gets black", m_output->name);
+    if (copy != nullptr) {
+      wlr_buffer_unlock(copy);
+    }
+    return lockedBlackBuffer(frame->width, frame->height);
+  }
+
+  wlr_buffer* Output::redactedCaptureFrame(wlr_buffer* frame, const std::optional<wlr_fbox>& zoom) {
+    const DskSurfaceManager* dsk = m_server->dskSurfaces();
+    if (dsk == nullptr || !dsk->anySecure() || !m_server->outputCaptureListening(m_output)) {
+      return nullptr;
+    }
+    if (m_mirrorSource == nullptr) {
+      const std::vector<wlr_box> boxes = secureFrameBoxes(*dsk, zoom);
+      return boxes.empty() ? nullptr : redactFrame(frame, boxes);
+    }
+    const Output& source = *m_mirrorSource;
+    if (source.m_lastFrame == nullptr || source.m_lastFrameSecure.empty()) {
+      return nullptr;
+    }
+    // Draw the redacted source frame the way the mirror drew the real one.
+    wlr_buffer* redactedSource = m_mirrorSource->redactFrame(source.m_lastFrame, source.m_lastFrameSecure);
+    wlr_buffer* copy = acquireRedactBuffer(frame->width, frame->height);
+    wlr_render_pass* pass =
+        copy != nullptr ? wlr_renderer_begin_buffer_pass(m_server->renderer(), copy, nullptr) : nullptr;
+    bool ok = pass != nullptr;
+    if (ok) {
+      wlr_texture* texture = drawMirrorFrame(
+          pass, m_server->renderer(), redactedSource, source.m_output->transform, frame->width, frame->height,
+          m_output->transform
+      );
+      ok = wlr_render_pass_submit(pass);
+      if (texture != nullptr) {
+        wlr_texture_destroy(texture);
+      }
+    }
+    wlr_buffer_unlock(redactedSource);
+    if (ok) {
+      return copy;
+    }
+    kLog.error("output '{}': failed to redact a secure surface from a mirror capture; the capture gets black", m_output->name);
+    if (copy != nullptr) {
+      wlr_buffer_unlock(copy);
+    }
+    return lockedBlackBuffer(frame->width, frame->height);
   }
 
   std::shared_ptr<const DirectScanoutState> Output::builtDirectScanout() {
@@ -2512,7 +2644,11 @@ namespace andromeda {
     if (m_mirrorSource != nullptr) {
       if (m_mirrorDirty && m_mirrorSource->m_lastFrame != nullptr) {
         m_mirrorDirty = !renderMirrorFrame(
-            m_output, m_server->renderer(), m_mirrorSource->m_lastFrame, m_mirrorSource->m_output->transform
+            m_output, m_server->renderer(), m_mirrorSource->m_lastFrame, m_mirrorSource->m_output->transform,
+            [this](const wlr_output_state& state) {
+              CaptureRedaction redaction(*this, state);
+              return wlr_output_commit_state(m_output, &state);
+            }
         );
         if (m_mirrorDirty) {
           armFrameRetry(kFrameRetryDelayMs);
@@ -2629,8 +2765,9 @@ namespace andromeda {
           }
         }
 
+        std::optional<wlr_fbox> zoom;
         if (m_zoom > 1.0) {
-          applyZoom(state);
+          zoom = applyZoom(state);
         }
         const bool hasBuffer = (state.committed & WLR_OUTPUT_STATE_BUFFER) != 0;
         bool commitTearing = requestTearing && hasBuffer;
@@ -2666,7 +2803,7 @@ namespace andromeda {
 
         {
           ANDROMEDA_ZONE("Output::commitState");
-          SceneCommit observation(*this, state);
+          SceneCommit observation(*this, state, false, zoom);
           errno = 0;
           commitOk = wlr_output_commit_state(m_output, &state);
           if (!commitOk && hasBuffer && errno == EBUSY) {
@@ -2704,7 +2841,7 @@ namespace andromeda {
         }
         if (commitOk && hasBuffer) {
           if (m_mirrorTargets > 0) {
-            keepFrameForMirrors(state.buffer);
+            keepFrameForMirrors(state.buffer, zoom);
           }
           m_lastCommitTearing = commitTearing;
           m_trackingPresentation = true;
@@ -2966,7 +3103,7 @@ namespace andromeda {
     keepFrameForMirrors(nullptr);
   }
 
-  void Output::keepFrameForMirrors(wlr_buffer* frame) {
+  void Output::keepFrameForMirrors(wlr_buffer* frame, const std::optional<wlr_fbox>& zoom) {
     if (frame != nullptr) {
       wlr_buffer_lock(frame);
     }
@@ -2974,8 +3111,12 @@ namespace andromeda {
       wlr_buffer_unlock(m_lastFrame);
     }
     m_lastFrame = frame;
+    m_lastFrameSecure.clear();
     if (frame == nullptr) {
       return;
+    }
+    if (const DskSurfaceManager* dsk = m_server->dskSurfaces(); dsk != nullptr && dsk->anySecure()) {
+      m_lastFrameSecure = secureFrameBoxes(*dsk, zoom);
     }
     for (const auto& output : m_server->outputs()) {
       if (output->m_mirrorSource == this) {

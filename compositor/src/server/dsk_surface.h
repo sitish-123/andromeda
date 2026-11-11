@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -18,6 +19,7 @@ extern "C" {
 }
 
 struct wlr_buffer;
+struct wlr_scene_buffer;
 struct wlr_surface;
 struct dsk_surface_manager_v1_interface;
 struct dsk_surface_v1_interface;
@@ -65,10 +67,14 @@ namespace andromeda {
     // Called when a surface's committed secure flag changes, and with false when its dsk_surface_v1 goes while the
     // surface lives.
     void setSecureHandler(std::function<void(wlr_surface*, bool)> handler) { m_secureHandler = std::move(handler); }
-    // True while any surface is secure; a cheap gate for per-frame capture redaction.
-    [[nodiscard]] bool anySecure() const { return m_secureCount > 0; }
-    // True when `surface` or a surface it is a subsurface of is secure.
+    // True while any surface is secure or a secure copy lives; a cheap gate for per-frame capture redaction.
+    [[nodiscard]] bool anySecure() const { return m_secureCount > 0 || !m_secureCopies.empty(); }
+    // True when `surface` or a surface it is a subsurface or xdg_popup of is secure.
     [[nodiscard]] bool secureTree(wlr_surface* surface) const;
+    // Output captures paint `copy`, a scene buffer that shows a secure surface's buffer (a thumbnail, a close
+    // snapshot), black until the node is destroyed.
+    void markSecureCopy(wlr_scene_buffer* copy);
+    [[nodiscard]] bool secureCopy(const wlr_scene_buffer* buffer) const;
 
     // The committed state of `surface`; nullptr when it has no dsk_surface_v1.
     [[nodiscard]] State* state(wlr_surface* surface) const;
@@ -255,6 +261,12 @@ namespace andromeda {
     std::function<void(wl_client*, wlr_surface*, const wlr_box&)> m_launchFromHandler;
     std::function<void(wlr_surface*, bool)> m_secureHandler;
     size_t m_secureCount = 0;
+    struct SecureCopy {
+      DskSurfaceManager* manager;
+      wlr_scene_buffer* buffer;
+      wl_listener destroy;
+    };
+    std::vector<std::unique_ptr<SecureCopy>> m_secureCopies;
   };
 
 } // namespace andromeda

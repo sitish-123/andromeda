@@ -10,6 +10,7 @@
 #include "scene/ssd_frame.h"
 #include "scene/surface_blur.h"
 #include "server/color_manager.h"
+#include "server/dsk_surface.h"
 #include "server/server.h"
 #include "view/view.h"
 extern "C" {
@@ -1058,11 +1059,14 @@ namespace andromeda {
     struct CopyCtx {
       wlr_scene_tree* snap;
       ColorManager* colorManager;
+      DskSurfaceManager* dsk;
       int rootX;
       int rootY;
       int buffersCopied;
     };
-    CopyCtx ctx{content, m_server->colorManager(), m_contentTree->node.x, m_contentTree->node.y, 0};
+    CopyCtx ctx{
+        content, m_server->colorManager(), m_server->dskSurfaces(), m_contentTree->node.x, m_contentTree->node.y, 0
+    };
     wlr_scene_node_for_each_buffer(
         &m_contentTree->node,
         [](wlr_scene_buffer* src, int sx, int sy, void* data) {
@@ -1093,6 +1097,9 @@ namespace andromeda {
           wlr_scene_buffer_copy_color(copy, src);
           if (c->colorManager != nullptr) {
             c->colorManager->applySurfaceDescriptionToBuffer(sceneSurface->surface, copy);
+          }
+          if (c->dsk != nullptr && c->dsk->secureTree(sceneSurface->surface)) {
+            c->dsk->markSecureCopy(copy);
           }
           ++c->buffersCopied;
         },

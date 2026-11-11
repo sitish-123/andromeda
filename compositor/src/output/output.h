@@ -24,6 +24,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 #include <wayland-server-core.h>
 
 struct wlr_buffer;
@@ -49,6 +50,7 @@ namespace andromeda {
   enum class FormatTier : uint8_t;
   enum class HdrMode;
   enum class SdrTransfer;
+  class DskSurfaceManager;
   class Server;
   class View;
   class WorkspaceGroup;
@@ -163,25 +165,45 @@ namespace andromeda {
     // The latest scene buffer accepted by the backend, independently of the log's settling interval.
     [[nodiscard]] const DirectScanoutState& directScanout() const { return m_directScanout.current(); }
     [[nodiscard]] const DirectScanoutTracker& directScanoutTracker() const { return m_directScanout; }
+    // Capture listeners read the commit event's buffer. For the commits of one state, onFirst runs first in the commit
+    // signal and points the event at a copy with every secure surface (dsk_surface_v1.set_secure) painted black;
+    // onLast, connected at construction, points it back before any listener connected later.
+    class CaptureRedaction {
+    public:
+      // `zoom`: the magnifier view `state.buffer` shows, in output-local logical coordinates.
+      CaptureRedaction(Output& output, const wlr_output_state& state, std::optional<wlr_fbox> zoom = std::nullopt);
+      ~CaptureRedaction();
+      CaptureRedaction(const CaptureRedaction&) = delete;
+      CaptureRedaction& operator=(const CaptureRedaction&) = delete;
+
+    private:
+      static void onFirst(wl_listener* listener, void* data);
+      static void onLast(wl_listener* listener, void* data);
+      Output& m_output;
+      wlr_buffer* m_buffer = nullptr;
+      std::optional<wlr_fbox> m_zoom;
+      wl_listener m_first{};
+      wl_listener m_last{};
+      wlr_buffer* m_redacted = nullptr;
+    };
     // Observe only the scene state submitted by this attempt. Commit events also cover successful child commits
     // when a grouped output transaction later fails on another backend.
     class SceneCommit {
     public:
       // `grouped`: stay connected for the whole wlr_backend_commit; its later events for this buffer are not commits.
-      SceneCommit(Output& output, const wlr_output_state& state, bool grouped = false);
+      SceneCommit(
+          Output& output, const wlr_output_state& state, bool grouped = false,
+          std::optional<wlr_fbox> zoom = std::nullopt
+      );
       ~SceneCommit();
       SceneCommit(const SceneCommit&) = delete;
       SceneCommit& operator=(const SceneCommit&) = delete;
 
     private:
       static void onCommit(SceneCommit* self, void* data);
-      static void onRedact(wl_listener* listener, void* data);
       Output& m_output;
       wlr_buffer* m_buffer = nullptr;
-      // Capture listeners read the commit event's buffer. onRedact runs first in the commit signal and points the
-      // event at a redacted copy; onCommit runs last (connected just before the commit) and points it back.
-      wl_listener m_redact{};
-      wlr_buffer* m_redacted = nullptr;
+      CaptureRedaction m_redaction;
       bool m_grouped = false;
       bool m_counted = false;
       std::shared_ptr<const DirectScanoutState> m_state;
@@ -291,11 +313,22 @@ namespace andromeda {
     void updateOptimizedBlur(const wlr_box& fullArea);
     void attachMirrorTarget();
     void detachMirrorTarget();
-    void keepFrameForMirrors(wlr_buffer* frame);
-    // A locked copy of `frame` with every secure surface (dsk_surface_v1.set_secure) on this output painted black;
-    // null when no capture listens or no secure surface shows here.
-    wlr_buffer* redactedCaptureFrame(wlr_buffer* frame);
-    void applyZoom(wlr_output_state& state);
+    // `zoom`: the magnifier view `frame` shows.
+    void keepFrameForMirrors(wlr_buffer* frame, const std::optional<wlr_fbox>& zoom = std::nullopt);
+    // The buffer-pixel boxes of every secure surface or secure copy on this output in a frame drawn now; `zoom`: the
+    // magnifier view the frame shows.
+    [[nodiscard]] std::vector<wlr_box> secureFrameBoxes(
+        const DskSurfaceManager& dsk, const std::optional<wlr_fbox>& zoom
+    ) const;
+    // A locked buffer of this output's format for a redacted capture frame; null on failure.
+    [[nodiscard]] wlr_buffer* acquireRedactBuffer(int width, int height);
+    // A locked copy of `frame` with `boxes` painted black, or a locked all-black buffer when drawing it fails.
+    [[nodiscard]] wlr_buffer* redactFrame(wlr_buffer* frame, const std::vector<wlr_box>& boxes);
+    // A locked copy of this output's `frame` for captures, with every secure surface painted black; null when no
+    // capture listens or no secure surface shows. A mirror target redacts the source frame it shows.
+    wlr_buffer* redactedCaptureFrame(wlr_buffer* frame, const std::optional<wlr_fbox>& zoom);
+    // The magnifier view the frame now in `state` shows; nullopt when it could not be drawn.
+    std::optional<wlr_fbox> applyZoom(wlr_output_state& state);
     void updateHdrAvailability(bool activationRejected = false);
 
     Server* m_server = nullptr;
@@ -366,6 +399,8 @@ namespace andromeda {
     bool m_mirrorDirty = false;
     // Last committed frame, held only while other outputs mirror this one.
     wlr_buffer* m_lastFrame = nullptr;
+    // The buffer-pixel boxes of the secure surfaces m_lastFrame shows; mirror targets redact their captures with them.
+    std::vector<wlr_box> m_lastFrameSecure;
     wl_event_source* m_effectFrameTimer = nullptr;
     wl_event_source* m_directScanoutTimer = nullptr;
     // Login cross (output/held_frame.h): the greeter's frame until the shell's wallpaper commits (+300 ms for the bar)

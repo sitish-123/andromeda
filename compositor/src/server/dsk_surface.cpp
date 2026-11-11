@@ -72,6 +72,9 @@ namespace andromeda {
   }
 
   DskSurfaceManager::~DskSurfaceManager() {
+    for (const auto& entry : m_secureCopies) {
+      wl_list_remove(&entry->destroy.link);
+    }
     if (m_global != nullptr) {
       wl_global_destroy(m_global);
     }
@@ -106,10 +109,30 @@ namespace andromeda {
       if (const State* current = state(surface); current != nullptr && current->secure) {
         return true;
       }
-      const wlr_subsurface* subsurface = wlr_subsurface_try_from_wlr_surface(surface);
-      surface = subsurface != nullptr ? subsurface->parent : nullptr;
+      if (const wlr_subsurface* subsurface = wlr_subsurface_try_from_wlr_surface(surface)) {
+        surface = subsurface->parent;
+      } else if (const wlr_xdg_popup* popup = wlr_xdg_popup_try_from_wlr_surface(surface)) {
+        surface = popup->parent;
+      } else {
+        surface = nullptr;
+      }
     }
     return false;
+  }
+
+  void DskSurfaceManager::markSecureCopy(wlr_scene_buffer* copy) {
+    auto entry = std::make_unique<SecureCopy>(SecureCopy{.manager = this, .buffer = copy, .destroy = {}});
+    entry->destroy.notify = [](wl_listener* listener, void* /*data*/) {
+      SecureCopy* self = wl_container_of(listener, self, destroy);
+      wl_list_remove(&self->destroy.link);
+      std::erase_if(self->manager->m_secureCopies, [self](const auto& entry) { return entry.get() == self; });
+    };
+    wl_signal_add(&copy->node.events.destroy, &entry->destroy);
+    m_secureCopies.push_back(std::move(entry));
+  }
+
+  bool DskSurfaceManager::secureCopy(const wlr_scene_buffer* buffer) const {
+    return std::ranges::any_of(m_secureCopies, [buffer](const auto& entry) { return entry->buffer == buffer; });
   }
 
   bool DskSurfaceManager::tracks(const Tracker& tracker, wlr_surface* surface) {

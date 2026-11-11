@@ -9,6 +9,7 @@
 #include "scene/glass_panel.h"
 #include "scene/ssd_frame.h"
 #include "scene/text_buffer.h"
+#include "server/dsk_surface.h"
 #include "server/server.h"
 #include "view/view.h"
 #include "wlr.h"
@@ -75,6 +76,7 @@ namespace andromeda {
 
     struct SurfaceWalk {
       View* view;
+      DskSurfaceManager* dsk;
       wlr_scene_tree* parent;
       wlr_box geometry;
       double zoom;
@@ -91,6 +93,9 @@ namespace andromeda {
       wlr_scene_buffer* copy = wlr_scene_buffer_create(walk->parent, source->buffer);
       if (copy == nullptr) {
         return;
+      }
+      if (walk->dsk != nullptr && walk->dsk->secureTree(surface)) {
+        walk->dsk->markSecureCopy(copy);
       }
       int width = 0;
       int height = 0;
@@ -396,6 +401,7 @@ namespace andromeda {
     if (wlr_surface* root = view->rootSurface(); root != nullptr) {
       SurfaceWalk walk{
           .view = view,
+          .dsk = m_server.dskSurfaces(),
           .parent = card.surfaces,
           .geometry = view->geometryBox(),
           .zoom = card.zoom,

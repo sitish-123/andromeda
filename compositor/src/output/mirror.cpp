@@ -73,8 +73,32 @@ namespace andromeda {
     };
   }
 
+  wlr_texture* drawMirrorFrame(
+      wlr_render_pass* pass, wlr_renderer* renderer, wlr_buffer* frame, wl_output_transform sourceTransform,
+      int targetWidth, int targetHeight, wl_output_transform targetTransform
+  ) {
+    wlr_render_rect_options background{};
+    background.box = {.x = 0, .y = 0, .width = targetWidth, .height = targetHeight};
+    background.color = {.r = 0.0F, .g = 0.0F, .b = 0.0F, .a = 1.0F};
+    wlr_render_pass_add_rect(pass, &background);
+    wlr_texture* texture = wlr_texture_from_buffer(renderer, frame);
+    if (texture == nullptr) {
+      return nullptr;
+    }
+    const MirrorPlacement placement =
+        mirrorPlacement(frame->width, frame->height, sourceTransform, targetWidth, targetHeight, targetTransform);
+    wlr_render_texture_options image{};
+    image.texture = texture;
+    image.dst_box = placement.dst;
+    image.transform = placement.transform;
+    image.filter_mode = WLR_SCALE_FILTER_BILINEAR;
+    wlr_render_pass_add_texture(pass, &image);
+    return texture;
+  }
+
   bool renderMirrorFrame(
-      wlr_output* target, wlr_renderer* renderer, wlr_buffer* frame, wl_output_transform sourceTransform
+      wlr_output* target, wlr_renderer* renderer, wlr_buffer* frame, wl_output_transform sourceTransform,
+      const std::function<bool(const wlr_output_state&)>& commit
   ) {
     wlr_output_state state{};
     wlr_output_state_init(&state);
@@ -83,28 +107,13 @@ namespace andromeda {
       wlr_output_state_finish(&state);
       return false;
     }
-
-    wlr_render_rect_options background{};
-    background.box = {.x = 0, .y = 0, .width = target->width, .height = target->height};
-    background.color = {.r = 0.0F, .g = 0.0F, .b = 0.0F, .a = 1.0F};
-    wlr_render_pass_add_rect(pass, &background);
-    wlr_texture* texture = wlr_texture_from_buffer(renderer, frame);
-    if (texture != nullptr) {
-      const MirrorPlacement placement = mirrorPlacement(
-          frame->width, frame->height, sourceTransform, target->width, target->height, target->transform
-      );
-      wlr_render_texture_options image{};
-      image.texture = texture;
-      image.dst_box = placement.dst;
-      image.transform = placement.transform;
-      image.filter_mode = WLR_SCALE_FILTER_BILINEAR;
-      wlr_render_pass_add_texture(pass, &image);
-    }
+    wlr_texture* texture =
+        drawMirrorFrame(pass, renderer, frame, sourceTransform, target->width, target->height, target->transform);
     bool ok = wlr_render_pass_submit(pass);
     if (texture != nullptr) {
       wlr_texture_destroy(texture);
     }
-    ok = ok && wlr_output_commit_state(target, &state);
+    ok = ok && commit(state);
     wlr_output_state_finish(&state);
     return ok;
   }
