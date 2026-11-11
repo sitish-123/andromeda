@@ -281,10 +281,8 @@ namespace settings {
         p.push_back(std::move(key));
         return p;
       };
-      entries.push_back(makeEntry(
-          section, "general", tr("settings.schema.shared.enabled.label"), tr("settings.schema.bar.enabled.description"),
-          path("enabled"), ToggleSetting{bar.enabled}, "visible"
-      ));
+      auto barRows = generateSchemaEntries(noctalia::config::schema::barFieldsSchema(), bar, root);
+      appendRow(entries, barRows, "enabled");
       entries.push_back(makeEntry(
           section, "general", tr("settings.schema.shared.position.label"),
           tr("settings.schema.bar.position.description"), path("position"), positionSelect(bar.position), "edge"
@@ -327,11 +325,7 @@ namespace settings {
         e.visibleWhen = autoHideOn;
         entries.push_back(std::move(e));
       }
-      entries.push_back(makeEntry(
-          section, "general", tr("settings.schema.shared.reserve-space.label"),
-          tr("settings.schema.bar.reserve-space.description"), path("reserve_space"), ToggleSetting{bar.reserveSpace},
-          "exclusive zone"
-      ));
+      appendRow(entries, barRows, "reserve_space");
       entries.push_back(makeEntry(
           section, "general", tr("settings.schema.bar.layer.label"), tr("settings.schema.bar.layer.description"),
           path("layer"),
@@ -340,7 +334,6 @@ namespace settings {
           )),
           "layer shell z-order"
       ));
-      auto barRows = generateSchemaEntries(noctalia::config::schema::barFieldsSchema(), bar, root);
       for (const auto* key : {"thickness", "scale", "font_scale"}) {
         appendRow(entries, barRows, key);
       }
@@ -407,11 +400,7 @@ namespace settings {
           barReservedSlider(bar.borderWidth, 20.0F, 0.5F, false), "outline stroke", true
       ));
       appendRow(entries, barRows, "islands");
-      entries.push_back(makeEntry(
-          section, "effects", tr("settings.schema.shared.background-opacity.label"),
-          tr("settings.schema.bar.background-opacity.description"), path("background_opacity"),
-          SliderSetting{bar.backgroundOpacity, 0.0F, 1.0F, 0.01F, false}, "alpha transparency translucent opacity"
-      ));
+      appendRow(entries, barRows, "background_opacity");
       if (env.backgroundEffectBlurSupported) {
         entries.push_back(makeEntry(
             section, "effects", tr("settings.schema.bar.compositor-blur.label"),
@@ -419,15 +408,8 @@ namespace settings {
             ToggleSetting{bar.compositorBlur}, "blur frosted background effect wayland"
         ));
       }
-      entries.push_back(makeEntry(
-          section, "effects", tr("settings.schema.shared.shadow.label"), tr("settings.schema.bar.shadow.description"),
-          path("shadow"), ToggleSetting{bar.shadow}, "shadow"
-      ));
-      entries.push_back(makeEntry(
-          section, "effects", tr("settings.schema.shared.contact-shadow.label"),
-          tr("settings.schema.bar.contact-shadow.description"), path("contact_shadow"),
-          ToggleSetting{bar.contactShadow}, "shadow contact panel attached"
-      ));
+      appendRow(entries, barRows, "shadow");
+      appendRow(entries, barRows, "contact_shadow");
       entries.push_back(makeEntry(
           section, "layout", tr("settings.schema.bar.panel-overlap.label"),
           tr("settings.schema.bar.panel-overlap.description"), path("panel_overlap"),

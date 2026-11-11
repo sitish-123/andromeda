@@ -384,11 +384,8 @@ namespace settings {
         return current.dock;
       };
 
-      entries.push_back(makeEntry(
-          SettingsSection::Dock, "general", tr("settings.schema.shared.enabled.label"),
-          tr("settings.schema.dock.enabled.description"), path("enabled"), ToggleSetting{dock.enabled}, "launcher apps"
-      ));
       auto dockRows = generateSchemaEntries(noctalia::config::schema::dockSchema(), dock, root);
+      appendRow(entries, dockRows, "enabled");
       appendRow(entries, dockRows, "active_monitor_only");
       entries.push_back(makeEntry(
           SettingsSection::Dock, "behavior", tr("settings.schema.shared.auto-hide.label"),
@@ -396,11 +393,7 @@ namespace settings {
           autoHideModeSelect(barAutoHideMode(dock.autoHide, dock.smartAutoHide), path("smart_auto_hide")),
           "autohide smart workspace"
       ));
-      entries.push_back(makeEntry(
-          SettingsSection::Dock, "behavior", tr("settings.schema.shared.reserve-space.label"),
-          tr("settings.schema.dock.reserve-space.description"), path("reserve_space"), ToggleSetting{dock.reserveSpace},
-          "exclusive zone"
-      ));
+      appendRow(entries, dockRows, "reserve_space");
       entries.push_back(makeEntry(
           SettingsSection::Dock, "behavior", tr("settings.schema.dock.layer.label"),
           tr("settings.schema.dock.layer.description"), path("layer"),
@@ -452,58 +445,18 @@ namespace settings {
         entry.visibleWhen = dockLauncherEnabled;
         entries.push_back(std::move(entry));
       }
-      entries.push_back(makeEntry(
-          SettingsSection::Dock, "layout", tr("settings.schema.shared.position.label"),
-          tr("settings.schema.dock.position.description"), path("position"),
-          asSegmented(enumSelect(kDockEdges, dock.position)), "edge"
-      ));
+      appendRow(entries, dockRows, "position");
       appendRow(entries, dockRows, "icon_size");
-      entries.push_back(makeEntry(
-          SettingsSection::Dock, "layout", tr("settings.schema.shared.main-axis-padding.label"),
-          tr("settings.schema.dock.main-axis-padding.description"), path("main_axis_padding"),
-          sliderFor(dock.mainAxisPadding, noctalia::config::schema::kDockPaddingRange, true), "inset"
-      ));
-      entries.push_back(makeEntry(
-          SettingsSection::Dock, "layout", tr("settings.schema.shared.cross-axis-padding.label"),
-          tr("settings.schema.dock.cross-axis-padding.description"), path("cross_axis_padding"),
-          sliderFor(dock.crossAxisPadding, noctalia::config::schema::kDockPaddingRange, true), "inset"
-      ));
+      appendRow(entries, dockRows, "main_axis_padding");
+      appendRow(entries, dockRows, "cross_axis_padding");
       appendRow(entries, dockRows, "item_spacing");
-      entries.push_back(makeEntry(
-          SettingsSection::Dock, "layout", tr("settings.schema.shared.ends-margin.label"),
-          tr("settings.schema.dock.ends-margin.description"), path("margin_ends"),
-          sliderFor(dock.marginEnds, noctalia::config::schema::kDockMarginEndsRange, true), "gap inset"
-      ));
-      entries.push_back(makeEntry(
-          SettingsSection::Dock, "layout", tr("settings.schema.shared.edge-margin.label"),
-          tr("settings.schema.dock.edge-margin.description"), path("margin_edge"),
-          sliderFor(dock.marginEdge, noctalia::config::schema::kDockMarginEdgeRange, true), "gap inset"
-      ));
-      entries.push_back(makeEntry(
-          SettingsSection::Dock, "shape", tr("settings.schema.shared.corner-radius.label"),
-          tr("settings.schema.dock.corner-radius.description"), path("radius"),
-          sliderFor(dock.radius, noctalia::config::schema::kDockRadiusRange, true), "rounded"
-      ));
-      entries.push_back(makeEntry(
-          SettingsSection::Dock, "shape", tr("settings.schema.shared.corner-top-left.label"),
-          tr("settings.schema.dock.corner-top-left.description"), path("radius_top_left"),
-          sliderFor(dock.radiusTopLeft, noctalia::config::schema::kDockRadiusRange, true), "rounded corner", true
-      ));
-      entries.push_back(makeEntry(
-          SettingsSection::Dock, "shape", tr("settings.schema.shared.corner-top-right.label"),
-          tr("settings.schema.dock.corner-top-right.description"), path("radius_top_right"),
-          sliderFor(dock.radiusTopRight, noctalia::config::schema::kDockRadiusRange, true), "rounded corner", true
-      ));
-      entries.push_back(makeEntry(
-          SettingsSection::Dock, "shape", tr("settings.schema.shared.corner-bottom-left.label"),
-          tr("settings.schema.dock.corner-bottom-left.description"), path("radius_bottom_left"),
-          sliderFor(dock.radiusBottomLeft, noctalia::config::schema::kDockRadiusRange, true), "rounded corner", true
-      ));
-      entries.push_back(makeEntry(
-          SettingsSection::Dock, "shape", tr("settings.schema.shared.corner-bottom-right.label"),
-          tr("settings.schema.dock.corner-bottom-right.description"), path("radius_bottom_right"),
-          sliderFor(dock.radiusBottomRight, noctalia::config::schema::kDockRadiusRange, true), "rounded corner", true
-      ));
+      appendRow(entries, dockRows, "margin_ends");
+      appendRow(entries, dockRows, "margin_edge");
+      appendRow(entries, dockRows, "radius");
+      appendRow(entries, dockRows, "radius_top_left");
+      appendRow(entries, dockRows, "radius_top_right");
+      appendRow(entries, dockRows, "radius_bottom_left");
+      appendRow(entries, dockRows, "radius_bottom_right");
       {
         auto entry = makeEntry(
             SettingsSection::Dock, "shape", tr("settings.schema.dock.concave-edge-corners.label"),
@@ -519,12 +472,7 @@ namespace settings {
           true
       ));
       appendRow(entries, dockRows, "border_width");
-      entries.push_back(makeEntry(
-          SettingsSection::Dock, "effects", tr("settings.schema.shared.background-opacity.label"),
-          tr("settings.schema.dock.background-opacity.description"), path("background_opacity"),
-          sliderFor(dock.backgroundOpacity, noctalia::config::schema::kUnitRange, false),
-          "alpha transparency translucent opacity"
-      ));
+      appendRow(entries, dockRows, "background_opacity");
       if (env.backgroundEffectBlurSupported) {
         entries.push_back(makeEntry(
             SettingsSection::Dock, "effects", tr("settings.schema.dock.compositor-blur.label"),
@@ -532,10 +480,7 @@ namespace settings {
             ToggleSetting{dock.compositorBlur}, "blur background effect"
         ));
       }
-      entries.push_back(makeEntry(
-          SettingsSection::Dock, "effects", tr("settings.schema.shared.shadow.label"),
-          tr("settings.schema.dock.shadow.description"), path("shadow"), ToggleSetting{dock.shadow}, "shadow"
-      ));
+      appendRow(entries, dockRows, "shadow");
       appendRow(entries, dockRows, "magnification");
       appendRow(entries, dockRows, "magnification_scale");
       appendGroup(entries, dockRows, "focus-styling");

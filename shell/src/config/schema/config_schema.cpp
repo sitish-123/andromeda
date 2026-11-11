@@ -3336,24 +3336,77 @@ namespace noctalia::config::schema {
   }
 
   const Schema<DockConfig>& dockSchema() {
+    const auto dockCorner = [](std::string_view label, std::string_view title) {
+      return RowSpec{
+          .kind = RowSpec::Kind::Slider,
+          .section = "dock",
+          .group = "shape",
+          .label = label,
+          .title = title,
+          .tags = "rounded corner",
+          .advanced = true,
+      };
+    };
     static const Schema<DockConfig> s = {
-        field(&DockConfig::enabled, "enabled"),
-        enumField(&DockConfig::position, "position", kDockEdges),
+        field(
+            &DockConfig::enabled, "enabled",
+            RowSpec{.section = "dock", .group = "general", .title = "shared.enabled", .tags = "launcher apps"}
+        ),
+        enumField(
+            &DockConfig::position, "position", kDockEdges,
+            RowSpec{
+                .kind = RowSpec::Kind::Select,
+                .section = "dock",
+                .group = "layout",
+                .title = "shared.position",
+                .tags = "edge",
+                .segmented = true,
+            }
+        ),
         field(
             &DockConfig::activeMonitorOnly, "active_monitor_only",
             RowSpec{.section = "dock", .group = "general", .tags = "monitor"}
         ),
         field(
             &DockConfig::iconSize, "icon_size", kDockIconSizeRange,
-            RowSpec{.kind = RowSpec::Kind::Slider, .section = "dock", .group = "layout", .tags = "apps", .integer = true}
+            RowSpec{
+                .kind = RowSpec::Kind::Slider, .section = "dock", .group = "layout", .tags = "apps", .integer = true
+            }
         ),
-        field(&DockConfig::mainAxisPadding, "main_axis_padding", kDockPaddingRange),
-        field(&DockConfig::crossAxisPadding, "cross_axis_padding", kDockPaddingRange),
+        field(
+            &DockConfig::mainAxisPadding, "main_axis_padding", kDockPaddingRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "dock",
+                .group = "layout",
+                .title = "shared.main-axis-padding",
+                .tags = "inset",
+            }
+        ),
+        field(
+            &DockConfig::crossAxisPadding, "cross_axis_padding", kDockPaddingRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "dock",
+                .group = "layout",
+                .title = "shared.cross-axis-padding",
+                .tags = "inset",
+            }
+        ),
         field(
             &DockConfig::itemSpacing, "item_spacing", kDockItemSpacingRange,
             RowSpec{.kind = RowSpec::Kind::Slider, .section = "dock", .group = "layout", .tags = "gap", .integer = true}
         ),
-        field(&DockConfig::backgroundOpacity, "background_opacity", kUnitRange),
+        field(
+            &DockConfig::backgroundOpacity, "background_opacity", kUnitRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "dock",
+                .group = "effects",
+                .title = "shared.background-opacity",
+                .tags = "alpha transparency translucent opacity",
+            }
+        ),
         field(&DockConfig::compositorBlur, "compositor_blur"),
         colorField(&DockConfig::border, "border"),
         field(
@@ -3382,17 +3435,64 @@ namespace noctalia::config::schema {
             },
             [](toml::table& tbl, const DockConfig& in) {
               tbl.insert_or_assign("radius", static_cast<std::int64_t>(in.radius));
+            },
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "dock",
+                .group = "shape",
+                .label = "dock.corner-radius",
+                .title = "shared.corner-radius",
+                .tags = "rounded",
+                .integer = true,
+                .range = {kDockRadiusRange.min, kDockRadiusRange.max, kDockRadiusRange.step},
             }
         ),
-        field(&DockConfig::radiusTopLeft, "radius_top_left", kDockRadiusRange),
-        field(&DockConfig::radiusTopRight, "radius_top_right", kDockRadiusRange),
-        field(&DockConfig::radiusBottomLeft, "radius_bottom_left", kDockRadiusRange),
-        field(&DockConfig::radiusBottomRight, "radius_bottom_right", kDockRadiusRange),
+        field(
+            &DockConfig::radiusTopLeft, "radius_top_left", kDockRadiusRange,
+            dockCorner("dock.corner-top-left", "shared.corner-top-left")
+        ),
+        field(
+            &DockConfig::radiusTopRight, "radius_top_right", kDockRadiusRange,
+            dockCorner("dock.corner-top-right", "shared.corner-top-right")
+        ),
+        field(
+            &DockConfig::radiusBottomLeft, "radius_bottom_left", kDockRadiusRange,
+            dockCorner("dock.corner-bottom-left", "shared.corner-bottom-left")
+        ),
+        field(
+            &DockConfig::radiusBottomRight, "radius_bottom_right", kDockRadiusRange,
+            dockCorner("dock.corner-bottom-right", "shared.corner-bottom-right")
+        ),
         field(&DockConfig::concaveEdgeCorners, "concave_edge_corners"),
-        field(&DockConfig::marginEnds, "margin_ends", kDockMarginEndsRange),
-        field(&DockConfig::marginEdge, "margin_edge", kDockMarginEdgeRange),
-        field(&DockConfig::shadow, "shadow"),
-        field(&DockConfig::showRunning, "show_running", RowSpec{.section = "dock", .group = "behavior", .tags = "windows"}),
+        field(
+            &DockConfig::marginEnds, "margin_ends", kDockMarginEndsRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "dock",
+                .group = "layout",
+                .label = "dock.ends-margin",
+                .title = "shared.ends-margin",
+                .tags = "gap inset",
+            }
+        ),
+        field(
+            &DockConfig::marginEdge, "margin_edge", kDockMarginEdgeRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "dock",
+                .group = "layout",
+                .label = "dock.edge-margin",
+                .title = "shared.edge-margin",
+                .tags = "gap inset",
+            }
+        ),
+        field(
+            &DockConfig::shadow, "shadow",
+            RowSpec{.section = "dock", .group = "effects", .title = "shared.shadow", .tags = "shadow"}
+        ),
+        field(
+            &DockConfig::showRunning, "show_running", RowSpec{.section = "dock", .group = "behavior", .tags = "windows"}
+        ),
         field(&DockConfig::autoHide, "auto_hide"),
         field(&DockConfig::smartAutoHide, "smart_auto_hide"),
         custom<DockConfig>(
@@ -3410,7 +3510,10 @@ namespace noctalia::config::schema {
             },
             [](toml::table& tbl, const DockConfig& in) { tbl.insert_or_assign("layer", in.layer); }
         ),
-        field(&DockConfig::reserveSpace, "reserve_space"),
+        field(
+            &DockConfig::reserveSpace, "reserve_space",
+            RowSpec{.section = "dock", .group = "behavior", .title = "shared.reserve-space", .tags = "exclusive zone"}
+        ),
         field(
             &DockConfig::activeScale, "active_scale", kDockActiveScaleRange,
             RowSpec{
@@ -3463,7 +3566,9 @@ namespace noctalia::config::schema {
                 .advanced = true,
             }
         ),
-        field(&DockConfig::showDots, "show_dots", RowSpec{.section = "dock", .group = "behavior", .tags = "running dots"}),
+        field(
+            &DockConfig::showDots, "show_dots", RowSpec{.section = "dock", .group = "behavior", .tags = "running dots"}
+        ),
         field(
             &DockConfig::runningBar, "running_bar",
             RowSpec{.section = "dock", .group = "behavior", .tags = "running indicator"}
@@ -3516,12 +3621,18 @@ namespace noctalia::config::schema {
 
   const Schema<BarConfig>& barFieldsSchema() {
     static const Schema<BarConfig> s = {
-        field(&BarConfig::enabled, "enabled"),
+        field(
+            &BarConfig::enabled, "enabled",
+            RowSpec{.section = "bar", .group = "general", .title = "shared.enabled", .tags = "visible"}
+        ),
         field(&BarConfig::autoHide, "auto_hide"),
         field(&BarConfig::autoHideDelayMs, "auto_hide_delay_ms", kBarAutoHideDelayMsRange),
         field(&BarConfig::smartAutoHide, "smart_auto_hide"),
         field(&BarConfig::showOnWorkspaceSwitch, "show_on_workspace_switch"),
-        field(&BarConfig::reserveSpace, "reserve_space"),
+        field(
+            &BarConfig::reserveSpace, "reserve_space",
+            RowSpec{.section = "bar", .group = "general", .title = "shared.reserve-space", .tags = "exclusive zone"}
+        ),
         barLayerField(),
         field(
             &BarConfig::thickness, "thickness", kBarThicknessRange,
@@ -3533,7 +3644,17 @@ namespace noctalia::config::schema {
                 .range = {10.0F, 120.0F, 1.0F},
             }
         ),
-        field(&BarConfig::backgroundOpacity, "background_opacity", kBarOpacityRange),
+        field(
+            &BarConfig::backgroundOpacity, "background_opacity", kBarOpacityRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "bar",
+                .group = "effects",
+                .title = "shared.background-opacity",
+                .tags = "alpha transparency translucent opacity",
+                .range = {0.0F, 1.0F, 0.01F},
+            }
+        ),
         optionalFloatField(&BarConfig::solidOpacity, "solid_opacity", kUnitRange),
         field(&BarConfig::compositorBlur, "compositor_blur"),
         field(
@@ -3573,8 +3694,14 @@ namespace noctalia::config::schema {
                 .range = {0.0F, 32.0F, 1.0F},
             }
         ),
-        field(&BarConfig::shadow, "shadow"),
-        field(&BarConfig::contactShadow, "contact_shadow"),
+        field(
+            &BarConfig::shadow, "shadow",
+            RowSpec{.section = "bar", .group = "effects", .title = "shared.shadow", .tags = "shadow"}
+        ),
+        field(
+            &BarConfig::contactShadow, "contact_shadow",
+            RowSpec{.section = "bar", .group = "effects", .title = "shared.contact-shadow", .tags = "shadow contact panel attached"}
+        ),
         field(&BarConfig::panelOverlap, "panel_overlap", kBarPanelOverlapRange),
         field(
             &BarConfig::capsuleThickness, "capsule_thickness", kBarCapsuleThicknessRange,

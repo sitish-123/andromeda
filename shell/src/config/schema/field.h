@@ -151,7 +151,8 @@ namespace noctalia::config::schema {
     // Translation id between "settings.schema." and ".label"/".description". Empty = "<section>.<key>",
     // with '_' in the key written as '-'.
     std::string_view label;
-    std::string_view tags; // extra search words
+    std::string_view title; // title translation id when it differs from `label`, e.g. "shared.enabled"
+    std::string_view tags;  // extra search words
     bool advanced = false;
     bool segmented = false;  // select shown as a pill group
     bool integer = false;    // slider value written as an integer
@@ -438,9 +439,9 @@ namespace noctalia::config::schema {
   Field<Struct> custom(
       std::string_view key,
       std::function<void(const toml::table& tbl, Struct& out, std::string_view parentPath, Diagnostics& diag)> read,
-      std::function<void(toml::table& tbl, const Struct& in)> write
+      std::function<void(toml::table& tbl, const Struct& in)> write, std::optional<RowSpec> row = std::nullopt
   ) {
-    return Field<Struct>{key, std::move(read), std::move(write)};
+    return Field<Struct>{key, std::move(read), std::move(write), nullptr, std::move(row)};
   }
 
   // String holding a filesystem path: ~ and $VARS expand on read, emitted raw.

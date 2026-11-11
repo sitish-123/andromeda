@@ -188,7 +188,8 @@ namespace settings {
                                                     : std::string(row.label);
         entries.push_back(makeEntry(
             settingsSectionFromId(row.section).value(), std::string(row.group),
-            i18n::tr("settings.schema." + label + ".label"), i18n::tr("settings.schema." + label + ".description"),
+            i18n::tr("settings.schema." + (row.title.empty() ? label : std::string(row.title)) + ".label"),
+            i18n::tr("settings.schema." + label + ".description"),
             std::move(path), std::move(control), std::string(row.tags), row.advanced
         ));
       }
