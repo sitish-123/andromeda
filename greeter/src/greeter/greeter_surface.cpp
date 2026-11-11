@@ -1828,7 +1828,7 @@ void GreeterSurface::beginSessionStart() {
   }
 
   // greetd cmd is argv; Exec= may be multiple tokens (e.g. "dbus-run-session gnome-session").
-  // x11 sessions are wrapped in noctalia-greeter-xsession to bootstrap Xorg first.
+  // x11 sessions are wrapped in andromeda-greeter-xsession to bootstrap Xorg first.
   {
     const std::vector<std::string> argv = greeter::sessionArgv(session);
     if (argv.empty()) {

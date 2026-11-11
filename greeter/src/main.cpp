@@ -100,7 +100,7 @@ int main(int argc, char* argv[]) {
 
   if (argc >= 2 && std::strcmp(argv[1], "andromeda-config") == 0) {
     if (argc < 3 || argc > 4) {
-      std::fputs("error: usage: noctalia-greeter andromeda-config OUT [STATE_DIR]\n", stderr);
+      std::fputs("error: usage: andromeda-greeter andromeda-config OUT [STATE_DIR]\n", stderr);
       return 1;
     }
     const std::string config = greeter::config::andromedaGreeterConfig(argc == 4 ? argv[3] : "");
@@ -117,7 +117,7 @@ int main(int argc, char* argv[]) {
   if (argc >= 2 && std::strcmp(argv[1], "outputs") == 0) {
     const bool details = argc >= 3 && std::strcmp(argv[2], "--details") == 0;
     if (argc > (details ? 3 : 2)) {
-      std::fputs("error: usage: noctalia-greeter outputs [--details]\n", stderr);
+      std::fputs("error: usage: andromeda-greeter outputs [--details]\n", stderr);
       return 1;
     }
     WaylandClient client;
@@ -168,7 +168,7 @@ int main(int argc, char* argv[]) {
       continue;
     }
     if (std::strcmp(argv[i], "--version") == 0 || std::strcmp(argv[i], "-v") == 0) {
-      std::printf("noctalia-greeter %s\n", NOCTALIA_GREETER_VERSION);
+      std::printf("andromeda-greeter %s\n", NOCTALIA_GREETER_VERSION);
       return 0;
     }
     if (std::strcmp(argv[i], "--log-test") == 0) {
@@ -184,12 +184,12 @@ int main(int argc, char* argv[]) {
     }
     if (std::strcmp(argv[i], "--help") == 0 || std::strcmp(argv[i], "-h") == 0) {
       std::puts(
-          "Usage: noctalia-greeter [OPTIONS]\n"
-          "       noctalia-greeter sessions\n"
-          "       noctalia-greeter outputs [--details]\n"
-          "       noctalia-greeter passwordless-sync enable USER\n"
-          "       noctalia-greeter passwordless-sync disable USER\n"
-          "       noctalia-greeter passwordless-sync status [USER]\n"
+          "Usage: andromeda-greeter [OPTIONS]\n"
+          "       andromeda-greeter sessions\n"
+          "       andromeda-greeter outputs [--details]\n"
+          "       andromeda-greeter passwordless-sync enable USER\n"
+          "       andromeda-greeter passwordless-sync disable USER\n"
+          "       andromeda-greeter passwordless-sync status [USER]\n"
           "\n"
           "Without a command, run as a Wayland client under `andromeda --greeter`.\n"
           "\n"
@@ -213,7 +213,7 @@ int main(int argc, char* argv[]) {
           "                        debug/warn/error → stderr); /path → log file\n"
           "\n"
           "Greetd example:\n"
-          "  command = \"/usr/local/bin/noctalia-greeter-session -- --session "
+          "  command = \"/usr/local/bin/andromeda-greeter-session -- --session "
           "niri --user lysec\"\n"
           "  user = \"greeter\"\n"
           "\n"
@@ -229,7 +229,7 @@ int main(int argc, char* argv[]) {
   std::signal(SIGTERM, signalHandler);
   std::signal(SIGINT, signalHandler);
 
-  kLog.info("noctalia-greeter {}", NOCTALIA_GREETER_VERSION);
+  kLog.info("andromeda-greeter {}", NOCTALIA_GREETER_VERSION);
   kLog.debug("build fingerprint {}", kBuildFingerprint);
 
   const bool greetdLaunched = std::getenv("GREETD_SOCK") != nullptr;
@@ -246,7 +246,7 @@ int main(int argc, char* argv[]) {
   }
 
   if (std::getenv("WAYLAND_DISPLAY") == nullptr) {
-    kLog.error("WAYLAND_DISPLAY is not set; run via noctalia-greeter-session");
+    kLog.error("WAYLAND_DISPLAY is not set; run via andromeda-greeter-session");
     if (greetdLaunched) {
       preventGreetdRespawnLoop();
     }

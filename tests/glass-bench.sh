@@ -53,7 +53,7 @@ if [[ $LOWEND == 1 ]]; then
 fi
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 ANDROMEDA=${ANDROMEDA:-$ROOT/compositor/build-live/andromeda}
-NOCTALIA=${NOCTALIA:-$ROOT/shell/build-f7/noctalia}
+NOCTALIA=${NOCTALIA:-$ROOT/shell/build-f7/andromeda-shell}
 SECONDS_PER=${SECONDS_PER:-8}
 OUT=${OUT:-/tmp/glass-bench}
 BUDGET_SCALE=${BUDGET_SCALE:-1.0}

@@ -35,7 +35,7 @@ namespace greeter::passwordless_sync {
     constexpr char kRulesDirectory[] = "/etc/polkit-1/rules.d";
     constexpr char kManagedRuleName[] = "49-noctalia-greeter-passwordless-sync.rules";
     constexpr char kLockPath[] = "/run/noctalia-greeter-passwordless-sync.lock";
-    constexpr char kApplyHelperName[] = "noctalia-greeter-apply-appearance";
+    constexpr char kApplyHelperName[] = "andromeda-greeter-apply-appearance";
     constexpr char kActionId[] = "org.andromeda.greeter.sync-appearance";
     // Rules written before the rename; read as ours and rewritten with kActionId.
     constexpr char kLegacyActionId[] = "org.noctalia.greeter.sync-appearance";
@@ -105,9 +105,9 @@ namespace greeter::passwordless_sync {
 
     void printUsage(std::ostream& out) {
       out
-          << "Usage: noctalia-greeter passwordless-sync enable USER\n"
-          << "       noctalia-greeter passwordless-sync disable USER\n"
-          << "       noctalia-greeter passwordless-sync status [USER]\n\n"
+          << "Usage: andromeda-greeter passwordless-sync enable USER\n"
+          << "       andromeda-greeter passwordless-sync disable USER\n"
+          << "       andromeda-greeter passwordless-sync status [USER]\n\n"
           << "Manage the dedicated Polkit rule for constrained, appearance-only sync.\n"
           << "enable and disable require administrator privileges. The authenticated\n"
           << "sync workflow remains available whether or not this rule is enabled.\n";

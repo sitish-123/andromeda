@@ -10,5 +10,5 @@ handoff = true
 service = "gdm-face"
 
 [default_session]
-command = "/usr/bin/noctalia-greeter-session"
+command = "/usr/bin/andromeda-greeter-session"
 user = "greeter"

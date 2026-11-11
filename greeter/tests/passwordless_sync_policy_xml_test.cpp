@@ -10,7 +10,7 @@
 
 namespace {
 
-  constexpr std::string_view kHelper = "/usr/bin/noctalia-greeter-apply-appearance";
+  constexpr std::string_view kHelper = "/usr/bin/andromeda-greeter-apply-appearance";
 
   [[nodiscard]] std::string policyWith(std::string_view body) {
     return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
@@ -33,12 +33,12 @@ namespace {
 
   [[nodiscard]] std::string ruleWith(std::string_view actionId) {
     return "// Managed by noctalia-greeter passwordless-sync. Do not edit.\n"
-           "// metadata: {\"format\":1,\"helper\":\"/usr/bin/noctalia-greeter-apply-appearance\",\"users\":[\"alice\"]}\n"
+           "// metadata: {\"format\":1,\"helper\":\"/usr/bin/andromeda-greeter-apply-appearance\",\"users\":[\"alice\"]}\n"
            "\npolkit.addRule(function(action, subject) {\n"
            "  var allowedUsers = [\"alice\"];\n\n"
            "  if (action.id == \""
         + std::string(actionId)
-        + "\" &&\n      action.lookup(\"program\") == \"/usr/bin/noctalia-greeter-apply-appearance\" &&\n"
+        + "\" &&\n      action.lookup(\"program\") == \"/usr/bin/andromeda-greeter-apply-appearance\" &&\n"
           "      action.lookup(\"user\") == \"root\" &&\n"
           "      subject.local && subject.active &&\n"
           "      allowedUsers.indexOf(subject.user) >= 0) {\n"
@@ -60,7 +60,7 @@ namespace {
 int main(const int argc, char* argv[]) {
   const std::string validAction = "  <action id=\"org.andromeda.greeter.sync-appearance\">\n"
                                   "    <annotate key=\"org.freedesktop.policykit.exec.path\">"
-                                  "/usr/bin/noctalia-greeter-apply-appearance</annotate>\n"
+                                  "/usr/bin/andromeda-greeter-apply-appearance</annotate>\n"
                                   "    <annotate key=\"org.freedesktop.policykit.exec.argv1\">--sync</annotate>\n"
                                   "  </action>";
 
@@ -71,7 +71,7 @@ int main(const int argc, char* argv[]) {
       policyWith(
           "  <action id=\"org.andromeda.greeter.sync-appearance\">\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.path\">"
-          "/usr/bin/noctalia-greeter-apply-appearance</annotate>\n"
+          "/usr/bin/andromeda-greeter-apply-appearance</annotate>\n"
           "    <!-- <annotate key=\"org.freedesktop.policykit.exec.argv1\">--sync</annotate> -->\n"
           "  </action>"
       ),
@@ -82,7 +82,7 @@ int main(const int argc, char* argv[]) {
       policyWith(
           "  <action notid=\"org.andromeda.greeter.sync-appearance\">\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.path\">"
-          "/usr/bin/noctalia-greeter-apply-appearance</annotate>\n"
+          "/usr/bin/andromeda-greeter-apply-appearance</annotate>\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.argv1\">--sync</annotate>\n"
           "  </action>"
       ),
@@ -93,7 +93,7 @@ int main(const int argc, char* argv[]) {
       policyWith(
           "  <action id=\"org.andromeda.greeter.sync-appearance\">\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.path\">"
-          "/usr/bin/noctalia-greeter-apply-appearance</annotate>\n"
+          "/usr/bin/andromeda-greeter-apply-appearance</annotate>\n"
           "    <defaults><annotate key=\"org.freedesktop.policykit.exec.argv1\">--sync</annotate></defaults>\n"
           "  </action>"
       ),
@@ -115,7 +115,7 @@ int main(const int argc, char* argv[]) {
       policyWith(
           "  <action id=\"org.andromeda.greeter.sync-appearance\">\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.path\">"
-          "/usr/bin/noctalia-greeter-apply-appearance</annotate>\n"
+          "/usr/bin/andromeda-greeter-apply-appearance</annotate>\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.argv1\">--setup-system</annotate>\n"
           "  </action>"
       ),
@@ -126,9 +126,9 @@ int main(const int argc, char* argv[]) {
       policyWith(
           "  <action id=\"org.andromeda.greeter.sync-appearance\">\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.path\">"
-          "/usr/bin/noctalia-greeter-apply-appearance</annotate>\n"
+          "/usr/bin/andromeda-greeter-apply-appearance</annotate>\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.path\">"
-          "/usr/bin/noctalia-greeter-apply-appearance</annotate>\n"
+          "/usr/bin/andromeda-greeter-apply-appearance</annotate>\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.argv1\">--sync</annotate>\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.argv1\">--sync</annotate>\n"
           "  </action>"
@@ -139,7 +139,7 @@ int main(const int argc, char* argv[]) {
       "namespaced policy",
       "<policyconfig xmlns=\"urn:unexpected\"><action id=\"org.andromeda.greeter.sync-appearance\">"
       "<annotate key=\"org.freedesktop.policykit.exec.path\">"
-      "/usr/bin/noctalia-greeter-apply-appearance</annotate>"
+      "/usr/bin/andromeda-greeter-apply-appearance</annotate>"
       "<annotate key=\"org.freedesktop.policykit.exec.argv1\">--sync</annotate>"
       "</action></policyconfig>",
       false

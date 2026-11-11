@@ -55,7 +55,9 @@ namespace {
   }
 
   [[nodiscard]] bool containsNoctaliaGreeter(std::string_view command) {
-    return command.find("noctalia-greeter") != std::string_view::npos;
+    // The old name stays matched: a greetd config written before the rename still runs the compat symlink.
+    return command.find("andromeda-greeter") != std::string_view::npos
+        || command.find("noctalia-greeter") != std::string_view::npos;
   }
 
   struct GreetdSessionScan {

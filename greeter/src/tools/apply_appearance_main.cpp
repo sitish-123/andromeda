@@ -60,7 +60,7 @@ int main(int argc, char* argv[]) {
 
   if (argc >= 2 && std::string_view(argv[1]) == "--sync") {
     if (argc != 3) {
-      printUsage(argv[0] != nullptr ? argv[0] : "noctalia-greeter-apply-appearance");
+      printUsage(argv[0] != nullptr ? argv[0] : "andromeda-greeter-apply-appearance");
       return 2;
     }
     std::string error;
@@ -98,7 +98,7 @@ int main(int argc, char* argv[]) {
   }
 
   if (argc != 2) {
-    printUsage(argv[0] != nullptr ? argv[0] : "noctalia-greeter-apply-appearance");
+    printUsage(argv[0] != nullptr ? argv[0] : "andromeda-greeter-apply-appearance");
     return 2;
   }
 

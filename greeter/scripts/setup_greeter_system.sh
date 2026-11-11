@@ -36,7 +36,7 @@ if [[ -n "${APPLY_APPEARANCE}" ]]; then
   echo "info: installing greeter.toml via ${APPLY_APPEARANCE} --setup-system"
   GREETER_USER="${GREETER_USER}" "${APPLY_APPEARANCE}" --setup-system
 else
-  echo "error: noctalia-greeter-apply-appearance not found; build/install first." >&2
+  echo "error: andromeda-greeter-apply-appearance not found; build/install first." >&2
   exit 1
 fi
 

@@ -54,7 +54,7 @@ namespace {
     }
     setenv("MALLOC_CONF", conf.c_str(), 1);
     setenv("ANDROMEDA_JEMALLOC", "1", 1);
-    // The real path, not /proc/self/exe: the kernel names the process after the file, and `pgrep noctalia` must work.
+    // The real path, not /proc/self/exe: the kernel names the process after the file, and `pgrep andromeda-shell` must work.
     std::error_code ec;
     const auto self = std::filesystem::read_symlink("/proc/self/exe", ec);
     execv(ec ? "/proc/self/exe" : self.c_str(), argv);
@@ -62,12 +62,12 @@ namespace {
   }
 #endif
 
-  constexpr const char* kShellModule = "noctalia-shell.so";
+  constexpr const char* kShellModule = "andromeda-shell.so";
   constexpr const char* kShellEntry = "noctalia_shell_main_v1";
 
   using ShellMain = int (*)(int, char*[]);
 
-  // The shell and its library tree live in noctalia-shell.so, so greeter mode maps neither. The build directory copy
+  // The shell and its library tree live in andromeda-shell.so, so greeter mode maps neither. The build directory copy
   // wins over the installed one, as for noctalia-calc.so.
   ShellMain loadShell() {
     std::error_code ec;
@@ -92,7 +92,7 @@ namespace {
       std::memcpy(&entry, &symbol, sizeof(entry));
       return entry;
     }
-    std::println(stderr, "error: {} is not installed next to noctalia or in the noctalia libdir", kShellModule);
+    std::println(stderr, "error: {} is not installed next to andromeda-shell or in the noctalia libdir", kShellModule);
     return nullptr;
   }
 

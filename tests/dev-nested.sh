@@ -6,7 +6,7 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 ANDROMEDA=${ANDROMEDA:-$ROOT/compositor/build-live/andromeda}
-NOCTALIA=${NOCTALIA:-$ROOT/shell/build-f7/noctalia}
+NOCTALIA=${NOCTALIA:-$ROOT/shell/build-f7/andromeda-shell}
 PARENT=${WAYLAND_DISPLAY:?run this inside a Wayland session}
 [[ $PARENT == /* ]] || PARENT=$XDG_RUNTIME_DIR/$PARENT
 RUNTIME=$(mktemp -d /tmp/dsk-nested.XXXX)

@@ -4,7 +4,7 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 OUT=${OUT:-$ROOT/artifacts/setup-wizard}
-NOCTALIA=${NOCTALIA:-$ROOT/shell/build-f7/noctalia}
+NOCTALIA=${NOCTALIA:-$ROOT/shell/build-f7/andromeda-shell}
 SCHEME=${SCHEME:-light}
 UI_SCALE=${UI_SCALE:-1}
 source "$(dirname "$0")/lib.sh"

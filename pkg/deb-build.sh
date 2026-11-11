@@ -53,11 +53,11 @@ case ${1:-} in
     declare -A debs=(
       [andromeda]=andromeda
       [andromeda-compositor-git]=andromeda-compositor
-      [noctalia-desktop-git]=noctalia-desktop
+      [andromeda-shell-git]=andromeda-shell
       [xdg-desktop-portal-andromeda-git]=xdg-desktop-portal-andromeda
       [andromeda-system-git]=andromeda-system
       [andromeda-power-git]=andromeda-power
-      [noctalia-greeter-desktop-git]=noctalia-greeter-desktop
+      [andromeda-greeter-git]=andromeda-greeter
       [andromeda-greetd]=andromeda-greetd
     )
     for fn in "${!debs[@]}"; do

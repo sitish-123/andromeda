@@ -12,7 +12,7 @@ case ${1:-} in
     meson install -C "$ROOT/greeter/build-release" --no-rebuild > /dev/null
     install -Dm644 "$ROOT/session/pam.d/gdm-face" /etc/pam.d/gdm-face
     [[ -e /etc/greetd/config.toml.pre-trial ]] || cp /etc/greetd/config.toml /etc/greetd/config.toml.pre-trial
-    sed -e 's/^vt = 1$/vt = 2/' -e 's|/usr/bin/noctalia-greeter-session|/usr/local/bin/noctalia-greeter-session|' \
+    sed -e 's/^vt = 1$/vt = 2/' -e 's|/usr/bin/andromeda-greeter-session|/usr/local/bin/andromeda-greeter-session|' \
       "$ROOT/session/greetd/config.toml" > /etc/greetd/config.toml
     systemctl start greetd
     echo "greetd is on VT 2: press Ctrl+Alt+F2 to try it, Ctrl+Alt+F1 to come back"

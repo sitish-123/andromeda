@@ -7,7 +7,7 @@ set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/greeter-mode-session}
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 ANDROMEDA=${ANDROMEDA:-$ROOT/compositor/build-debug/andromeda}
-NOCTALIA=${NOCTALIA:-$ROOT/shell/build-debug/noctalia}
+NOCTALIA=${NOCTALIA:-$ROOT/shell/build-debug/andromeda-shell}
 RUNTIME=$(mktemp -d /tmp/dsk.XXXX)
 trap 'kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
 rm -rf "$OUT"

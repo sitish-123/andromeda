@@ -100,8 +100,8 @@ namespace {
         .name = "Bspwm", .command = "/usr/bin/bspwm", .desktopNames = "bspwm", .sessionType = "x11"
     };
     expectArgv(
-        greeter::sessionArgv(x11), {"noctalia-greeter-xsession", "/usr/bin/bspwm"},
-        "x11 session argv is wrapped in noctalia-greeter-xsession"
+        greeter::sessionArgv(x11), {"andromeda-greeter-xsession", "/usr/bin/bspwm"},
+        "x11 session argv is wrapped in andromeda-greeter-xsession"
     );
 
     const greeter::SessionOption tty{.name = "Shell", .command = "/bin/sh", .desktopNames = {}, .sessionType = "tty"};

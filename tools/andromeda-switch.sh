@@ -9,7 +9,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 # Before the install: the trial's remove deletes /etc/pam.d/gdm-face, which the greeter package now owns.
-[[ -e /usr/local/bin/noctalia-greeter ]] && "$ROOT/tools/greeter-trial.sh" remove
+[[ -e /usr/local/bin/andromeda-greeter ]] && "$ROOT/tools/greeter-trial.sh" remove
 
 # The newest andromeda package names the version the last build produced; every package of that build shares it.
 newest=$(ls -t "$ROOT"/pkg/andromeda-1:*.pkg.tar.zst | head -1)

@@ -1,6 +1,6 @@
 pkgbase=desktop-git
-pkgname=(andromeda andromeda-compositor-git noctalia-desktop-git xdg-desktop-portal-andromeda-git andromeda-link-git
-  andromeda-power-git noctalia-greeter-desktop-git andromeda-system-git andromeda-greetd)
+pkgname=(andromeda andromeda-compositor-git andromeda-shell-git xdg-desktop-portal-andromeda-git andromeda-link-git
+  andromeda-power-git andromeda-greeter-git andromeda-system-git andromeda-greetd)
 # ANDROMEDA_NO_LINK=1 (release CI when the Link commit is not on its remote) builds everything but Link.
 [[ -z ${ANDROMEDA_NO_LINK:-} ]] || pkgname=(${pkgname[@]/andromeda-link-git})
 # Epoch keeps the monorepo revision newer than the per-fork versions it replaces.
@@ -196,8 +196,8 @@ package_andromeda-system-git() {
 package_andromeda() {
   pkgdesc='Andromeda desktop: the Andromeda compositor, Noctalia shell, portal, and Link phone continuity'
   # Everything the desktop offers works out of the box; the power policy changes kernel defaults, so it stays opt-in.
-  depends=(andromeda-compositor-git noctalia-desktop-git xdg-desktop-portal-andromeda-git
-    noctalia-greeter-desktop-git gnome-keyring scrcpy android-tools gst-plugin-va gst-libav libpulse pipewire-pulse sqlite
+  depends=(andromeda-compositor-git andromeda-shell-git xdg-desktop-portal-andromeda-git
+    andromeda-greeter-git gnome-keyring scrcpy android-tools gst-plugin-va gst-libav libpulse pipewire-pulse sqlite
     poppler-glib libzip libvterm exiv2 taglib glycin sdbus-cpp mpv ffmpeg)
   [[ -n ${ANDROMEDA_NO_LINK:-} ]] || depends+=(andromeda-link-git)
   # Quick Look serves org.gnome.NautilusPreviewer, the bus name sushi owns.
@@ -267,7 +267,7 @@ package_andromeda-compositor-git() {
   _pin_depends
 }
 
-package_noctalia-desktop-git() {
+package_andromeda-shell-git() {
   pkgdesc='Noctalia desktop shell, desktop fork'
   depends=(bash cairo curl fontconfig freetype2 git glib2 glibc harfbuzz hicolor-icon-theme jemalloc libgcc libglvnd
     libical libjxl libpipewire libqalculate librsvg libsecret libsndfile libsodium libstdc++ libwebp libwireplumber
@@ -275,13 +275,16 @@ package_noctalia-desktop-git() {
     gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugin-pipewire gst-plugin-va andromeda-system-git)
   optdepends=('ddcutil: monitor brightness control' 'fprintd: fingerprint unlock and fingerprint for admin prompts')
   provides=(noctalia)
-  conflicts=(noctalia)
+  conflicts=(noctalia noctalia-desktop-git)
+  replaces=(noctalia-desktop-git)
   backup=(etc/pam.d/andromeda-lock)
   meson install -C build-shell --destdir "$pkgdir"
+  # Old /usr/bin/noctalia name for upgraded systems with old configs.
+  ln -s andromeda-shell "$pkgdir/usr/bin/noctalia"
   install -Dm644 desktop/session/andromeda-shell.service "$pkgdir/usr/lib/systemd/user/andromeda-shell.service"
   ln -s andromeda-shell.service "$pkgdir/usr/lib/systemd/user/noctalia.service"
   install -Dm644 desktop/session/andromeda-lock.service "$pkgdir/usr/lib/systemd/user/andromeda-lock.service"
-  # Shell greeter mode: greetd runs it through /usr/share/noctalia-greeter/greetd.toml (noctalia-greeter-desktop-git).
+  # Shell greeter mode: greetd runs it through /usr/share/noctalia-greeter/greetd.toml (andromeda-greeter-git).
   install -Dm755 desktop/session/greetd/andromeda-greeter-session "$pkgdir/usr/lib/andromeda/andromeda-greeter-session"
   install -Dm644 desktop/session/pam.d/andromeda-greeter "$pkgdir/etc/pam.d/andromeda-greeter"
   install -Dm644 desktop/session/pam.d/andromeda-lock "$pkgdir/etc/pam.d/andromeda-lock"
@@ -368,14 +371,19 @@ package_andromeda-power-git() {
   _pin_depends
 }
 
-package_noctalia-greeter-desktop-git() {
+package_andromeda-greeter-git() {
   pkgdesc='greetd login for Andromeda: the shell greeter mode, with the old Noctalia greeter as a one-release fallback'
-  depends=(andromeda-greetd noctalia-desktop-git andromeda-compositor-git wlroots0.20 libinput libxkbcommon cairo pango librsvg libxml2 glib2 fontconfig freetype2)
+  depends=(andromeda-greetd andromeda-shell-git andromeda-compositor-git wlroots0.20 libinput libxkbcommon cairo pango librsvg libxml2 glib2 fontconfig freetype2)
   optdepends=('gaze-bin: face login; needs the marker-host change until it is upstream (tools/gaze-patched.sh)')
   provides=(noctalia-greeter)
-  conflicts=(noctalia-greeter)
+  conflicts=(noctalia-greeter noctalia-greeter-desktop-git)
+  replaces=(noctalia-greeter-desktop-git)
   install=noctalia-greeter.install
   meson install -C build-greeter --destdir "$pkgdir"
+  # Old /usr/bin/noctalia-greeter* names: a booted system with an old greetd config still logs in.
+  for name in greeter greeter-apply-appearance greeter-session greeter-xsession greeter-print-greetd-config; do
+    ln -s "andromeda-$name" "$pkgdir/usr/bin/noctalia-$name"
+  done
   install -Dm644 desktop/session/pam.d/gdm-face "$pkgdir/etc/pam.d/gdm-face"
   # greetd runs the shell's greeter mode; the old greeter config stays one release as the fallback
   # (sudo tools/greeter-switch.sh legacy).

@@ -20,14 +20,14 @@ int main(const int argc, char* argv[]) {
 
   process::RunResult legacy;
   legacy.exitCode = 2;
-  legacy.err = R"(usage: /usr/bin/noctalia-greeter-apply-appearance <staging-directory>
-       /usr/bin/noctalia-greeter-apply-appearance --setup-system
-       /usr/bin/noctalia-greeter-apply-appearance --print-greeter-user
+  legacy.err = R"(usage: /usr/bin/andromeda-greeter-apply-appearance <staging-directory>
+       /usr/bin/andromeda-greeter-apply-appearance --setup-system
+       /usr/bin/andromeda-greeter-apply-appearance --print-greeter-user
 )";
   TEST_CHECK(classifyApplyHelperProtocol(legacy) == ApplyHelperProtocol::Legacy);
 
   process::RunResult currentUsage = legacy;
-  currentUsage.err += "       /usr/bin/noctalia-greeter-apply-appearance --sync <staging-directory>\n";
+  currentUsage.err += "       /usr/bin/andromeda-greeter-apply-appearance --sync <staging-directory>\n";
   TEST_CHECK(classifyApplyHelperProtocol(currentUsage) == ApplyHelperProtocol::Unknown);
 
   process::RunResult malformed = secure;

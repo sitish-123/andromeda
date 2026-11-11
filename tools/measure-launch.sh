@@ -4,7 +4,7 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ANDROMEDA=${ANDROMEDA:-$ROOT/compositor/build-live/andromeda}
-NOCTALIA=${NOCTALIA:-$ROOT/shell/build-f7/noctalia}
+NOCTALIA=${NOCTALIA:-$ROOT/shell/build-f7/andromeda-shell}
 OUT=${OUT:-/tmp/measure-launch}
 source "$ROOT/tests/e2e/lib.sh"
 mkdir -p "$OUT"

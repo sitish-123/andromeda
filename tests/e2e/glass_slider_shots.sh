@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 OUT=${OUT:-$ROOT/artifacts/glass-slider}
 ANDROMEDA=${ANDROMEDA:-$ROOT/compositor/build-live/andromeda}
-NOCTALIA=${NOCTALIA:-$ROOT/shell/build-f7/noctalia}
+NOCTALIA=${NOCTALIA:-$ROOT/shell/build-f7/andromeda-shell}
 POINTER=${POINTER:-$ROOT/compositor/build-live/tests/pointer-client}
 SCHEME=${SCHEME:-light}
 GLASS=${GLASS:-0.5}

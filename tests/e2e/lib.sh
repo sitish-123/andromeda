@@ -1,7 +1,7 @@
 # Sourced by the E2E scripts: a contained headless Andromeda session with the Noctalia fork running inside it.
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 ANDROMEDA=${ANDROMEDA:-$ROOT/compositor/build-debug/andromeda}
-NOCTALIA=${NOCTALIA:-$ROOT/shell/build-debug/noctalia}
+NOCTALIA=${NOCTALIA:-$ROOT/shell/build-debug/andromeda-shell}
 DESKTOP_CLIENT=${DESKTOP_CLIENT:-$ROOT/compositor/build-debug/tests/desktop-client}
 RUNTIME=$(mktemp -d /tmp/dsk.XXXX)
 trap 'kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT

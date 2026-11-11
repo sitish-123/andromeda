@@ -1017,10 +1017,10 @@ noctalia_core_dep = declare_dependency(
   sources: _protocol_headers,
 )
 
-# The shell and its library tree; `noctalia` loads it with dlopen except in greeter mode. -Bsymbolic binds the
+# The shell and its library tree; `andromeda-shell` loads it with dlopen except in greeter mode. -Bsymbolic binds the
 # module to its own libdesk-ui copy, never the launcher's; -z defs keeps an undefined symbol a link error, as it was
 # for the executable, instead of a dlopen failure at start.
-noctalia_shell_module = shared_module('noctalia-shell',
+noctalia_shell_module = shared_module('andromeda-shell',
   sources: files('src/app/shell_main.cpp') + _protocol_headers,
   dependencies: _noctalia_dependencies,
   include_directories: _noctalia_inc,
@@ -1033,7 +1033,7 @@ noctalia_shell_module = shared_module('noctalia-shell',
 )
 
 # Small on purpose: greeter mode runs from it before any login (.agent/DESIGN.md "Shell greeter mode").
-noctalia_exe = executable('noctalia',
+noctalia_exe = executable('andromeda-shell',
   sources: files('src/main.cpp', 'src/greeter/greeter_host.cpp', 'src/greeter/greetd_client.cpp')
     + _protocol_headers
     # The sanitizer runtime reads the suppressions from the executable, not from the RTLD_LOCAL module.
@@ -1043,11 +1043,6 @@ noctalia_exe = executable('noctalia',
   include_directories: _noctalia_inc,
   cpp_args: _noctalia_cpp_args,
   install: true,
-)
-# The build tree keeps the name noctalia; the installed file is andromeda-shell, and noctalia stays a link for one release.
-meson.add_install_script('sh', '-c',
-  'cd "$MESON_INSTALL_DESTDIR_PREFIX/@0@" && { [ -L noctalia ] || mv -f noctalia andromeda-shell; } && ln -sfn andromeda-shell noctalia'.format(
-    get_option('bindir')),
 )
 
 # libqalculate and its library tree load on the first calculator use, not at shell start.

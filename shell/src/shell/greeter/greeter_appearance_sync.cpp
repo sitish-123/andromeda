@@ -72,12 +72,12 @@ namespace {
     bool m_releaseOnDestruction = true;
   };
 
-  constexpr std::string_view kApplyHelperName = "noctalia-greeter-apply-appearance";
+  constexpr std::string_view kApplyHelperName = "andromeda-greeter-apply-appearance";
   constexpr std::string_view kPkexecName = "pkexec";
   constexpr std::string_view kSyncArgument = "--sync";
   constexpr std::string_view kCapabilityArgument = "--supports";
   constexpr std::string_view kSecureSyncCapability = "secure-sync-v1";
-  constexpr std::string_view kGreeterName = "noctalia-greeter";
+  constexpr std::string_view kGreeterName = "andromeda-greeter";
   constexpr std::string_view kGreeterTomlFileName = "greeter.toml";
   constexpr std::string_view kDefaultGreeterStateDir = "/var/lib/noctalia-greeter";
   constexpr std::string_view kGreeterStateDirEnv = "ANDROMEDA_GREETER_STATE_DIR";
@@ -470,7 +470,7 @@ namespace {
   [[nodiscard]] std::string findApplyHelper() {
     std::string helper = resolveProgramPath(
         kApplyHelperName,
-        {"/usr/bin/noctalia-greeter-apply-appearance", "/usr/local/bin/noctalia-greeter-apply-appearance"}
+        {"/usr/bin/andromeda-greeter-apply-appearance", "/usr/local/bin/andromeda-greeter-apply-appearance"}
     );
     if (!helper.empty() && !isTrustedPrivilegeExecutable(helper)) {
       kLog.warn("refusing untrusted greeter sync helper '{}'", helper);
@@ -1140,7 +1140,7 @@ namespace greeter::detail {
 namespace greeter {
 
   bool appearanceSyncAvailable(const ShellGreeterSyncConfig& greeterSync) noexcept {
-    return programExists(kGreeterName, {"/usr/bin/noctalia-greeter", "/usr/local/bin/noctalia-greeter"})
+    return programExists(kGreeterName, {"/usr/bin/andromeda-greeter", "/usr/local/bin/andromeda-greeter"})
         && !findApplyHelper().empty()
         && (process::resolvePrivilegeEscalator().has_value() || hasPrivilegeCommandOverride(greeterSync));
   }

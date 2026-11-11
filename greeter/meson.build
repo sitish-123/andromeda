@@ -95,7 +95,7 @@ _greeter_inc = [
   include_directories('src'),
 ]
 
-noctalia_greeter_executable = executable('noctalia-greeter',
+noctalia_greeter_executable = executable('andromeda-greeter',
   sources: _greeter_sources,
   dependencies: [
     desk_ui_dep,
@@ -136,19 +136,19 @@ install_subdir('assets',
 )
 
 install_data(
-  'scripts/noctalia-greeter-session',
+  'scripts/andromeda-greeter-session',
   install_dir: get_option('bindir'),
   install_mode: 'rwxr-xr-x',
 )
 
 install_data(
-  'scripts/noctalia-greeter-print-greetd-config',
+  'scripts/andromeda-greeter-print-greetd-config',
   install_dir: get_option('bindir'),
   install_mode: 'rwxr-xr-x',
 )
 
 install_data(
-  'scripts/noctalia-greeter-xsession',
+  'scripts/andromeda-greeter-xsession',
   install_dir: get_option('bindir'),
   install_mode: 'rwxr-xr-x',
 )
@@ -177,7 +177,7 @@ _apply_appearance_sources = _apply_appearance_support_sources + files('src/tools
 
 _greeter_tools_inc = include_directories('src')
 
-apply_appearance_executable = executable('noctalia-greeter-apply-appearance',
+apply_appearance_executable = executable('andromeda-greeter-apply-appearance',
   sources: _apply_appearance_sources,
   dependencies: [desk_ui_dep, nlohmann_dep, tomlplusplus_dep],
   include_directories: _greeter_tools_inc,
@@ -222,7 +222,7 @@ test(
   passwordless_sync_policy_xml_test,
   args: [
     installed_polkit_policy,
-    get_option('prefix') / get_option('bindir') / 'noctalia-greeter-apply-appearance',
+    get_option('prefix') / get_option('bindir') / 'andromeda-greeter-apply-appearance',
   ],
 )
 

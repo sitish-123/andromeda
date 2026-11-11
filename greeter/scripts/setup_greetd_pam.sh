@@ -31,7 +31,7 @@ PAM_MODULE="$(find_pam_runtime_module || true)"
 if [[ -z "${PAM_MODULE}" ]]; then
   echo "warn: no pam_systemd.so or pam_elogind.so found; skipping PAM patch."
   echo "warn: use the distro-agnostic session wrapper command:"
-  echo "warn:   command = \"/usr/local/bin/noctalia-greeter-session\""
+  echo "warn:   command = \"/usr/local/bin/andromeda-greeter-session\""
   exit 0
 fi
 

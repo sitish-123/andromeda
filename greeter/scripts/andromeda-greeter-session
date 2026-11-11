@@ -2,7 +2,7 @@
 set -eu
 
 _session_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-GREETER_BIN="${ANDROMEDA_GREETER_BIN:-${_session_dir}/noctalia-greeter}"
+GREETER_BIN="${ANDROMEDA_GREETER_BIN:-${_session_dir}/andromeda-greeter}"
 COMPOSITOR_BIN="${ANDROMEDA_GREETER_COMPOSITOR_BIN:-$(command -v andromeda || echo /usr/bin/andromeda)}"
 # andromeda --greeter reads outputs, cursor and keyboard from this file. Unset: generated from the greeter's own config.
 GREETER_CONFIG="${ANDROMEDA_GREETER_ANDROMEDA_CONFIG:-}"
@@ -32,7 +32,7 @@ case "${ANDROMEDA_GREETER_LOG:-}" in
   ;;
 esac
 
-echo "=== noctalia-greeter-session $(date -Iseconds) pid=$$ uid=$(id -u) euid=$(id -u -r 2>/dev/null || id -u) ==="
+echo "=== andromeda-greeter-session $(date -Iseconds) pid=$$ uid=$(id -u) euid=$(id -u -r 2>/dev/null || id -u) ==="
 echo "GREETER_BIN=${GREETER_BIN}"
 echo "COMPOSITOR_BIN=${COMPOSITOR_BIN}"
 echo "ANDROMEDA_GREETER_LOG=${ANDROMEDA_GREETER_LOG:-syslog (fds parked)}"

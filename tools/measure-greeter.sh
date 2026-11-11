@@ -8,7 +8,7 @@ set -euo pipefail
 OUT=${OUT:-/tmp/measure-greeter}
 source "$(dirname "$0")/../tests/e2e/lib.sh"
 ANDROMEDA=${ANDROMEDA:-$ROOT/compositor/build-live/andromeda}
-GREETER=${GREETER:-$ROOT/greeter/build-release/noctalia-greeter --user $USER}
+GREETER=${GREETER:-$ROOT/greeter/build-release/andromeda-greeter --user $USER}
 RUNS=${RUNS:-5}
 rm -rf "$OUT"
 boot_headless 1

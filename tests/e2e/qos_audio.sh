@@ -6,7 +6,7 @@
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/qos-audio}
 # Before lib.sh, which defaults NOCTALIA to shell/build-debug.
-NOCTALIA=${NOCTALIA:-$(cd "$(dirname "$0")/../.." && pwd)/shell/build-f7/noctalia}
+NOCTALIA=${NOCTALIA:-$(cd "$(dirname "$0")/../.." && pwd)/shell/build-f7/andromeda-shell}
 source "$(dirname "$0")/lib.sh"
 CLIENT=${CLIENT:-$ROOT/compositor/build-debug/tests/background-client}
 REAL=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}

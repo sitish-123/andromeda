@@ -99,6 +99,6 @@ in
       homepage = "https://github.com/noctalia-dev/noctalia-greeter";
       license = licenses.mit;
       platforms = platforms.linux;
-      mainProgram = "noctalia-greeter";
+      mainProgram = "andromeda-greeter";
     };
   }

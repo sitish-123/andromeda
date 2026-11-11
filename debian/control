@@ -10,8 +10,8 @@ Rules-Requires-Root: no
 Package: andromeda
 Architecture: amd64
 Depends: ${shlibs:Depends}, ${misc:Depends}, andromeda-compositor (= ${binary:Version}),
- noctalia-desktop (= ${binary:Version}), xdg-desktop-portal-andromeda (= ${binary:Version}),
- noctalia-greeter-desktop (= ${binary:Version}), andromeda-system (= ${binary:Version}), andromeda-link,
+ andromeda-shell (= ${binary:Version}), xdg-desktop-portal-andromeda (= ${binary:Version}),
+ andromeda-greeter (= ${binary:Version}), andromeda-system (= ${binary:Version}), andromeda-link,
  gnome-keyring, libpam-gnome-keyring, scrcpy, adb, gstreamer1.0-plugins-bad, gstreamer1.0-libav,
  pipewire-pulse, mpv, ffmpeg, glycin-loaders
 Suggests: andromeda-power
@@ -24,8 +24,11 @@ Architecture: amd64
 Depends: ${shlibs:Depends}, ${misc:Depends}, libcap2-bin, xwayland-satellite
 Description: Andromeda Wayland compositor
 
-Package: noctalia-desktop
+Package: andromeda-shell
 Architecture: amd64
+Replaces: noctalia-desktop
+Breaks: noctalia-desktop
+Conflicts: noctalia-desktop
 Depends: ${shlibs:Depends}, ${misc:Depends}, hicolor-icon-theme, git, curl, gstreamer1.0-plugins-base,
  gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-pipewire, andromeda-system (= ${binary:Version})
 Suggests: ddcutil, fprintd, libpam-fprintd
@@ -49,9 +52,12 @@ Depends: ${misc:Depends}, systemd
 Description: Andromeda static kernel power policy
  PCIe ASPM, runtime PM, USB autosuspend and HDA power save.
 
-Package: noctalia-greeter-desktop
+Package: andromeda-greeter
 Architecture: amd64
 Depends: ${shlibs:Depends}, ${misc:Depends}, andromeda-greetd
+Replaces: noctalia-greeter-desktop
+Breaks: noctalia-greeter-desktop
+Conflicts: noctalia-greeter-desktop
 Description: Andromeda login greeter for greetd
 
 Package: andromeda-greetd

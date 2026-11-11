@@ -37,7 +37,7 @@ in
     greeter-args = lib.mkOption {
       type = lib.types.str;
       default = "";
-      description = "Arguments to add onto noctalia-greeter-session command.";
+      description = "Arguments to add onto andromeda-greeter-session command.";
     };
 
     passwordless-sync-users = lib.mkOption {
@@ -135,7 +135,7 @@ in
           settings.default_session.command = lib.mkDefault (
             "${lib.getExe' pkgs.coreutils "env"} "
             + "XDG_DATA_DIRS=${config.services.displayManager.sessionData.desktops}/share "
-            + "${cfg.package}/bin/noctalia-greeter-session -- ${cfg.greeter-args}"
+            + "${cfg.package}/bin/andromeda-greeter-session -- ${cfg.greeter-args}"
           );
         };
 
@@ -170,7 +170,7 @@ in
           polkit.addRule(function(action, subject) {
             var allowedUsers = ${builtins.toJSON cfg.passwordless-sync-users};
             if (action.id == "org.andromeda.greeter.sync-appearance" &&
-                action.lookup("program") == "${cfg.package}/bin/noctalia-greeter-apply-appearance" &&
+                action.lookup("program") == "${cfg.package}/bin/andromeda-greeter-apply-appearance" &&
                 action.lookup("user") == "root" &&
                 subject.local && subject.active &&
                 allowedUsers.indexOf(subject.user) >= 0) {

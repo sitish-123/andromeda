@@ -55,7 +55,7 @@ print-greetd-config:
 
 # Print the resolved greetd session user.
 print-greeter-user: build
-  ./build/noctalia-greeter-apply-appearance --print-greeter-user
+  ./build/andromeda-greeter-apply-appearance --print-greeter-user
 
 # Create greeter state dir for greetd (portable; any init)
 setup-log-dir:
@@ -69,7 +69,7 @@ setup-log-dir:
 
 # Verify greeter logging (stderr by default; set ANDROMEDA_GREETER_LOG for a file)
 log-test: build
-  sudo -u greeter env GREETD_SOCK=1 XDG_VTNR=7 ./build/noctalia-greeter --log-test
+  sudo -u greeter env GREETD_SOCK=1 XDG_VTNR=7 ./build/andromeda-greeter --log-test
   @echo "--- stderr-only by default; optional file via ANDROMEDA_GREETER_LOG ---"
 
 # Uninstall
@@ -78,7 +78,7 @@ uninstall:
 
 # Run under `andromeda --greeter` (same as greetd uses)
 run: build
-  dbus-run-session -- andromeda --greeter -s ./build/noctalia-greeter
+  dbus-run-session -- andromeda --greeter -s ./build/andromeda-greeter
 
 # Run under the compositor on your login session. Logs to ~/.cache/noctalia-greeter.log
 run-local: build
@@ -89,7 +89,7 @@ run-local: build
   echo "user=$USER log=$log"
   echo "Recovery: just recover"
   env ANDROMEDA_GREETER_LOG="$log" ANDROMEDA_GREETER_DUMMY_USERS=15 dbus-run-session -- \
-    andromeda --greeter -s ./build/noctalia-greeter
+    andromeda --greeter -s ./build/andromeda-greeter
 
 # Configure AddressSanitizer build dir
 configure-asan:
@@ -102,7 +102,7 @@ build-asan: configure-asan
 # Run under the compositor with AddressSanitizer enabled
 run-asan: build-asan
   ASAN_OPTIONS=abort_on_error=1:fast_unwind_on_malloc=0:symbolize=1 \
-  dbus-run-session -- andromeda --greeter -s ./build-asan/noctalia-greeter
+  dbus-run-session -- andromeda --greeter -s ./build-asan/andromeda-greeter
 
 # Run in your current Wayland session (niri, sway, etc.), no nested compositor
 run-niri: build
@@ -116,17 +116,17 @@ run-niri: build
   mkdir -p "$(dirname "$log")"
   echo "WAYLAND_DISPLAY=$WAYLAND_DISPLAY log=$log"
   echo "Auth needs greetd; unset GREETD_SOCK for UI-only dev, or point at a test socket."
-  env -u GREETD_SOCK ANDROMEDA_GREETER_LOG="$log" ./build/noctalia-greeter
+  env -u GREETD_SOCK ANDROMEDA_GREETER_LOG="$log" ./build/andromeda-greeter
 
 # Kill greeter and stop greetd when the display is stuck (run over SSH or blind)
 recover:
   #!/usr/bin/env bash
-  sudo killall noctalia-greeter 2>/dev/null || true
+  sudo killall andromeda-greeter 2>/dev/null || true
   sudo sv stop greetd 2>/dev/null || true
   echo "If the screen is still wrong: sudo chvt 2"
 
 # Run as greeter user. Needs a greetd session on that VT; use run-local if manual login fails.
-run-greeter bin="/usr/local/bin/noctalia-greeter":
+run-greeter bin="/usr/local/bin/andromeda-greeter":
   @echo "Ensure greetd is stopped: sudo sv stop greetd"
   sudo -u greeter dbus-run-session -- \
     andromeda --greeter -s {{bin}}
@@ -134,4 +134,4 @@ run-greeter bin="/usr/local/bin/noctalia-greeter":
 run-greeter-dev: build
   @echo "Ensure greetd is stopped: sudo sv stop greetd"
   sudo -u greeter dbus-run-session -- \
-    andromeda --greeter -s ./build/noctalia-greeter
+    andromeda --greeter -s ./build/andromeda-greeter

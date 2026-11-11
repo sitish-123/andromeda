@@ -262,7 +262,7 @@ namespace greeter {
     if (session.sessionType == "x11") {
       std::vector<std::string> wrapped;
       wrapped.reserve(tokens.size() + 1);
-      wrapped.push_back("noctalia-greeter-xsession");
+      wrapped.push_back("andromeda-greeter-xsession");
       wrapped.insert(wrapped.end(), tokens.begin(), tokens.end());
       return wrapped;
     }

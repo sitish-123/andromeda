@@ -11,16 +11,16 @@ find_session_bin() {
   local candidate
   for candidate in \
     "${ANDROMEDA_GREETER_SESSION_BIN:-}" \
-    /usr/bin/noctalia-greeter-session \
-    /usr/local/bin/noctalia-greeter-session \
-    "${script_dir}/noctalia-greeter-session" \
-    "${script_dir}/../build/noctalia-greeter-session"; do
+    /usr/bin/andromeda-greeter-session \
+    /usr/local/bin/andromeda-greeter-session \
+    "${script_dir}/andromeda-greeter-session" \
+    "${script_dir}/../build/andromeda-greeter-session"; do
     if [[ -n "${candidate}" && -x "${candidate}" ]]; then
       echo "${candidate}"
       return 0
     fi
   done
-  echo "/usr/bin/noctalia-greeter-session"
+  echo "/usr/bin/andromeda-greeter-session"
 }
 
 find_apply_appearance() {
@@ -30,10 +30,10 @@ find_apply_appearance() {
   local candidate
   for candidate in \
     "${ANDROMEDA_GREETER_APPLY_APPEARANCE:-}" \
-    /usr/bin/noctalia-greeter-apply-appearance \
-    /usr/local/bin/noctalia-greeter-apply-appearance \
-    "${script_dir}/../build/noctalia-greeter-apply-appearance" \
-    "${script_dir}/../build-user/noctalia-greeter-apply-appearance"; do
+    /usr/bin/andromeda-greeter-apply-appearance \
+    /usr/local/bin/andromeda-greeter-apply-appearance \
+    "${script_dir}/../build/andromeda-greeter-apply-appearance" \
+    "${script_dir}/../build-user/andromeda-greeter-apply-appearance"; do
     if [[ -n "${candidate}" && -x "${candidate}" ]]; then
       echo "${candidate}"
       return 0

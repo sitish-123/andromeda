@@ -15,7 +15,7 @@ boot_headless 1
 with_noctalia '
   # The test shell, not a live one that runs the same binary: match it by its runtime dir.
   pid=
-  for p in $(pgrep -x noctalia); do
+  for p in $(pgrep -x andromeda-shell); do
     tr "\0" "\n" < /proc/$p/environ 2>/dev/null | grep -qx "XDG_RUNTIME_DIR=$RUNTIME" && { pid=$p; break; }
   done
   [[ -n $pid ]] || { echo "FAIL: no test shell process"; exit 1; }
