@@ -47,6 +47,9 @@ struct WirePlumberMixer::Impl {
   std::unordered_map<std::uint32_t, PendingWrite> pendingBeforeReady;
   // Default-device change requested before default-nodes-api activated, by node id.
   std::vector<std::uint32_t> pendingDefaultIds;
+  // Default-device changes whose node our WpCore has not seen yet (it lags the PipeWire service's own view).
+  std::vector<std::uint32_t> awaitingNodeIds;
+  GSource* awaitingNodeTimer = nullptr;
 
   // Pushes device volume/mute changes back to the owner (source of truth for device nodes).
   std::function<void(std::uint32_t, float, bool)> changeCb;
@@ -123,6 +126,7 @@ struct WirePlumberMixer::Impl {
     nodesOm = wp_object_manager_new();
     wp_object_manager_add_interest(nodesOm, WP_TYPE_NODE, nullptr);
     wp_object_manager_request_object_features(nodesOm, WP_TYPE_NODE, WP_PIPEWIRE_OBJECT_FEATURES_MINIMAL);
+    g_signal_connect(nodesOm, "objects-changed", G_CALLBACK(&Impl::onNodesChanged), this);
     wp_core_install_object_manager(core, nodesOm);
 
     kLog.info("connected; loading mixer-api / default-nodes-api modules");
@@ -143,6 +147,8 @@ struct WirePlumberMixer::Impl {
 
   void resetSession(bool discardPendingWrites) {
     clearSource(readyWatchdog);
+    clearSource(awaitingNodeTimer);
+    awaitingNodeIds.clear();
     ready = false;
     defaultNodesReady = false;
 
@@ -225,6 +231,28 @@ struct WirePlumberMixer::Impl {
     kLog.warn("PipeWire connection lost; device volume control will reconnect");
     resetSession(true);
     scheduleReconnect();
+  }
+
+  static void onNodesChanged(WpObjectManager*, gpointer data) noexcept {
+    auto* self = static_cast<Impl*>(data);
+    std::erase_if(self->awaitingNodeIds, [self](std::uint32_t id) { return self->tryApplyDefault(id); });
+    if (self->awaitingNodeIds.empty()) {
+      clearSource(self->awaitingNodeTimer);
+    }
+  }
+
+  static gboolean onAwaitingNodeTimeout(gpointer data) noexcept {
+    auto* self = static_cast<Impl*>(data);
+    for (const std::uint32_t id : self->awaitingNodeIds) {
+      kLog.warn("set-default: node {} not found", id);
+    }
+    self->awaitingNodeIds.clear();
+    GSource* const source = self->awaitingNodeTimer;
+    self->awaitingNodeTimer = nullptr;
+    if (source != nullptr) {
+      g_source_unref(source);
+    }
+    return G_SOURCE_REMOVE;
   }
 
   static gboolean onReadyWatchdog(gpointer data) noexcept {
@@ -446,9 +474,22 @@ struct WirePlumberMixer::Impl {
   // Mirrors wpctl set-default: resolve the node in our own WpCore, read its media.class + node.name,
   // and drive default-nodes-api, then sync so the write reaches the daemon.
   void applyDefault(std::uint32_t id) {
+    if (tryApplyDefault(id)) {
+      return;
+    }
+    awaitingNodeIds.push_back(id);
+    if (awaitingNodeTimer == nullptr) {
+      awaitingNodeTimer = g_timeout_source_new_seconds(3);
+      g_source_set_callback(awaitingNodeTimer, &Impl::onAwaitingNodeTimeout, this, nullptr);
+      g_source_attach(awaitingNodeTimer, context);
+    }
+  }
+
+  // False only when our WpCore does not know the node yet; every other outcome is final and logged here.
+  bool tryApplyDefault(std::uint32_t id) {
     if (defaultNodes == nullptr || nodesOm == nullptr) {
       kLog.warn("set-default: WirePlumber not ready");
-      return;
+      return true;
     }
 
     auto* node = static_cast<WpPipewireObject*>(wp_object_manager_lookup(
@@ -456,8 +497,7 @@ struct WirePlumberMixer::Impl {
         nullptr
     ));
     if (node == nullptr) {
-      kLog.warn("set-default: node {} not found", id);
-      return;
+      return false;
     }
 
     const gchar* mediaClass = wp_pipewire_object_get_property(node, PW_KEY_MEDIA_CLASS);
@@ -481,6 +521,7 @@ struct WirePlumberMixer::Impl {
     // wpctl calls wp_core_sync here only to flush before it exits; our persistent loop flushes the
     // write on the next dispatch after the wakeup, so no sync is needed.
     g_main_context_wakeup(context);
+    return true;
   }
 
   void emit(std::uint32_t id, const char* key, GVariant* value) {
