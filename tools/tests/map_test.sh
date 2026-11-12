@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fails when a path in docs/map.toml does not exist, or a build value is not a module.
+# Fails when a path in docs/map.toml does not exist, a build value is not a module, or a scenario is not a scenario file.
 set -uo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
 map=$root/docs/map.toml
@@ -24,6 +24,12 @@ for feat in features:
     for entry in feat.get("entry", []):
         if not os.path.exists(os.path.join(root, entry)):
             bad.append(f"{name}: missing path '{entry}'")
+    if "scenario" in feat:
+        scn = feat["scenario"]
+        if not (isinstance(scn, str) and scn.startswith("tests/scenario/") and scn.endswith(".toml")):
+            bad.append(f"{name}: scenario '{scn}' is not a tests/scenario/*.toml path")
+        elif not os.path.isfile(os.path.join(root, scn)):
+            bad.append(f"{name}: missing scenario '{scn}'")
 for line in bad:
     print("FAIL " + line)
 print(f"map_test: {len(features)} features, {len(bad)} problems")

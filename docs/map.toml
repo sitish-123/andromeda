@@ -1,8 +1,8 @@
 # Feature map: where each feature lives. One [[feature]] per feature.
 # Fields: name, keywords (list), module, entry (1-5 main file paths, repo-relative),
 # test (test name, file or dir; "" if none), build (compositor|shell|greeter|system|link),
-# notes (optional, one line).
-# Check: tools/tests/map_test.sh. Search: tools/where.sh <word>.
+# notes (optional, one line), scenario (optional, a tests/scenario/*.toml file for tools/scenario.py).
+# Check: tools/tests/map_test.sh. Search: tools/where.sh <word>. Build, test and scenario: just verify <word>.
 
 # ---------- compositor ----------
 
@@ -192,6 +192,7 @@ module = "compositor"
 entry = ["compositor/src/workspace/workspace.cpp", "compositor/src/workspace/slide_mode.h"]
 test = "tests/e2e/island_bars_workspace.sh"
 build = "compositor"
+scenario = "tests/scenario/workspace_switch.toml"
 
 [[feature]]
 name = "overview (window grid)"

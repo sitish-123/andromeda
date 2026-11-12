@@ -46,6 +46,18 @@ wait *args:
 where word:
     @tools/where.sh {{quote(word)}}
 
+# Build, test and scenario of one feature from docs/map.toml: one ok line, or the first failure with its log.
+verify +feature:
+    @tools/verify.sh {{quote(feature)}}
+
+# Check one file after an edit: one-TU syntax compile (C/C++), cargo check -p (Rust), compile (Python), bash -n (shell).
+check-file path:
+    @tools/check-file.py {{quote(path)}}
+
+# One scenario against a headless compositor (tests/scenario/*.toml): one ok line, or the expected/actual diff.
+scenario file:
+    @tools/scenario.py {{quote(file)}}
+
 # Phone state in one call: screenshot, UI dump, logcat tail and top activity in /tmp/phone-state/<name>. Honors ANDROID_SERIAL.
 phone-state name="now":
     #!/usr/bin/env bash

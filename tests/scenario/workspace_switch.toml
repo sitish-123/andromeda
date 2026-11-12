@@ -1,0 +1,19 @@
+# Switching to workspace 2 focuses it and leaves workspace 1 inactive.
+config = '''
+[output.HEADLESS-1]
+min_workspaces = 3
+'''
+
+[[step]]
+act = "workspace.switch"
+args = { index = 2 }
+
+[[expect]]
+state = "workspaces"
+select = { focused = true }
+match = { index = 2, output = "HEADLESS-1", window_count = 0 }
+
+[[expect]]
+state = "workspaces"
+select = { index = 1 }
+match = { active = false }
