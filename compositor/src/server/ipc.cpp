@@ -13,6 +13,8 @@
 #include <cerrno>
 #include <charconv>
 #include <cstdlib>
+#include <format>
+#include <fstream>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string_view>
@@ -142,6 +144,18 @@ namespace andromeda {
         break;
       }
       return nlohmann::json{{"event", "screencast"}, {"data", std::move(data)}};
+    }
+
+    // Names the client behind a connection: an fd number alone cannot be traced after the eviction closes it.
+    std::string peerName(int fd) {
+      ucred peer{};
+      socklen_t size = sizeof(peer);
+      if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &peer, &size) != 0) {
+        return "unknown peer";
+      }
+      std::string comm;
+      std::ifstream(std::format("/proc/{}/comm", peer.pid)) >> comm;
+      return std::format("{} (pid {})", comm.empty() ? "?" : comm, peer.pid);
     }
   } // namespace
 
@@ -744,7 +758,9 @@ namespace andromeda {
         // output keeps everything written so far; only the undrained tail counts against the cap.
         const size_t backlog = connection->output.size() - connection->writeOffset;
         if (backlog + update.size() > kMaxOutboundBacklog) {
-          kLog.warn("subscriber fd {} is not draining ({} bytes queued), disconnecting", connection->fd, backlog);
+          kLog.warn(
+              "subscriber {} stopped reading ({} bytes queued), disconnecting", peerName(connection->fd), backlog
+          );
           evicted.push_back(connection.get());
           continue;
         }
