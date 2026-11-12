@@ -1,0 +1,2 @@
+# Per-task I/O and swap-in delays (getdelays, /proc/<pid>/stat delayacct_blkio_ticks) for freeze diagnosis.
+kernel.task_delayacct = 1

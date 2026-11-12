@@ -82,6 +82,7 @@ async fn main() -> Result<()> {
     tokio::spawn(login::run(conn.clone()));
     tokio::spawn(storage::run(conn.clone()));
     tokio::spawn(thermal::run(conn.clone()));
+    crashes::watch_devcoredumps(state.join("crashes"));
     let _ = sd_notify::notify(&[sd_notify::NotifyState::Ready]);
     if let Some(timeout) = sd_notify::watchdog_enabled() {
         // The ping runs on the same single-threaded loop as every backend, so a stuck loop misses it.

@@ -185,12 +185,12 @@ impl Report<'_> {
     }
 }
 
-fn now_secs() -> u64 {
+pub fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 /// UTC; `basic` is 20261112T101500Z (file names), else 2026-11-12T10:15:00Z.
-fn iso_time(secs: u64, basic: bool) -> String {
+pub fn iso_time(secs: u64, basic: bool) -> String {
     // Days since 1970-01-01 to a civil date (Howard Hinnant's algorithm).
     let days = i64::try_from(secs / 86400).unwrap_or(0) + 719_468;
     let era = days.div_euclid(146_097);
