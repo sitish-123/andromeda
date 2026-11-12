@@ -265,11 +265,15 @@ pub struct Setting {
     pub params: Vec<(String, Value)>,
 }
 
+/// A rule split out of another takes that rule's `enabled` until the user sets its own: (new rule, old rule).
+/// `power.user_saver` held the refresh cap before `power.saver_refresh_cap` did.
+const SPLIT_FROM: &[(&str, &str)] = &[("power.saver_refresh_cap", "power.user_saver")];
+
 /// Parses the user's settings file: `["<rule id>"]` tables with `enabled` and param values (numbers or bools).
 /// Keys of other types are skipped; the engine checks each param against the rule.
 pub fn parse_settings(text: &str) -> Result<BTreeMap<String, Setting>, String> {
     let table: toml::Table = toml::from_str(text).map_err(|e| format!("settings: {e}"))?;
-    Ok(table
+    let mut settings: BTreeMap<String, Setting> = table
         .iter()
         .filter_map(|(id, value)| {
             let entries = value.as_table()?;
@@ -281,7 +285,13 @@ pub fn parse_settings(text: &str) -> Result<BTreeMap<String, Setting>, String> {
                 .collect();
             Some((id.clone(), Setting { enabled, params }))
         })
-        .collect())
+        .collect();
+    for (split, from) in SPLIT_FROM {
+        if let Some(enabled) = settings.get(*from).map(|s| s.enabled).filter(|e| !e) {
+            settings.entry((*split).to_owned()).or_insert(Setting { enabled, params: Vec::new() });
+        }
+    }
+    Ok(settings)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -481,6 +491,19 @@ holds = [{ knob = "power.profile", value = "power-saver" }]
         let setting = &settings["power.low_power_plan"];
         assert!(!setting.enabled);
         assert_eq!(setting.params, vec![("low_pct".to_owned(), Value::Num(15.0))]);
+    }
+
+    #[test]
+    fn turning_off_user_saver_also_turns_off_the_refresh_cap_split_from_it() {
+        let off = parse_settings("[\"power.user_saver\"]\nenabled = false\n").unwrap();
+        assert!(!off["power.saver_refresh_cap"].enabled);
+        let own = parse_settings(
+            "[\"power.user_saver\"]\nenabled = false\n[\"power.saver_refresh_cap\"]\nenabled = true\n",
+        )
+        .unwrap();
+        assert!(own["power.saver_refresh_cap"].enabled, "the rule's own setting wins");
+        let on = parse_settings("[\"power.user_saver\"]\nenabled = true\n").unwrap();
+        assert!(!on.contains_key("power.saver_refresh_cap"));
     }
 
     #[test]
