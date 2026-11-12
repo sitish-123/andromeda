@@ -96,7 +96,6 @@ AnimationManager::Id AnimationManager::animateInternal(
   }
 
   Id id = m_nextId++;
-  const auto now = std::chrono::steady_clock::now();
   m_animations.push_back(
       Entry{
           .id = id,
@@ -106,14 +105,11 @@ AnimationManager::Id AnimationManager::animateInternal(
               .startValue = reduceMotion ? to : from,
               .endValue = to,
               .durationMs = effectiveDurationMs,
-              .startedAt = reduceMotion ? now
-                      - std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                                              std::chrono::duration<float, std::milli>(kReducedMotionDurationMs)
-                      )
-                                        : now,
+              .elapsedMs = reduceMotion ? kReducedMotionDurationMs : 0.0F,
               .easing = easing,
               .setter = std::move(setter),
               .onComplete = std::move(onComplete),
+              .lastStep = m_lastTick,
           },
       }
   );
@@ -141,7 +137,7 @@ AnimationManager::Id AnimationManager::animateSpring(
               .setter = std::move(setter),
               .onComplete = std::move(onComplete),
               .spring = motion,
-              .lastStep = std::chrono::steady_clock::now(),
+              .lastStep = m_lastTick,
               .threshold = unit.value,
               .clamp01 = unit.clamp01,
           },
@@ -172,7 +168,7 @@ AnimationManager::Id AnimationManager::jump(
               .endValue = to,
               .onComplete = std::move(onComplete),
               .spring = desk::motion::Spring(to, to, {}),
-              .lastStep = std::chrono::steady_clock::now(),
+              .lastStep = m_lastTick,
               .gateFraction = onPass ? 0.0F : -1.0F,
               .onGate = std::move(onPass),
           },
@@ -328,7 +324,6 @@ void AnimationManager::cancelAll() {
 }
 
 void AnimationManager::reduceMotion() {
-  const auto now = std::chrono::steady_clock::now();
   for (auto& entry : m_animations) {
     if (!entry.respectMotionEnabled || entry.animation.finished) {
       continue;
@@ -345,11 +340,7 @@ void AnimationManager::reduceMotion() {
     }
     anim.startValue = anim.endValue;
     anim.durationMs = kReducedMotionDurationMs;
-    anim.elapsedMs = 0.0F;
-    anim.startedAt = now
-        - std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                         std::chrono::duration<float, std::milli>(kReducedMotionDurationMs)
-        );
+    anim.elapsedMs = kReducedMotionDurationMs;
   }
 }
 
@@ -368,6 +359,8 @@ void AnimationManager::cancelForOwner(const void* owner) {
 void AnimationManager::tick(float /*deltaMs*/) { tickAt(std::chrono::steady_clock::now()); }
 
 void AnimationManager::tickAt(std::chrono::steady_clock::time_point now) {
+  now = std::max(now, m_lastTick);
+  m_lastTick = now;
   // Collect completed callbacks separately — onComplete may call animate()
   // which would push_back and invalidate iterators during iteration.
   std::vector<Pending> completedCallbacks;
@@ -379,14 +372,15 @@ void AnimationManager::tickAt(std::chrono::steady_clock::time_point now) {
       continue;
     }
 
+    constexpr float kMaxStepMs = 50.0F;
+    // The first tick advances at most one frame, so a surface mapped late still starts near the start value.
+    constexpr float kFirstStepMs = 1000.0F / 60.0F;
+    float stepMs = std::clamp(std::chrono::duration<float, std::milli>(now - anim.lastStep).count(), 0.0F,
+                              anim.stepped ? kMaxStepMs : kFirstStepMs);
+    anim.stepped = true;
+    anim.lastStep = now;
+
     if (anim.spring) {
-      constexpr float kMaxStepMs = 50.0F;
-      // The first tick advances at most one frame, so a surface mapped late still starts near the start value.
-      constexpr float kFirstStepMs = 1000.0F / 60.0F;
-      float stepMs = std::clamp(std::chrono::duration<float, std::milli>(now - anim.lastStep).count(), 0.0F,
-                                anim.stepped ? kMaxStepMs : kFirstStepMs);
-      anim.stepped = true;
-      anim.lastStep = now;
       if (anim.delayMs > 0.0F) {
         anim.delayMs -= stepMs;
         if (anim.delayMs > 0.0F) {
@@ -420,11 +414,8 @@ void AnimationManager::tickAt(std::chrono::steady_clock::time_point now) {
       continue;
     }
 
-    // Progress from wall time so a fixed duration stays correct when the compositor
-    // delivers sparse `wl_surface.frame` callbacks (common right after cold boot).
-    const float wallElapsedMs = std::chrono::duration<float, std::milli>(now - anim.startedAt).count();
-    anim.elapsedMs = wallElapsedMs;
-    float t = anim.durationMs > 0.0F ? wallElapsedMs / anim.durationMs : 1.0F;
+    anim.elapsedMs += stepMs;
+    float t = anim.durationMs > 0.0F ? anim.elapsedMs / anim.durationMs : 1.0F;
 
     if (t >= 1.0F) {
       t = 1.0F;

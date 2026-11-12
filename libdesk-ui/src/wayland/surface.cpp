@@ -315,6 +315,20 @@ namespace {
     bool& m_flag;
   };
 
+  // wl_callback.done carries 32-bit milliseconds with an undefined base; wlroots sends CLOCK_MONOTONIC, the clock of
+  // steady_clock. Unsigned subtraction handles the wrap. A time in the future or over 1 s old has another base: use now.
+  std::chrono::steady_clock::time_point frameTimeFromCallback(std::uint32_t callbackMs) {
+    const auto now = std::chrono::steady_clock::now();
+    const auto nowMs = static_cast<std::uint32_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count()
+    );
+    const std::uint32_t ageMs = nowMs - callbackMs;
+    if (ageMs > 1000U) {
+      return now;
+    }
+    return now - std::chrono::milliseconds(ageMs);
+  }
+
 } // namespace
 
 Surface::Surface(WaylandConnection& connection) : m_connection(connection) {}
@@ -380,7 +394,6 @@ std::uint32_t Surface::bufferHeightFor(std::uint32_t logicalHeight) const noexce
 
 void Surface::handleFrameDone(void* data, wl_callback* callback, std::uint32_t callbackData) {
   auto* self = static_cast<Surface*>(data);
-  (void)callbackData;
 
   if (callback != nullptr) {
     wl_callback_destroy(callback);
@@ -404,6 +417,9 @@ void Surface::handleFrameDone(void* data, wl_callback* callback, std::uint32_t c
   const bool hasPendingWork =
       runFrameTick || self->m_updateRequested || self->m_layoutRequested || self->m_redrawRequested || invalidated;
   if (hasPendingWork) {
+    if (runFrameTick) {
+      self->m_pendingFrameTime = frameTimeFromCallback(callbackData);
+    }
     self->queueFrameWork(runFrameTick, deltaMs);
   }
 
@@ -1482,6 +1498,7 @@ void Surface::cancelQueuedFrameWork() {
   m_frameWorkQueued = false;
   m_frameTickPending = false;
   m_pendingFrameDeltaMs = 0.0F;
+  m_pendingFrameTime.reset();
 }
 
 void Surface::processQueuedFrameWork() {
@@ -1490,19 +1507,22 @@ void Surface::processQueuedFrameWork() {
   if (m_surface == nullptr || !m_configured) {
     m_frameTickPending = false;
     m_pendingFrameDeltaMs = 0.0F;
+    m_pendingFrameTime.reset();
     return;
   }
 
   const bool runFrameTick = m_frameTickPending;
   const float deltaMs = m_pendingFrameDeltaMs;
+  const auto frameTime = m_pendingFrameTime.value_or(std::chrono::steady_clock::now());
   m_frameTickPending = false;
   m_pendingFrameDeltaMs = 0.0F;
+  m_pendingFrameTime.reset();
 
   if (runFrameTick) {
     ScopedBoolFlag frameHandler{m_inFrameHandler};
 
     if (m_animationManager != nullptr) {
-      const float tickMs = elapsedMs([this, deltaMs] { m_animationManager->tick(deltaMs); });
+      const float tickMs = elapsedMs([this, frameTime] { m_animationManager->tickAt(frameTime); });
       recordSurfaceProfileEvent(*this, SurfaceProfileEvent::AnimationTick, tickMs);
       if (m_frameStats != nullptr) {
         m_frameStats->addCpu(tickMs);

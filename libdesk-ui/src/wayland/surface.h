@@ -238,6 +238,7 @@ private:
   bool m_nextFrameCallbackShouldTick = false;
   bool m_renderQueued = false;
   float m_pendingFrameDeltaMs = 0.0F;
+  std::optional<std::chrono::steady_clock::time_point> m_pendingFrameTime;
   std::uint32_t m_width = 0;
   std::uint32_t m_height = 0;
   std::int32_t m_bufferScale = 1;

@@ -55,13 +55,13 @@ struct Animation {
   float endValue = 0.0F;
   float durationMs = 0.0F;
   float elapsedMs = 0.0F;
-  std::chrono::steady_clock::time_point startedAt;
   Easing easing = Easing::EaseOutQuad;
   std::function<void(float)> setter;
   std::function<void()> onComplete;
   bool finished = false;
   // Set for spring animations: the spring owns the timing and durationMs/easing do not apply.
   std::optional<desk::motion::Spring> spring;
+  // Frame time of the last step; a new animation starts at the manager's last frame time.
   std::chrono::steady_clock::time_point lastStep;
   // False until the first frame tick, which advances at most one frame.
   bool stepped = false;

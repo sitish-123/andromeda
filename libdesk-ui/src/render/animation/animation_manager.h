@@ -34,7 +34,7 @@ public:
   AnimationManager(AnimationManager&&) = delete;
   AnimationManager& operator=(AnimationManager&&) = delete;
 
-  // Real elapsed-time driver: ignores global motion enable/speed. Use for timeouts, continuous loops and
+  // Frame-time driver (a stall counts as 50 ms): ignores global motion enable/speed. Use for timeouts, continuous loops and
   // fixed-duration effects that must stay independent of the global animation settings (e.g. the wallpaper crossfade).
   Id animateTimer(
       float from, float to, float durationMs, Easing easing, std::function<void(float)> setter,
@@ -86,8 +86,10 @@ public:
   // Cancels any animations tagged with the given owner. Called from Node's destructor so that
   // animations holding a raw pointer to a scene node can never outlive their target.
   void cancelForOwner(const void* owner);
+  // Steps to steady_clock::now(), for drivers without a frame clock.
   void tick(float deltaMs);
-  // Steps springs to `now`; a step longer than 50 ms counts as 50 ms.
+  // Steps every animation to frame time `now`; a step longer than 50 ms counts as 50 ms. A time earlier than the last
+  // tick counts as the last tick, so surfaces that share this manager never step it twice or backwards.
   void tickAt(std::chrono::steady_clock::time_point now);
   [[nodiscard]] bool hasActive() const;
 
@@ -112,6 +114,7 @@ private:
   // Callback lists being dispatched (nested tickAt calls stack); a cancel marks the matching pending entries.
   std::vector<std::vector<Pending>*> m_dispatchLists;
   Id m_nextId = 1;
+  std::chrono::steady_clock::time_point m_lastTick;
 
   // Motion off: runs the setter now and queues `onComplete` (and `onPass`) for the next tick as a settled entry.
   // The returned id is non-zero while that completion is pending, so a caller's `m_id = ...` never overwrites an id

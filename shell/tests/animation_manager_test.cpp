@@ -257,6 +257,53 @@ int main() {
     manager.cancelAll();
   }
 
+  {
+    // Frame clock: a spring started between frames steps by the frame delta, even when frame times lag now().
+    AnimationManager manager;
+    const desk::motion::SpringConfig spring{.damping = 1.0, .stiffness = 100.0};
+    const auto f0 = std::chrono::steady_clock::now() - std::chrono::milliseconds(100);
+    manager.tickAt(f0);
+    float value = 0.0F;
+    manager.animateSpring(0.0F, 100.0F, spring, [&value](float v) { value = v; });
+    manager.tickAt(f0 + std::chrono::milliseconds(16));
+    desk::motion::Spring expected(0.0, 100.0, spring);
+    ok &= check(
+        std::fabs(value - static_cast<float>(expected.step(0.016))) < 0.01F, "spring did not step by the frame delta"
+    );
+    manager.cancelAll();
+  }
+
+  {
+    // Two surfaces share one manager: an earlier frame time from the second one neither steps back nor twice.
+    AnimationManager manager;
+    const desk::motion::SpringConfig spring{.damping = 1.0, .stiffness = 100.0};
+    const auto f0 = std::chrono::steady_clock::now();
+    manager.tickAt(f0);
+    float value = 0.0F;
+    manager.animateSpring(0.0F, 100.0F, spring, [&value](float v) { value = v; });
+    manager.tickAt(f0 + std::chrono::milliseconds(16));
+    manager.tickAt(f0 + std::chrono::milliseconds(8));
+    manager.tickAt(f0 + std::chrono::milliseconds(16));
+    desk::motion::Spring expected(0.0, 100.0, spring);
+    ok &= check(
+        std::fabs(value - static_cast<float>(expected.step(0.016))) < 0.01F, "an earlier frame time stepped the spring"
+    );
+    manager.cancelAll();
+  }
+
+  {
+    // A stall counts as 50 ms for a duration tween too: it does not jump to its end.
+    AnimationManager manager;
+    const auto f0 = std::chrono::steady_clock::now();
+    manager.tickAt(f0);
+    float value = 0.0F;
+    manager.animateTimer(0.0F, 1000.0F, 1000.0F, Easing::Linear, [&value](float v) { value = v; });
+    manager.tickAt(f0 + std::chrono::milliseconds(16));
+    manager.tickAt(f0 + std::chrono::seconds(10));
+    ok &= check(std::fabs(value - 66.0F) < 0.5F, "tween dt was not clamped after a stall");
+    manager.cancelAll();
+  }
+
   resetMotion();
   return ok ? 0 : 1;
 }
