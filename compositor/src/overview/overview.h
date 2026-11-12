@@ -235,6 +235,9 @@ namespace andromeda {
       wlr_box clip{};
       // Opacity factor of the search filter: 1 for a match, kFilterMissOpacity for a miss.
       AnimatedValue filter{1.0};
+      // Spaces and Task View: the window was on screen when the open or close began, so it grows from (returns to) its
+      // real rect; otherwise it appears in its slot. A card made later appears.
+      bool grows = false;
     };
 
     // One surface of the output's mirrored stack: a background- or bottom-layer surface copied into every workspace
@@ -464,9 +467,9 @@ namespace andromeda {
     // `release` is set only for a gesture release: the speed the fingers left behind, in overview progress per second,
     // which the zoom settles with on `page`. Every other start runs `open` or `close` from the zoom's current speed.
     void startAnimation(double target, bool closing, std::optional<double> release = std::nullopt);
-    // Move one output's filmstrip onto row `target`. `releaseVelocity` is the speed a touchpad gesture left behind,
-    // in rows per second, and is zero for every other caller.
-    void animateRow(OutputState& state, double target, double releaseVelocity = 0);
+    // Move one output's filmstrip onto row `target`. `release` is set only for a touchpad gesture's release or cancel:
+    // the speed the fingers left behind, in rows per second (0 for a cancel or a resting hand).
+    void animateRow(OutputState& state, double target, std::optional<double> release = std::nullopt);
     void finishAnimation();
     void beginClose(View* focus, std::optional<double> release = std::nullopt);
     void teardown();
@@ -552,9 +555,12 @@ namespace andromeda {
     // 0.94 -> 1 on open and 1 -> 0.96 on close. It shows once the zoom passes Tokens::motionContentGate of its travel.
     AnimatedValue m_appearOpacity{0.0};
     AnimatedValue m_appearScale{1.0};
-    void updateAppear();
-    // Whether `card` grows from its real rect (on screen at the open) instead of appearing in its slot.
-    [[nodiscard]] bool growsFromDesk(const OutputState& state, const Card& card, size_t workspace) const;
+    // `startMsec` (frame clock) starts a new appear motion at that instant instead of the next tick; 0 for the next tick.
+    void updateAppear(double startMsec = 0.0);
+    // Whether `card` grows from its real rect instead of appearing in its slot.
+    [[nodiscard]] static bool growsFromDesk(const OutputState& state, const Card& card);
+    // Sets Card::grows for every card from what is on screen now: at an open, and at a close for the row it returns to.
+    void classifyEntrance();
     // Scratch lists layoutChrome refills every frame, kept to avoid reallocating them.
     std::vector<ov::ChromeWorkspace> m_chromeWorkspaces;
     std::vector<std::string> m_chromeNames; // owns the names m_chromeWorkspaces views
@@ -603,6 +609,8 @@ namespace andromeda {
     bool m_traceFrames = false;
     // Frame clock of the last tick, in ms.
     double m_lastTickMsec = 0.0;
+    // The last tick is at most two 60 Hz frames old: frames are still running, so a motion may start from it.
+    [[nodiscard]] bool tickedRecently() const;
     double m_fingerTarget = 0.0;
     std::optional<std::chrono::steady_clock::time_point> m_gestureOpenedAt;
     std::string m_filter;
@@ -618,8 +626,6 @@ namespace andromeda {
     // The window card under the pointer and whether the pointer is on its close button. Compared, never dereferenced.
     const View* m_hoverView = nullptr;
     bool m_closeHover = false;
-    // The window whose close button a left press landed on; a release on the same button closes it.
-    const View* m_closePress = nullptr;
     std::optional<ArrangementMenu> m_menu;
     std::optional<WindowMenu> m_windowMenu;
     // F2 rename of the title row's workspace: the text so far; `fresh` until the first key, which replaces the name.

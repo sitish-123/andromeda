@@ -238,6 +238,8 @@ namespace andromeda {
       wlr_scene_node_destroy(&card->tree->node);
       return nullptr;
     }
+    // A card made during a search starts at its filter level instead of fading to it.
+    card->filter.snap(m_filter.empty() || cardMatches(*card) ? 1.0 : kFilterMissOpacity);
     Card* raw = card.get();
     state.cards.push_back(std::move(card));
 
@@ -388,6 +390,8 @@ namespace andromeda {
   }
 
   void Overview::rebuildCard(View* view) {
+    const Card* old = findCard(view);
+    const bool grows = old != nullptr && old->grows;
     dropCard(view);
     Workspace* workspace = view->workspace();
     if (workspace == nullptr || !view->mapped()) {
@@ -397,7 +401,9 @@ namespace andromeda {
     if (state == nullptr) {
       return;
     }
-    createCard(*state, view, workspace->index());
+    if (Card* card = createCard(*state, view, workspace->index())) {
+      card->grows = grows;
+    }
     layoutOutput(*state);
     wlr_output_schedule_frame(state->output->wlr());
   }

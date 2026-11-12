@@ -583,7 +583,7 @@ namespace andromeda {
       const ov::Rect placed = toLocal(reflowRect(card.view, toLayout(place->rect), reflowed));
       ov::Rect rect;
       double opacity = 1.0;
-      if (growsFromDesk(state, card, place->workspace)) {
+      if (growsFromDesk(state, card)) {
         const ov::Rect desk = ov::deskRect(in, localRect(world, outputBox), place->workspace, row);
         opacity = ov::windowOpacity(*place, card.view->minimized(), p);
         if (config().appearance.reduceMotion) {
@@ -750,9 +750,13 @@ namespace andromeda {
     state.chrome->raise();
   }
 
+  bool Overview::tickedRecently() const {
+    return m_lastTickMsec > 0.0 && static_cast<double>(m_server->animationClockMsec()) - m_lastTickMsec < 34.0;
+  }
+
   void Overview::drive(AnimatedValue& value, double to, const Tokens::Spring& spring) {
     const auto& animation = config().animation;
-    if (!animation.enabled) {
+    if (!animation.enabled || !animation.overview.enabled) {
       value.snap(to);
     } else {
       value.steerSpring(to, motionSpring(spring));
@@ -821,7 +825,7 @@ namespace andromeda {
               offset.snap(jump[i]);
               if (animation.overview.workspaceCurve.easing == Easing::Spring) {
                 offset.settleSpring(0.0, glide->spring, velocity);
-                if (!fresh && m_lastTickMsec > 0.0) {
+                if (!fresh && tickedRecently()) {
                   offset.startClockAt(m_lastTickMsec);
                 }
               } else {
@@ -1022,6 +1026,7 @@ namespace andromeda {
         animateRow(*state, row, switchPick.velocity);
       }
     }
+    classifyEntrance();
     phase("arrange");
     applyProgress();
     phase("layout");
@@ -1130,7 +1135,6 @@ namespace andromeda {
     m_pressWorkspace = nullptr;
     m_hoverView = nullptr;
     m_closeHover = false;
-    m_closePress = nullptr;
     m_menu.reset();
     m_windowMenu.reset();
     finishRename(true);
@@ -1142,6 +1146,8 @@ namespace andromeda {
         animateRow(*state, static_cast<double>(group->active()->index()));
       }
     }
+    // Close mirrors the open: what the desktop will show returns to its rect, the rest fades in place.
+    classifyEntrance();
     startAnimation(0.0, true, release);
   }
 
@@ -1202,8 +1208,7 @@ namespace andromeda {
       m_zoomAnim.settleSpring(target, motionSpring(spring), releaseVelocity);
       // A release hands the fingers' speed on: a clock that starts on the next tick would hold that frame still.
       // Only a recent tick: after frames stopped (a resting hand), the old clock would jump the spring ahead.
-      if (releaseVelocity != 0.0 && m_lastTickMsec > 0.0
-          && m_server->animationClockMsec() - m_lastTickMsec < 34.0) {
+      if (releaseVelocity != 0.0 && tickedRecently()) {
         m_zoomAnim.startClockAt(m_lastTickMsec);
       }
     } else {
@@ -1214,7 +1219,7 @@ namespace andromeda {
     scheduleFrames();
   }
 
-  void Overview::updateAppear() {
+  void Overview::updateAppear(double startMsec) {
     const bool shown = m_active && !m_closing && m_progress >= Tokens::motionContentGate;
     const double opacity = shown ? 1.0 : 0.0;
     if (m_appearOpacity.target() == opacity) {
@@ -1225,22 +1230,35 @@ namespace andromeda {
     if (!config().appearance.reduceMotion) {
       drive(m_appearScale, shown ? 1.0 : kAppearScaleOut, shown ? Tokens::springOpen : Tokens::springClose);
     }
+    if (startMsec > 0.0) {
+      for (AnimatedValue* value : {&m_appearOpacity, &m_appearScale}) {
+        if (value->animating()) {
+          value->startClockAt(startMsec);
+        }
+      }
+    }
     scheduleFrames();
   }
 
-  bool Overview::growsFromDesk(const OutputState& state, const Card& card, size_t workspace) const {
+  bool Overview::growsFromDesk(const OutputState& state, const Card& card) {
     // Strip and Grid zoom whole workspace cards out of the screen, so their windows ride along.
-    if (state.placedStyle != ov::Style::Spaces && state.placedStyle != ov::Style::TaskView) {
-      return true;
-    }
-    if (card.view->minimized() || static_cast<long>(workspace) != std::lround(state.rowScroll.target())) {
-      return false;
-    }
-    wlr_box onScreen{};
-    return wlr_box_intersection(&onScreen, &card.view->presentedBox(), &state.outputBox);
+    return (state.placedStyle != ov::Style::Spaces && state.placedStyle != ov::Style::TaskView) || card.grows;
   }
 
-  void Overview::animateRow(OutputState& state, double target, double releaseVelocity) {
+  void Overview::classifyEntrance() {
+    for (const auto& state : m_outputs) {
+      const long row = std::lround(state->rowScroll.target());
+      for (const auto& card : state->cards) {
+        wlr_box onScreen{};
+        card->grows = !card->view->minimized()
+            && static_cast<long>(card->workspaceIndex) == row
+            && wlr_box_intersection(&onScreen, &card->view->presentedBox(), &state->outputBox);
+      }
+    }
+  }
+
+  void Overview::animateRow(OutputState& state, double target, std::optional<double> release) {
+    const double releaseVelocity = release.value_or(0.0);
     const auto& animation = config().animation;
     const auto& overview = animation.overview;
     if (!animation.enabled || !overview.enabled) {
@@ -1249,9 +1267,9 @@ namespace andromeda {
       return;
     }
     if (config().appearance.reduceMotion) {
-      // Reduced motion (rulebook 7.8): a gesture release settles on `close` without the fingers' speed; any other
-      // move jumps the row, and what it moved crossfades from its old place.
-      if (releaseVelocity != 0.0) {
+      // Reduced motion (rulebook 7.8): a gesture release or cancel settles on `close` without the fingers' speed; any
+      // other move jumps the row, and what it moved crossfades from its old place.
+      if (release.has_value()) {
         state.rowScroll.settleSpring(target, motionSpring(Tokens::springClose));
         scheduleFrames();
         return;
@@ -1308,7 +1326,8 @@ namespace andromeda {
     }
     bool active = m_dropHint != nullptr && m_dropHint->tickAnimations(nowMsec);
     active = tickEdgePan(nowMsec) || active;
-    m_lastTickMsec = nowMsec;
+    const double lastTickMsec = std::exchange(m_lastTickMsec, nowMsec);
+    const double lastProgress = m_progress;
     layoutDragCard();
     const bool zoomTicked = m_zoomAnim.tick(nowMsec);
     if (zoomTicked && m_zoomAnim.animating() && m_zoomAnim.curve().easing == Easing::Spring) {
@@ -1318,7 +1337,13 @@ namespace andromeda {
       m_progress = m_zoomAnim.current();
     }
     if (m_active) {
-      updateAppear();
+      // The content starts when the zoom crossed the gate, between the last frame and this one. Started at this frame,
+      // it would lag a long frame behind, and on a frozen test clock (one step, then repeated instants) never move.
+      const double gate = Tokens::motionContentGate;
+      const bool crossed = zoomTicked && lastTickMsec > 0.0 && lastProgress < gate && m_progress >= gate;
+      updateAppear(
+          crossed ? lastTickMsec + (nowMsec - lastTickMsec) * (gate - lastProgress) / (m_progress - lastProgress) : 0.0
+      );
     }
     // An opacity ends within one 8-bit level; a scale within a pixel of the largest card, an output.
     constexpr double kOpacityLevels = 255.0;
@@ -1529,7 +1554,6 @@ namespace andromeda {
     m_pressWorkspace = nullptr;
     m_hoverView = nullptr;
     m_closeHover = false;
-    m_closePress = nullptr;
     m_menu.reset();
     m_rename.reset();
     m_dragSourceWorkspace = nullptr;
@@ -1559,6 +1583,11 @@ namespace andromeda {
     // close turns back into an overview the fingers hold. Reading it as fully open or closed jumps the first frame.
     m_zoomAnim.snap(m_progress);
     m_targetProgress = m_progress;
+    // A swipe from the settled overview may close it: classify for the row it shows. At rest both classes draw a card
+    // in its slot, so the change does not show.
+    if (!m_closing && m_progress >= 1.0) {
+      classifyEntrance();
+    }
     if (m_closing) {
       m_closing = false;
       m_server->notifyOverviewChanged();
@@ -1714,9 +1743,6 @@ namespace andromeda {
     if (m_hoverView == view) {
       m_hoverView = nullptr;
       m_closeHover = false;
-    }
-    if (m_closePress == view) {
-      m_closePress = nullptr;
     }
     if (m_drop.view == view) {
       m_drop.view = nullptr;
