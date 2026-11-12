@@ -68,6 +68,22 @@ for expected in \
   esac
 done
 
+retired_output=$("$noctalia_bin" config validate tests/config_validate/retired.toml 2>&1) \
+  || fail "retired config should validate with warnings"
+for retired in settings_show_advanced umbriel_overview session_placement session_position shell.session.grid widget.sysmon_2 widget.temp widget.lid_awake; do
+  case "$retired_output" in
+    *"$retired"*) fail "retired key still reported: $retired: $retired_output" ;;
+  esac
+done
+case "$retired_output" in
+  *"shell.settings_show_advancd: unknown setting"*) ;;
+  *) fail "typo next to retired keys did not warn" ;;
+esac
+case "$retired_output" in
+  *'widget.bogus: unrecognized widget type "bogus_type"'*) ;;
+  *) fail "unknown widget type did not warn" ;;
+esac
+
 syntax_output=$("$noctalia_bin" config validate tests/config_validate/syntax-error.toml 2>&1) \
   && fail "syntax-error config should fail"
 case "$syntax_output" in

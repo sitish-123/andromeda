@@ -1,0 +1,22 @@
+[shell]
+settings_show_advanced = true
+umbriel_overview_type_to_launch_enabled = true
+settings_show_advancd = true
+
+[shell.panel]
+session_placement = "floating"
+session_position = "center"
+
+[shell.session]
+grid = true
+
+[widget.sysmon_2]
+type = "sysmon"
+
+[widget.temp]
+
+[widget.lid_awake]
+type = "custom_button"
+
+[widget.bogus]
+type = "bogus_type"

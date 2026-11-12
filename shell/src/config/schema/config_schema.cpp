@@ -1708,6 +1708,8 @@ namespace noctalia::config::schema {
 
     const Schema<ShellConfig::PanelConfig>& shellPanelSchema() {
       static const Schema<ShellConfig::PanelConfig> s = {
+          retiredField<ShellConfig::PanelConfig>("session_placement"),
+          retiredField<ShellConfig::PanelConfig>("session_position"),
           enumField(
               &ShellConfig::PanelConfig::transparencyMode, "transparency_mode", kPanelTransparencyModes,
               RowSpec{
@@ -2524,6 +2526,7 @@ namespace noctalia::config::schema {
 
     const Schema<ShellSessionConfig>& shellSessionSchema() {
       static const Schema<ShellSessionConfig> s = {
+          retiredField<ShellSessionConfig>("grid"),
           arrayOf<ShellSessionConfig, SessionPanelActionConfig>(
               &ShellSessionConfig::actions, "actions", sessionActionSchema(),
               [](const SessionPanelActionConfig& a) { return !a.action.empty(); }
@@ -2658,6 +2661,8 @@ namespace noctalia::config::schema {
         ),
         field(&ShellConfig::setupWizardEnabled, "setup_wizard_enabled"),
         // Retired keys (Andromeda only): read and dropped so old configs load without a warning.
+        retiredField<ShellConfig>("settings_show_advanced"),
+        retiredField<ShellConfig>("umbriel_overview_type_to_launch_enabled"),
         custom<ShellConfig>(
             "niri_overview_type_to_launch_enabled",
             [](const toml::table&, ShellConfig&, std::string_view, Diagnostics&) {},

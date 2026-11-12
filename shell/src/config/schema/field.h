@@ -444,6 +444,13 @@ namespace noctalia::config::schema {
     return Field<Struct>{key, std::move(read), std::move(write), nullptr, std::move(row)};
   }
 
+  // A key removed from the schema: read and dropped, never written, so old files load without an unknown-key warning.
+  template <typename Struct> Field<Struct> retiredField(std::string_view key) {
+    return custom<Struct>(
+        key, [](const toml::table&, Struct&, std::string_view, Diagnostics&) {}, [](toml::table&, const Struct&) {}
+    );
+  }
+
   // String holding a filesystem path: ~ and $VARS expand on read, emitted raw.
   template <typename Struct>
   Field<Struct>

@@ -496,6 +496,9 @@ namespace noctalia::config {
         const auto pluginEntry = pluginRegistry.resolve(type);
         const bool isPluginWidget =
             pluginEntry.has_value() && pluginEntry->entry->kind == scripting::PluginEntryKind::Widget;
+        if (type == "sysmon" || type == "temp" || type == "custom_button") {
+          continue;
+        }
         if (!settings::isBuiltInWidgetType(type) && !isPluginWidget) {
           diag.warn(base, "unrecognized widget type \"" + type + "\"");
           resolvedConfig.widgets[nameStr] = std::move(wc);
