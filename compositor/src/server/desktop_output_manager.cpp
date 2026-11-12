@@ -244,6 +244,15 @@ namespace andromeda {
       reject(std::format("[output.{}] {} is set in {}", name, key, configRootPath().filename().string()));
       return;
     }
+    // config.toml's min_workspaces needs dynamic workspaces; a saved count or name list would break the merged table.
+    if (key == "workspaces" && std::holds_alternative<int64_t>(*parsed)
+        && documentSetsOutputKey(configRootPath(), name, "min_workspaces")) {
+      reject(std::format(
+          "[output.{}] min_workspaces is set in {}, which needs dynamic workspaces", name,
+          configRootPath().filename().string()
+      ));
+      return;
+    }
     const std::filesystem::path file = configRootPath().parent_path() / "displays.toml";
     if (!std::ranges::contains(configWatchPaths(), file)) {
       reject(configRootPath().filename().string() + " does not include displays.toml");

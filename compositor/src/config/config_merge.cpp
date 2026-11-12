@@ -321,6 +321,30 @@ namespace andromeda::configmerge {
       record("pool", result.pools);
     }
 
+    // An [output] key in the including file also removes its exclusive peer from the included tables of that name, so
+    // a peer saved in displays.toml cannot make the merged table invalid: min_workspaces needs dynamic workspaces.
+    void dropOverriddenOutputPeers(toml::table& base, const toml::table& overlay) {
+      const toml::table* overlayOutputs = overlay["output"].as_table();
+      toml::table* baseOutputs = base["output"].as_table();
+      if (overlayOutputs == nullptr || baseOutputs == nullptr) {
+        return;
+      }
+      for (const auto& [name, node] : *overlayOutputs) {
+        const toml::table* own = node.as_table();
+        toml::table* included = (*baseOutputs)[name].as_table();
+        if (own == nullptr || included == nullptr) {
+          continue;
+        }
+        if (own->contains("min_workspaces") && (*included)["workspaces"].value<std::string>() != "dynamic") {
+          included->erase("workspaces");
+        }
+        if (const toml::node* workspaces = own->get("workspaces");
+            workspaces != nullptr && workspaces->value<std::string>() != "dynamic") {
+          included->erase("min_workspaces");
+        }
+      }
+    }
+
     toml::table expandFile(
         const std::filesystem::path& path, toml::table parsed, std::set<std::filesystem::path>& visited,
         MergeResult& result
@@ -383,6 +407,7 @@ namespace andromeda::configmerge {
       mergeEntries(directive.files, false);
       mergeEntries(directive.optionalFiles, true);
       recordEffectOrigins(parsed, result);
+      dropOverriddenOutputPeers(base, parsed);
       deepMerge(base, std::move(parsed));
       return base;
     }
