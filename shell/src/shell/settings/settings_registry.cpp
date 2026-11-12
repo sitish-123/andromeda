@@ -307,7 +307,10 @@ namespace settings {
           }
         };
         for (const auto& entry : entries) {
-          if (!std::holds_alternative<ButtonSetting>(entry.control)) {
+          // A grouped select (desktop layout) reads and writes several keys; its path is only an id.
+          const auto* select = std::get_if<SelectSetting>(&entry.control);
+          if (!std::holds_alternative<ButtonSetting>(entry.control)
+              && (select == nullptr || !select->groupedCommit)) {
             verify(entry.path, "override");
           }
         }
