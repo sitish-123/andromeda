@@ -76,7 +76,8 @@ public:
 
   [[nodiscard]] std::optional<ActiveToplevel> current() const;
   [[nodiscard]] wl_output* currentOutput() const;
-  [[nodiscard]] bool anyFullscreen() const;
+  // On `outputFilter` when set (matchesOutputFilter), else on any output.
+  [[nodiscard]] bool anyFullscreen(wl_output* outputFilter = nullptr) const;
   [[nodiscard]] std::optional<ActiveToplevel>
   matchByTitleAndAppId(std::string_view title, std::string_view appId, wl_output* preferredOutput) const;
   [[nodiscard]] std::vector<std::string> allAppIds(wl_output* outputFilter = nullptr) const;

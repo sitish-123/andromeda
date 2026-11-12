@@ -108,7 +108,7 @@ public:
   [[nodiscard]] std::optional<ActiveToplevel>
   matchToplevelByTitleAndAppId(std::string_view title, std::string_view appId, wl_output* preferredOutput) const;
   [[nodiscard]] wl_output* activeToplevelOutput() const;
-  [[nodiscard]] bool hasFullscreenToplevel() const;
+  [[nodiscard]] bool hasFullscreenToplevel(wl_output* output = nullptr) const;
   [[nodiscard]] std::vector<std::string> runningAppIds(wl_output* outputFilter = nullptr) const;
   [[nodiscard]] std::vector<ToplevelInfo>
   windowsForApp(const std::string& idLower, const std::string& wmClassLower, wl_output* outputFilter = nullptr) const;

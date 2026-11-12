@@ -270,6 +270,7 @@ void Application::syncLiveActivity() {
         activity.actionDestructive = true;
         activity.secondaryGlyph = "bell-off";
         activity.secondaryAction = [this, id = call->deviceId] { m_linkService->muteCall(id); };
+        activity.overFullscreen = true;
       } else {
         activity.actionGlyph = "phone-off";
         activity.action = [this, id = call->deviceId] { m_linkService->declineCall(id); };
@@ -1213,7 +1214,13 @@ void Application::initWaylandCallbacks() {
     m_dock.refresh();
     m_windowSwitcher.onToplevelChange();
     m_powerOverlay.onToplevelChange();
-    m_liveActivity.setFullscreen(m_wayland.hasFullscreenToplevel());
+    std::vector<wl_output*> fullscreen;
+    for (const auto& output : m_wayland.outputs()) {
+      if (m_wayland.hasFullscreenToplevel(output.output)) {
+        fullscreen.push_back(output.output);
+      }
+    }
+    m_liveActivity.setFullscreenOutputs(std::move(fullscreen));
     if (m_backgroundPortal != nullptr) {
       m_backgroundPortal->onToplevelsChanged();
     }

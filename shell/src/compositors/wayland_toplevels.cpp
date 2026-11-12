@@ -288,9 +288,9 @@ void WaylandToplevels::onHandleState(zwlr_foreign_toplevel_handle_v1* handle, wl
   it->second.generation = ++m_generation;
 }
 
-bool WaylandToplevels::anyFullscreen() const {
-  return std::ranges::any_of(m_handles, [](const auto& entry) {
-    return entry.second.fullscreen && !entry.second.minimized;
+bool WaylandToplevels::anyFullscreen(wl_output* outputFilter) const {
+  return std::ranges::any_of(m_handles, [outputFilter](const auto& entry) {
+    return entry.second.fullscreen && !entry.second.minimized && matchesOutputFilter(entry.second, outputFilter);
   });
 }
 

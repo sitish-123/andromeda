@@ -103,6 +103,19 @@ int main() {
   TEST_CHECK(!toplevels.minimized(nullptr).has_value());
   TEST_CHECK(!toplevels.minimizeHandle(nullptr));
 
+  // A fullscreen window counts on its own output only.
+  toplevels.onHandleOutputEnter(handle, otherOutput);
+  std::uint32_t fullscreenFlag = ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_FULLSCREEN;
+  wl_array fullscreenState{.size = sizeof(fullscreenFlag), .alloc = sizeof(fullscreenFlag), .data = &fullscreenFlag};
+  toplevels.onHandleState(handle, &fullscreenState);
+  toplevels.onHandleDone(handle);
+  TEST_CHECK(toplevels.anyFullscreen());
+  TEST_CHECK(toplevels.anyFullscreen(otherOutput));
+  TEST_CHECK(!toplevels.anyFullscreen(someOutput));
+  toplevels.onHandleState(handle, &restoredState);
+  toplevels.onHandleDone(handle);
+  TEST_CHECK(!toplevels.anyFullscreen(otherOutput));
+
   WaylandExtForeignToplevels extToplevels;
   int changeCount = 0;
   extToplevels.setChangeCallback([&]() { ++changeCount; });

@@ -70,6 +70,8 @@ struct LiveActivity {
   // The rest face of a timed activity: Call rests in every bar; Recording rests only in a bar lane, a row keeps its card.
   enum class Compact : std::uint8_t { Call, Recording };
   Compact compact = Compact::Call;
+  // Shows over a fullscreen window: a ringing call.
+  bool overFullscreen = false;
 };
 
 // The center island of the top or bottom islands bar. At rest it is a pill in the bar row with the privacy dots and the
@@ -115,8 +117,9 @@ public:
   // Do Not Disturb turned on: drops the banners that respect it.
   void hideDndSuppressed();
   void setActivity(std::optional<LiveActivity> activity);
-  // A fullscreen window: the rest pill hides under it; other faces and an active call still show over it.
-  void setFullscreen(bool fullscreen);
+  // Outputs that show a fullscreen window. There the island rests under the window and shows only a ringing call
+  // (LiveActivity::overFullscreen) or a critical banner; banners and OSDs that no output can show are dropped.
+  void setFullscreenOutputs(std::vector<wl_output*> outputs);
   // The lock screen editor is open: every face goes under it, so a banner never covers the editor's top bar.
   void setUnderEditor(bool underEditor);
   // IPC: "none" or "title|subtitle|secondary glyph|primary glyph"; press runs the button's action.
@@ -274,6 +277,7 @@ private:
     std::vector<std::pair<std::string, std::string>> actions;
     // Critical or never expiring: no timeout; it stays until acted on or swiped away.
     bool sticky = false;
+    bool critical = false; // shows over a fullscreen window
     bool respectsDnd = true;
   };
 
@@ -350,6 +354,8 @@ private:
   // The card shape follows `face`: grown from the pill to its card, or shrunk back into the pill and then cleared.
   void syncLaneCard(Instance& inst, Face face, bool jump, bool continueMirror);
   [[nodiscard]] bool restUnderFullscreen(const Instance& inst) const;
+  [[nodiscard]] bool fullscreenOn(const Instance& inst) const;
+  [[nodiscard]] bool everyIslandFullscreen() const;
   // The settled rest pill faded out with the bar's auto-hide: nothing draws, loops or takes input.
   [[nodiscard]] static bool restHidden(const Instance& inst);
   [[nodiscard]] bool realSpectrum() const;
@@ -401,6 +407,6 @@ private:
   std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
   bool m_refreshScheduled = false;
   std::vector<std::unique_ptr<Instance>> m_instances;
-  bool m_fullscreen = false;
+  std::vector<wl_output*> m_fullscreenOutputs;
   bool m_underEditor = false;
 };

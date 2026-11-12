@@ -325,6 +325,9 @@ bool LiveActivityIsland::coversAllOutputs() const {
 
 bool LiveActivityIsland::showOsd(const OsdContent& content) {
   // An OSD briefly takes the island over a live activity; the activity face returns when the OSD ends.
+  if (everyIslandFullscreen()) {
+    return true;
+  }
   if (!coversAllOutputs()) {
     return false;
   }
@@ -346,6 +349,7 @@ bool LiveActivityIsland::showBanner(const Notification& n, NotificationEvent eve
         .imageData = n.imageData,
         .actions = bannerActions(n.actions),
         .sticky = n.urgency == Urgency::Critical || n.timeout == 0,
+        .critical = n.urgency == Urgency::Critical,
         .respectsDnd = n.dndPolicy == NotificationDndPolicy::Respect,
     };
   };
@@ -370,6 +374,10 @@ bool LiveActivityIsland::showBanner(const Notification& n, NotificationEvent eve
     return false;
   }
   m_consumed.insert(n.id);
+  // No island can show it: it stays in the notification center only, and leaving fullscreen does not replay it.
+  if (everyIslandFullscreen() && n.urgency != Urgency::Critical) {
+    return true;
+  }
   apply(m_queue.push(item()));
   return true;
 }
@@ -703,11 +711,12 @@ LiveActivityIsland::Rect LiveActivityIsland::faceRect(const Instance& inst, Face
   };
 }
 
-void LiveActivityIsland::setFullscreen(bool fullscreen) {
-  if (m_fullscreen == fullscreen) {
+void LiveActivityIsland::setFullscreenOutputs(std::vector<wl_output*> outputs) {
+  if (m_fullscreenOutputs == outputs) {
     return;
   }
-  m_fullscreen = fullscreen;
+  m_fullscreenOutputs = std::move(outputs);
+  updateAllFaces();
   for (auto& inst : m_instances) {
     applyLayer(*inst);
     // The waveform loop stops under a fullscreen window, so the compositor can scan the window out directly.
@@ -715,10 +724,18 @@ void LiveActivityIsland::setFullscreen(bool fullscreen) {
   }
 }
 
-// The plain rest pill goes under a fullscreen window (Top layer), so fullscreen video gets direct scanout. A call at rest
-// stays over it; a collapse to rest moves down only when its morph ends.
+bool LiveActivityIsland::fullscreenOn(const Instance& inst) const {
+  return std::ranges::find(m_fullscreenOutputs, inst.output) != m_fullscreenOutputs.end();
+}
+
+bool LiveActivityIsland::everyIslandFullscreen() const {
+  return !m_instances.empty() && std::ranges::all_of(m_instances, [this](const auto& inst) { return fullscreenOn(*inst); });
+}
+
+// The rest pill goes under a fullscreen window (Top layer), so fullscreen video gets direct scanout; an answered call
+// at rest goes too. A collapse to rest moves down only when its morph ends.
 bool LiveActivityIsland::restUnderFullscreen(const Instance& inst) const {
-  return inst.morph.shown() == Face::Rest && inst.morph.settled() && m_fullscreen && !m_activity.has_value();
+  return inst.morph.shown() == Face::Rest && inst.morph.settled() && fullscreenOn(inst);
 }
 
 void LiveActivityIsland::setUnderEditor(bool underEditor) {
@@ -738,6 +755,12 @@ void LiveActivityIsland::applyLayer(Instance& inst) {
 }
 
 LiveActivityIsland::Face LiveActivityIsland::desiredFace(const Instance& inst) const {
+  if (fullscreenOn(inst)) {
+    if (m_activity.has_value() && m_activity->overFullscreen) {
+      return Face::Live;
+    }
+    return m_banner.has_value() && m_banner->critical ? Face::Banner : Face::Rest;
+  }
   if (m_osd.has_value()) {
     return Face::Osd;
   }
