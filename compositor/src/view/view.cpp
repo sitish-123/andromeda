@@ -724,9 +724,13 @@ namespace andromeda {
       return;
     }
     const bool shown = this->shown();
+    // Every commit of a tiled view passes here: only a change reaches the inhibitor and QoS inputs.
+    const bool changed = m_sceneTree->node.enabled != shown;
     wlr_scene_node_set_enabled(&m_sceneTree->node, shown);
     m_decoration.setShadowEnabled(shown);
-    m_server->updateIdleInhibit();
+    if (changed) {
+      m_server->updateIdleInhibit();
+    }
     m_server->scheduleSuspensionSync();
   }
 

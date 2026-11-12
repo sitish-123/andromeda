@@ -187,6 +187,10 @@ namespace andromeda {
       }
       return;
     }
+    if (const auto it = self->m_appActivity.find(pid);
+        it != self->m_appActivity.end() && it->second.flags == flags && it->second.owner == resource) {
+      return;
+    }
     std::error_code ec;
     if (!std::filesystem::exists("/proc/" + std::to_string(pid), ec)) {
       kLog.debug("app activity for pid {} dropped: no such process", pid);

@@ -294,7 +294,8 @@ namespace andromeda::qos {
     };
     std::unordered_map<std::string, Gathered> gathered;
     std::unordered_map<pid_t, Cgroup> seen;
-    // One /proc children walk per pid: a browser's windows share one.
+    // One /proc children walk per window pid while it has a window: a browser's windows share one. The children
+    // that matter were forked before the app moved into its own scope; a later child inherits the window's scope.
     std::unordered_map<pid_t, std::vector<pid_t>> children;
     // A failed move is never asked again while its window lives; a pid whose windows are gone may be reused.
     std::erase_if(m_adopting, [&snapshot](pid_t pid) {
@@ -324,7 +325,8 @@ namespace andromeda::qos {
       // scope: they follow the window, or a hidden app freezes only its browser process.
       auto [walked, fresh] = children.try_emplace(window.pid);
       if (fresh) {
-        walked->second = childrenOf(window.pid);
+        const auto cached = m_children.find(window.pid);
+        walked->second = cached != m_children.end() ? std::move(cached->second) : childrenOf(window.pid);
       }
       for (const pid_t child : walked->second) {
         if (const Cgroup& scope = cgroupOf(child, seen); !scope.unit.empty() && scope.unit != cgroup.unit) {
@@ -347,6 +349,7 @@ namespace andromeda::qos {
     }
     // Only the pids this snapshot names stay cached, so a reused pid is read again.
     m_pids = std::move(seen);
+    m_children = std::move(children);
 
     const std::uint64_t now = nowMs();
     std::optional<bool> battery;

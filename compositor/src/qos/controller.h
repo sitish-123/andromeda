@@ -102,6 +102,8 @@ namespace andromeda::qos {
     wl_event_source* m_timer = nullptr;
     wl_event_source* m_idle = nullptr;
     std::unordered_map<pid_t, Cgroup> m_pids;
+    // The /proc children walk of each window pid, kept while that pid has a window, as m_pids keeps its cgroup.
+    std::unordered_map<pid_t, std::vector<pid_t>> m_children;
     std::unordered_set<pid_t> m_adopting; // a scope request is out, or it failed: not asked again while its window lives
     std::string m_ownCgroup;
     std::string m_ownUnit;
