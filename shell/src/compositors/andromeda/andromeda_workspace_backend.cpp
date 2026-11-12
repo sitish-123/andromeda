@@ -322,6 +322,20 @@ void AndromedaWorkspaceBackend::handleEvent(std::string_view event, const nlohma
     return;
   }
 
+  if (event == "outputs") {
+    // A slide on an output that left never sends its idle line to this stream.
+    const auto present = [&data](const std::string& name) {
+      return data.is_array() && std::ranges::any_of(data, [&name](const nlohmann::json& entry) {
+               return entry.is_object() && jsonString(entry, "name") == name;
+             });
+    };
+    if (std::erase_if(m_slides, [&present](const auto& slide) { return !present(slide.first); }) > 0
+        && m_slideChangeCallback) {
+      m_slideChangeCallback();
+    }
+    return;
+  }
+
   if (event == "overview") {
     const bool open = data.value("open", false);
     std::optional<float> gesture;

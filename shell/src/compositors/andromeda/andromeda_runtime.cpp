@@ -15,6 +15,7 @@
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <utility>
 
 namespace compositors::andromeda {
 
@@ -26,7 +27,10 @@ namespace compositors::andromeda {
     constexpr auto kReconnectMax = std::chrono::seconds(30);
     constexpr std::size_t kReadBufferMaxBytes = 1024U * 1024U;
     constexpr std::string_view kEventStreamRequest =
-        R"({"cmd":"subscribe","events":["windows","overview","keyboard_layout","workspaces","outputs","workspace_slide"]})";
+        R"({"cmd":"subscribe","events":["windows","overview","keyboard_layout","workspaces","outputs"]})";
+    // A request of its own: a compositor that predates workspace_slide rejects only this one.
+    constexpr std::string_view kSlideStreamRequest = R"({"cmd":"subscribe","events":["workspace_slide"]})";
+    constexpr std::string_view kSlideStreamUnknown = "unknown subscription event: workspace_slide";
 
     [[nodiscard]] bool waitForRequestSocket(int fd, short events, std::chrono::steady_clock::time_point deadline) {
       while (true) {
@@ -320,6 +324,8 @@ namespace compositors::andromeda {
 
     std::string subscribe(kEventStreamRequest);
     subscribe.push_back('\n');
+    subscribe.append(kSlideStreamRequest);
+    subscribe.push_back('\n');
     if (!writeAll(fd, subscribe)) {
       ::close(fd);
       scheduleReconnect();
@@ -431,7 +437,13 @@ namespace compositors::andromeda {
       return true;
     }
 
-    if (json.contains("err")) {
+    if (const auto err = json.find("err"); err != json.end()) {
+      if (err->is_string() && err->get_ref<const std::string&>() == kSlideStreamUnknown) {
+        if (!std::exchange(m_slideStreamUnsupportedLogged, true)) {
+          kLog.info("compositor has no workspace_slide event; the bar's workspace capsule keeps its own springs");
+        }
+        return true;
+      }
       kLog.warn("andromeda event stream returned an error, reconnecting");
       closeSocket(true);
       return false;

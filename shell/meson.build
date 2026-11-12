@@ -1256,6 +1256,7 @@ if build_tests
     'path_browse',
     'pipewire_error',
     'andromeda_audio_provider',
+    'andromeda_workspace_slide',
     'privacy_capture_classification',
     'plugin_bindings',
     'plugin_catalog',

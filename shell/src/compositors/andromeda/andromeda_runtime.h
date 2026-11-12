@@ -64,6 +64,7 @@ namespace compositors::andromeda {
     std::vector<char> m_readBuffer;
     std::chrono::steady_clock::time_point m_nextReconnectAt;
     std::chrono::seconds m_reconnectBackoff{2};
+    bool m_slideStreamUnsupportedLogged = false;
   };
 
 } // namespace compositors::andromeda
