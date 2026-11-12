@@ -489,6 +489,8 @@ private:
   std::vector<OutputHeadConfig> m_displayRevertTo;
   Timer m_displayConfirmTimer;
   int m_displayConfirmSecondsLeft = 0;
+  // The countdown text of the Keep/Revert bar, updated in place: a content rebuild would drop a Keep press in progress.
+  Label* m_displayConfirmLabel = nullptr;
   std::string m_displayError;
   std::string m_selectedDisplay;
   // Exists while the window is open, on compositors that advertise dsk_settings_manager_v1.

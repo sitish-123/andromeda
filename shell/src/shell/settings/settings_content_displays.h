@@ -11,6 +11,7 @@
 #include <vector>
 
 class Flex;
+class Label;
 
 namespace settings {
 
@@ -23,6 +24,8 @@ namespace settings {
     std::span<const OutputHeadConfig> edits;
     bool dirty = false;
     int confirmSecondsLeft = 0; // > 0 while a just-applied change awaits Keep or Revert
+    // Receives the countdown label while confirmSecondsLeft > 0.
+    Label** confirmLabelOut = nullptr;
     std::string error;
     std::string selected; // head name of the display whose card is shown; empty = the first
     bool nightLight = false;

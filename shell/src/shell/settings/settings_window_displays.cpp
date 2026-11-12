@@ -1,5 +1,6 @@
 #include "config/config_service.h"
 #include "i18n/i18n.h"
+#include "ui/controls/label.h"
 #include "shell/settings/settings_content_displays.h"
 #include "shell/settings/settings_window.h"
 #include "compositors/shell_wayland_connection.h"
@@ -71,6 +72,7 @@ void SettingsWindow::addDisplaysContent(float scale) {
           .edits = m_displayEdits,
           .dirty = dirty,
           .confirmSecondsLeft = m_displayConfirmSecondsLeft,
+          .confirmLabelOut = &m_displayConfirmLabel,
           .error = m_displayError,
           .selected = m_selectedDisplay,
           .nightLight = m_config != nullptr && m_config->config().nightlight.enabled,
@@ -150,7 +152,14 @@ void SettingsWindow::applyDisplays(std::vector<OutputHeadConfig> config, bool co
               finishDisplayConfirm(/*keep=*/false);
               return;
             }
-            requestContentRebuild();
+            if (m_displayConfirmLabel != nullptr && m_surface != nullptr) {
+              m_displayConfirmLabel->setText(
+                  i18n::tr("settings.displays.confirm", "seconds", std::to_string(m_displayConfirmSecondsLeft))
+              );
+              m_surface->requestLayout();
+            } else {
+              requestContentRebuild();
+            }
           });
         } else if (result == OutputApplyResult::Failed) {
           m_displayError = i18n::tr("settings.displays.failed");

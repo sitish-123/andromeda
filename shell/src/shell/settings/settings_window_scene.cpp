@@ -966,6 +966,7 @@ void SettingsWindow::rebuildSettingsContent() {
 
   m_pendingContentScrollTarget = nullptr;
   m_idleLiveStatusLabel = nullptr;
+  m_displayConfirmLabel = nullptr;
   m_sessionActionSummaryLabels.clear();
   m_sessionActionsEditState.reset();
   while (!m_contentContainer->children().empty()) {

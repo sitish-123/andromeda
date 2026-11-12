@@ -683,6 +683,7 @@ void SettingsWindow::destroyWindow() {
     m_surface->setSceneRoot(nullptr);
   }
   m_idleLiveStatusLabel = nullptr;
+  m_displayConfirmLabel = nullptr;
   m_mainContainer = nullptr;
   m_headerRow = nullptr;
   m_contentContainer = nullptr;

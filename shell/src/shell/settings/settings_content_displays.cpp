@@ -566,10 +566,14 @@ namespace settings {
     void addActions(Flex& content, const SettingsDisplaysContext& ctx) {
       auto row = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * ctx.scale, .fillWidth = true});
       if (ctx.confirmSecondsLeft > 0) {
-        row->addChild(makeLabel(
+        auto countdown = makeLabel(
             i18n::tr("settings.displays.confirm", "seconds", std::to_string(ctx.confirmSecondsLeft)),
             Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::Label1)
-        ));
+        );
+        if (ctx.confirmLabelOut != nullptr) {
+          *ctx.confirmLabelOut = countdown.get();
+        }
+        row->addChild(std::move(countdown));
         row->addChild(ui::spacer());
         row->addChild(
             makeActionButton(i18n::tr("settings.displays.revert"), ButtonVariant::Default, true, ctx.scale, ctx.revert)
