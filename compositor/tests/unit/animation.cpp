@@ -255,6 +255,28 @@ ANDROMEDA_TEST(twoSteersAfterAnIdleStartFromTheNextFrame) {
   CHECK(value.current() < 100.0);
 }
 
+ANDROMEDA_TEST(aStallMovesTheSpringByOneLongFrame) {
+  const andromeda::SpringConfig spring{.damping = 1.0, .stiffness = 400.0, .mass = 1.0};
+  andromeda::AnimatedValue::setStallClamp(true);
+  andromeda::AnimatedValue stalled;
+  andromeda::AnimatedValue steady;
+  for (andromeda::AnimatedValue* value : {&stalled, &steady}) {
+    value->settleSpring(1000.0, spring);
+    CHECK(value->tick(1000));
+    CHECK(value->tick(1016));
+  }
+  // 2 s without a frame advance it by 50 ms, as a 50 ms frame would.
+  CHECK(stalled.tick(3016));
+  CHECK(steady.tick(1066));
+  CHECK(std::abs(stalled.current() - steady.current()) < 1e-9);
+  CHECK(stalled.current() < 900.0);
+
+  // A stepped test clock lands whole.
+  andromeda::AnimatedValue::setStallClamp(false);
+  CHECK(stalled.tick(10000));
+  CHECK_EQ(stalled.current(), 1000.0);
+}
+
 ANDROMEDA_TEST(animatedValueKeepsSubMillisecondTime) {
   // Frames tick at vblank instants that fall between milliseconds; the timeline must not round them away.
   andromeda::AnimatedValue value;

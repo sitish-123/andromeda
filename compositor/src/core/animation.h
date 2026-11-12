@@ -133,7 +133,13 @@ namespace andromeda {
     [[nodiscard]] uint64_t transitionId() const { return m_transitionId; }
     [[nodiscard]] const std::array<float, 4>& shaderSeed() const { return m_shaderSeed; }
 
+    // Whether tick() limits the time between two ticks of a running value to kMaxFrameGapMsec (rulebook 7.9). The
+    // output frame clock turns it on; off by default and on the frozen test clock, whose steps must land whole.
+    static void setStallClamp(bool clamp) { s_stallClamp = clamp; }
+    static constexpr double kMaxFrameGapMsec = 50.0;
+
   private:
+    static inline bool s_stallClamp = false;
     double m_from = 0.0;
     double m_target = 0.0;
     double m_current = 0.0;

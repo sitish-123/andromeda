@@ -2640,6 +2640,11 @@ namespace andromeda {
     const uint64_t nowNs = static_cast<uint64_t>(now.tv_sec) * 1'000'000'000 + static_cast<uint64_t>(now.tv_nsec);
     const uint64_t vblankNs = latestVblankNs(nowNs, m_lastPresentNs, m_refreshNs);
     const uint64_t sampleNs = vblankNs != 0 ? vblankNs : nowNs;
+    bool clockFrozen = false;
+#ifdef ANDROMEDA_TEST_IPC
+    clockFrozen = m_server->animationClockFrozen();
+#endif
+    AnimatedValue::setStallClamp(!clockFrozen);
     m_server->tickAnimations(m_server->animationFrameClockMsec(static_cast<double>(sampleNs) / 1e6));
     if (stampEffectTime && m_outputEffectsTimed) {
       applyOutputEffects();
