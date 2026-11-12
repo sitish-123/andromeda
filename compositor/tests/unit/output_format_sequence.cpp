@@ -22,6 +22,7 @@ using andromeda::FormatSequenceParams;
 using andromeda::FormatSequenceResult;
 using andromeda::FormatTier;
 using andromeda::ModesetPolicy;
+using andromeda::RefreshPass;
 using andromeda::StageResult;
 using andromeda::runFormatSequence;
 
@@ -967,7 +968,7 @@ ANDROMEDA_TEST(refreshOnlyChangeCommitsWithoutModeset) {
   const FormatSequenceResult r = runFormatSequence(p, m.ops());
 
   CHECK(r.committed);
-  CHECK(!r.usedRefreshModesetRetry);
+  CHECK(r.refreshPass == RefreshPass::Committed);
   CHECK(m.testModeset == std::vector<bool>{false});
   CHECK(m.commitModeset == std::vector<bool>{false});
 }
@@ -987,7 +988,7 @@ ANDROMEDA_TEST(rejectedRefreshWithoutModesetRetriesWithModeset) {
   const FormatSequenceResult r = runFormatSequence(p, m.ops());
 
   CHECK(r.committed);
-  CHECK(r.usedRefreshModesetRetry);
+  CHECK(r.refreshPass == RefreshPass::Rejected);
   CHECK(!r.usedModeFallback);
   CHECK(m.stagedMode == nullptr);
   CHECK(m.testModeset == (std::vector<bool>{false, true}));
@@ -1013,12 +1014,56 @@ ANDROMEDA_TEST(rejectedHdrRefreshWithoutModesetRetriesLiveFormatWithModeset) {
   const FormatSequenceResult r = runFormatSequence(p, m.ops());
 
   CHECK(r.committed);
-  CHECK(r.usedRefreshModesetRetry);
+  CHECK(r.refreshPass == RefreshPass::Rejected);
   CHECK(r.committedTier == FormatTier::Hdr);
   CHECK_EQ(r.committedFormat, uint32_t{DRM_FORMAT_XRGB2101010});
   CHECK(r.hdrFail.empty());
   CHECK(m.testModeset == (std::vector<bool>{false, true}));
   CHECK(m.commitModeset == std::vector<bool>{true});
+}
+
+// The no-modeset pass skips the other HDR format and still reaches the live one without VRR.
+ANDROMEDA_TEST(rejectedVrrHdrRefreshWithoutModesetCommitsLiveFormatWithoutVrr) {
+  MockOps m;
+  m.liveFormat = DRM_FORMAT_XRGB2101010;
+  m.liveHdr = true;
+  m.testResults = {false, true};
+
+  FormatSequenceParams p = sdr8Params();
+  p.hdrRequested = true;
+  p.imageDescAvailable = true;
+  p.hdrWasActive = true;
+  p.currentRenderFormat = DRM_FORMAT_XRGB2101010;
+  p.bitDepth = 10;
+  p.tryVrrOn = true;
+  p.refreshOnlyChange = true;
+
+  const FormatSequenceResult r = runFormatSequence(p, m.ops());
+
+  CHECK(r.committed);
+  CHECK(r.refreshPass == RefreshPass::Committed);
+  CHECK(r.committedTier == FormatTier::Hdr);
+  CHECK_EQ(r.committedFormat, uint32_t{DRM_FORMAT_XRGB2101010});
+  CHECK(r.vrrDropped);
+  CHECK(m.commitModeset == std::vector<bool>{false});
+}
+
+// 10-bit was rejected earlier and the output runs XR24: the no-modeset pass skips 10-bit and keeps XR24.
+ANDROMEDA_TEST(rejectedSdr10RefreshWithoutModesetKeepsLiveSdr8) {
+  MockOps m;
+  m.testResults = {true};
+
+  FormatSequenceParams p = sdr8Params();
+  p.bitDepth = 10;
+  p.refreshOnlyChange = true;
+
+  const FormatSequenceResult r = runFormatSequence(p, m.ops());
+
+  CHECK(r.committed);
+  CHECK(r.refreshPass == RefreshPass::Committed);
+  CHECK(r.committedTier == FormatTier::Sdr8);
+  CHECK_EQ(m.count(Kind::Test), size_t{1});
+  CHECK(m.commitModeset == std::vector<bool>{false});
 }
 
 // A busy plane is no rejection: the next frame retries without a modeset.
@@ -1034,7 +1079,7 @@ ANDROMEDA_TEST(retryableRefreshWithoutModesetDoesNotModeset) {
 
   CHECK(!r.committed);
   CHECK(r.retry);
-  CHECK(!r.usedRefreshModesetRetry);
+  CHECK(r.refreshPass == RefreshPass::Busy);
   CHECK(m.commitModeset == std::vector<bool>{false});
 }
 

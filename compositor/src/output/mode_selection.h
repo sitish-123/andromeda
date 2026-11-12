@@ -27,6 +27,9 @@ namespace andromeda {
   // is null for a custom mode, which the preferred advertised mode still replaces.
   [[nodiscard]] wlr_output_mode* preferredFallbackMode(wlr_output* output, const wlr_output_mode* staged);
 
+  // The listed mode with the size and refresh `output` runs at, or nullptr.
+  [[nodiscard]] wlr_output_mode* runningListedMode(wlr_output* output);
+
   // Whether `output` is lit at `mode` already. Staging it again would only force a modeset.
   [[nodiscard]] bool liveModeMatches(const wlr_output& output, const wlr_output_mode* mode);
 

@@ -19,23 +19,18 @@ namespace andromeda {
     }
 
     // Runs the HDR -> SDR10 -> SDR8 x VRR sequence for whatever mode is currently staged.
-    // Returns true if a commit succeeded. Sets hdrFail/sdr10Fail accordingly. Under ModesetPolicy::Forbidden the pass
-    // ends uncommitted at the first candidate that needs a modeset, since a later one ranks lower.
+    // Returns true if a commit succeeded. Sets hdrFail/sdr10Fail accordingly. Under ModesetPolicy::Forbidden only the
+    // live colour state is staged, so the reasons of a committed pass describe skipped tiers, not rejected ones.
     bool runSequenceForCurrentMode(
         const FormatSequenceParams& params, const FormatSequenceOps& ops, ModesetPolicy policy,
-        FormatSequenceResult& result, std::string_view& hdrFail, std::string_view& sdr10Fail
+        FormatSequenceResult& result, std::string_view& hdrFail, std::string_view& sdr10Fail, bool& anyStaged
     ) {
-      bool needsModeset = false;
       using StageOp = std::function<StageResult(uint32_t, bool, ModesetPolicy)>;
       const auto stage = [&](const StageOp& op, uint32_t fmt, bool vrr) -> bool {
-        if (needsModeset) {
-          return false;
-        }
-        const StageResult staged = op(fmt, vrr, policy);
-        needsModeset = staged == StageResult::NeedsModeset;
-        return staged == StageResult::Staged;
+        const bool staged = op(fmt, vrr, policy) == StageResult::Staged;
+        anyStaged = anyStaged || staged;
+        return staged;
       };
-      const auto stopped = [&] { return result.retry || needsModeset; };
 
       const auto commitStaged = [&](FormatTier tier, uint32_t fmt, bool vrr) -> bool {
         const FormatCommitResult commit = ops.commit();
@@ -79,16 +74,13 @@ namespace andromeda {
           const auto accepted = selectHdrRenderFormat(params.currentRenderFormat, [&](uint32_t fmt) {
             return stage(ops.stageHdr, fmt, vrr) && ops.test();
           });
-          if (needsModeset) {
-            return false;
-          }
           if (!accepted) {
             continue;
           }
           if (commitTenBit(FormatTier::Hdr, *accepted, vrr, ops.stageHdr)) {
             return true;
           }
-          if (stopped()) {
+          if (result.retry) {
             return false;
           }
           hdrFail = "HDR commit rejected by backend";
@@ -111,16 +103,13 @@ namespace andromeda {
           const auto accepted = selectSdr10RenderFormat(params.currentRenderFormat, [&](uint32_t fmt) {
             return stage(ops.stageSdr, fmt, vrr) && ops.test();
           });
-          if (needsModeset) {
-            return false;
-          }
           if (!accepted) {
             continue;
           }
           if (commitTenBit(FormatTier::Sdr10, *accepted, vrr, ops.stageSdr)) {
             return true;
           }
-          if (stopped()) {
+          if (result.retry) {
             return false;
           }
           sdr10Fail = "10-bit SDR commit rejected by backend";
@@ -136,9 +125,6 @@ namespace andromeda {
       const auto trySdr8Formats = [&]() -> bool {
         for (const bool vrr : vrrPasses(params.tryVrrOn)) {
           if (!stage(ops.stageSdr, DRM_FORMAT_XRGB8888, vrr) || !ops.test()) {
-            if (needsModeset) {
-              return false;
-            }
             continue;
           }
           if (commitStaged(FormatTier::Sdr8, DRM_FORMAT_XRGB8888, vrr)) {
@@ -154,13 +140,13 @@ namespace andromeda {
       if (tryHdrFormats()) {
         return true;
       }
-      if (stopped()) {
+      if (result.retry) {
         return false;
       }
       if (trySdr10Formats()) {
         return true;
       }
-      return !stopped() && trySdr8Formats();
+      return !result.retry && trySdr8Formats();
     }
 
   } // namespace
@@ -173,7 +159,9 @@ namespace andromeda {
     const auto rerun = [&] {
       hdrFail = params.earlyHdrFail;
       sdr10Fail = {};
-      result.committed = runSequenceForCurrentMode(params, ops, ModesetPolicy::Allowed, result, hdrFail, sdr10Fail);
+      bool staged = false;
+      result.committed =
+          runSequenceForCurrentMode(params, ops, ModesetPolicy::Allowed, result, hdrFail, sdr10Fail, staged);
     };
     const auto rerunOnMode = [&](wlr_output_mode* mode) {
       ops.stageMode(mode);
@@ -182,10 +170,19 @@ namespace andromeda {
 
     // A modeset blocks the main thread (eDP link training, panel power cycle); the kernel can often change only the
     // refresh without one.
-    const ModesetPolicy firstPolicy = params.refreshOnlyChange ? ModesetPolicy::Forbidden : ModesetPolicy::Allowed;
-    result.committed = runSequenceForCurrentMode(params, ops, firstPolicy, result, hdrFail, sdr10Fail);
-    if (firstPolicy == ModesetPolicy::Forbidden && !result.committed && !result.retry) {
-      result.usedRefreshModesetRetry = true;
+    if (params.refreshOnlyChange) {
+      bool liveStaged = false;
+      result.committed = runSequenceForCurrentMode(
+          params, ops, ModesetPolicy::Forbidden, result, hdrFail, sdr10Fail, liveStaged
+      );
+      result.refreshPass = result.committed ? RefreshPass::Committed
+          : result.retry                    ? RefreshPass::Busy
+          : liveStaged                      ? RefreshPass::Rejected
+                                            : RefreshPass::NoLiveCandidate;
+      if (!result.committed && !result.retry) {
+        rerun();
+      }
+    } else {
       rerun();
     }
 

@@ -62,10 +62,19 @@ namespace andromeda {
     std::function<void(FormatTier tier)> warnVrrDropped;
   };
 
+  // The no-modeset pass of a refresh-only change. Rejected and NoLiveCandidate retry with a modeset.
+  enum class RefreshPass : uint8_t {
+    NotRun,
+    Committed, // in the live colour state
+    Busy,
+    Rejected,
+    NoLiveCandidate, // every candidate changes the colour state
+  };
+
   struct FormatSequenceResult {
     bool committed = false;
     bool usedLiveModeRetry = false;
-    bool usedRefreshModesetRetry = false;
+    RefreshPass refreshPass = RefreshPass::NotRun;
     bool usedModeFallback = false;
     bool modeFallbackWarnedNow = false;
     bool retry = false;

@@ -895,6 +895,10 @@ namespace andromeda {
       const std::string automaticMode = configuredModeSpec == nullptr && stagedMode != nullptr
           ? std::format("{}x{}@{}mHz", stagedMode->width, stagedMode->height, stagedMode->refresh)
           : std::string();
+      // The no-modeset pass keeps the live colour state, so it must not skip an HDR or 10-bit request that no commit
+      // has tried yet.
+      const bool colorRequestSettled = !m_hdrTransition.pending(enabled, hdrRequested)
+          && (bitDepth != 10 || hdrWasActive || bitDepthActive() || !m_bitDepthFallbackReason.empty());
       const FormatSequenceParams seqParams{
           .hdrRequested = hdrRequested,
           .imageDescAvailable = imageDescAvailable,
@@ -906,7 +910,7 @@ namespace andromeda {
           .automaticMode = stageGeometry ? std::string_view(automaticMode) : std::string_view{},
           .preferredMode = stageGeometry ? preferredFallbackMode(m_output, stagedMode) : nullptr,
           .keptLiveMode = keptLiveMode,
-          .refreshOnlyChange = stageGeometry && refreshOnlyChange(*m_output, stagedMode),
+          .refreshOnlyChange = stageGeometry && colorRequestSettled && refreshOnlyChange(*m_output, stagedMode),
           .modeFallbackAlreadyWarned = m_modeFallbackWarned,
           .vrrDroppedTier = m_vrrDroppedTier,
           .earlyHdrFail = earlyHdrFail,
@@ -1055,12 +1059,23 @@ namespace andromeda {
             keptLiveMode->width, keptLiveMode->height, keptLiveMode->refresh
         );
       }
-      if (seq.usedRefreshModesetRetry) {
+      switch (seq.refreshPass) {
+      case RefreshPass::NotRun:
+      case RefreshPass::Busy:
+        break;
+      case RefreshPass::Committed:
+        kLog.info("output '{}': changed the refresh without a modeset", m_output->name);
+        break;
+      case RefreshPass::Rejected:
         kLog.info(
             "output '{}': backend rejected the refresh change without a modeset, retried with one", m_output->name
         );
-      } else if (seqParams.refreshOnlyChange && seq.committed) {
-        kLog.info("output '{}': changed the refresh without a modeset", m_output->name);
+        break;
+      case RefreshPass::NoLiveCandidate:
+        kLog.info(
+            "output '{}': the refresh change also changes the colour state, so it needs a modeset", m_output->name
+        );
+        break;
       }
       if (seq.modeFallbackWarnedNow) {
         m_modeFallbackWarned = true;
@@ -1077,9 +1092,11 @@ namespace andromeda {
           );
         }
       }
-      pendingHdrFail = seq.hdrFail;
-      pendingSdr10Fail = seq.sdr10Fail;
-      hdrRejected = hdrRequested && !seq.retry && !seq.hdrFail.empty();
+      // The no-modeset pass skipped the tiers above the live colour state, which an earlier commit already rejected.
+      const bool colorKept = seq.refreshPass == RefreshPass::Committed;
+      pendingHdrFail = colorKept ? std::string_view(m_hdrFallbackReason) : seq.hdrFail;
+      pendingSdr10Fail = colorKept ? std::string_view(m_bitDepthFallbackReason) : seq.sdr10Fail;
+      hdrRejected = hdrRequested && !seq.retry && !pendingHdrFail.empty();
     } else {
       if (!hdrRequested && hdrWasActive) {
         wlr_output_state_set_image_description(&state, nullptr);
@@ -1109,6 +1126,10 @@ namespace andromeda {
         scheduleFullFrame();
       }
       return CommitOutcome::Failed;
+    }
+    if (m_output->current_mode == nullptr && !wlr_output_is_drm(m_output)) {
+      // stageListedMode commits a custom mode here, which wlroots leaves without a current mode.
+      m_output->current_mode = runningListedMode(m_output);
     }
     if (stageGeometry && !usedModeFallback) {
       m_modeFallbackWarned = false;

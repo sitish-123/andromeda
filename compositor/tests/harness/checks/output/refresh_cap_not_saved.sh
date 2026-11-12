@@ -15,7 +15,6 @@ fi
 
 RUNTIME_DIR=$(mktemp -d /tmp/rcs.XXXXXXXX)
 SERVER_PID=
-# The compositor stops before the holder: a released cap would commit a listed mode, which headless cannot.
 cleanup() {
   if [[ -n $SERVER_PID ]] && kill -0 "$SERVER_PID" 2> /dev/null; then
     kill -KILL "$SERVER_PID" 2> /dev/null || true
@@ -93,4 +92,15 @@ fi
 private "$ANDROMEDA" msg config-reload > /dev/null
 [[ $(limits) == true ]] || { echo "after the reload the cap no longer limits HEADLESS-1"; exit 1; }
 
-echo "a scale change under the refresh cap saves only the scale; the cap still governs the mode"
+current() { private "$ANDROMEDA" outputs --json | jq -r '[.[0].modes[] | select(.current) | .refresh_mhz] | join(",")'; }
+[[ $(current) == 60020 ]] || { echo "the capped HEADLESS-1 does not run its listed 60 Hz mode: $(current)"; exit 1; }
+exec {HOLDER[1]}>&-
+for _ in $(seq 40); do
+  [[ $(current) == 144000 ]] && break
+  sleep 0.1
+done
+[[ $(current) == 144000 ]] || { echo "HEADLESS-1 did not return to 144 Hz when the cap ended: $(current)"; exit 1; }
+modes=$(private "$ANDROMEDA" outputs --json | jq '.[0].modes | length')
+[[ $modes == 2 ]] || { echo "HEADLESS-1 lists $modes modes, not its 2 listed ones: the current mode is not a listed one"; exit 1; }
+
+echo "a scale change under the refresh cap saves only the scale; the cap still governs the mode and its end restores 144 Hz"

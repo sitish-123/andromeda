@@ -69,6 +69,16 @@ namespace andromeda {
     return preferred == staged ? nullptr : preferred;
   }
 
+  wlr_output_mode* runningListedMode(wlr_output* output) {
+    wlr_output_mode* mode = nullptr;
+    wl_list_for_each(mode, &output->modes, link) {
+      if (mode->width == output->width && mode->height == output->height && mode->refresh == output->refresh) {
+        return mode;
+      }
+    }
+    return nullptr;
+  }
+
   bool liveModeMatches(const wlr_output& output, const wlr_output_mode* mode) {
     return output.enabled && output.current_mode == mode;
   }
