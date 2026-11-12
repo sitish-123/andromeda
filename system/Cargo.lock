@@ -62,6 +62,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "andromeda-agentd"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "log",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "andromeda-fileops"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,13 @@
+[Unit]
+Description=Andromeda agent broker (routes agent calls to desktop providers)
+Requires=andromeda-agentd.socket
+
+[Service]
+ExecStart=/usr/lib/andromeda/andromeda-agentd
+# The broker takes its listening socket from stdin: taking fd 3 from LISTEN_FDS needs unsafe Rust.
+StandardInput=socket
+StandardOutput=journal
+StandardError=journal
+Slice=background.slice
+Restart=on-failure
+RestartSec=2

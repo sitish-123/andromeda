@@ -1,0 +1,9 @@
+[Unit]
+Description=Andromeda agent broker socket
+
+[Socket]
+ListenStream=%t/andromeda-agentd.sock
+SocketMode=0600
+
+[Install]
+WantedBy=sockets.target
