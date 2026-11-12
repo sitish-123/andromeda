@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <charconv>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <print>
@@ -211,6 +213,18 @@ int main(int argc, char** argv) {
     }
   }
 
+  // OUTPUT_MANAGEMENT_MODE="WIDTHxHEIGHT@MHZ" applies that custom mode to OUTPUT.
+  int32_t customWidth = 0;
+  int32_t customHeight = 0;
+  int32_t customRefresh = 0;
+  const char* modeText = std::getenv("OUTPUT_MANAGEMENT_MODE");
+  const bool customMode = modeText != nullptr
+      && std::sscanf(modeText, "%dx%d@%d", &customWidth, &customHeight, &customRefresh) == 3;
+  if (modeText != nullptr && !customMode) {
+    std::println(stderr, "output-management-client: OUTPUT_MANAGEMENT_MODE must be WIDTHxHEIGHT@MHZ");
+    return 2;
+  }
+
   wl_display* display = wl_display_connect(nullptr);
   if (display == nullptr) {
     std::println(stderr, "output-management-client: cannot connect to WAYLAND_DISPLAY");
@@ -254,7 +268,9 @@ int main(int argc, char** argv) {
     }
 
     zwlr_output_configuration_head_v1* configured = zwlr_output_configuration_v1_enable_head(configuration, head.proxy);
-    if (zwlr_output_mode_v1* mode = selectedMode(head)) {
+    if (targetHead && customMode) {
+      zwlr_output_configuration_head_v1_set_custom_mode(configured, customWidth, customHeight, customRefresh);
+    } else if (zwlr_output_mode_v1* mode = selectedMode(head)) {
       zwlr_output_configuration_head_v1_set_mode(configured, mode);
     } else {
       // The harness headless backend uses this mode and may expose it as a

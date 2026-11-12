@@ -143,13 +143,6 @@ namespace andromeda {
     }
     target.setMirrorSource(source);
     const std::string targetName = savedOutputName(target.identity());
-    if (documentSetsOutput(configRootPath(), targetName)) {
-      kLog.warn(
-          "output '{}' set in {}, which overrides changes made here; not persisting the mirror to displays.toml",
-          targetName, configRootPath().filename().string()
-      );
-      return;
-    }
     const auto file = configRootPath().parent_path() / "displays.toml";
     const std::optional<std::string> saved =
         source != nullptr ? std::optional{savedOutputName(source->identity())} : std::nullopt;

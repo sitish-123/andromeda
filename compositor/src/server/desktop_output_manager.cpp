@@ -239,8 +239,8 @@ namespace andromeda {
       return;
     }
     const std::string name = savedOutputName(output->identity());
-    if (documentSetsOutput(configRootPath(), name)) {
-      reject(std::format("[output.{}] is set in {}", name, configRootPath().filename().string()));
+    if (documentSetsOutputKey(configRootPath(), name, key)) {
+      reject(std::format("[output.{}] {} is set in {}", name, key, configRootPath().filename().string()));
       return;
     }
     const std::filesystem::path file = configRootPath().parent_path() / "displays.toml";

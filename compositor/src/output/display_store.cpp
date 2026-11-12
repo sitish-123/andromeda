@@ -68,13 +68,13 @@ namespace andromeda {
 
     // Direct member lookup, not at_path: an EDID descriptor name ("<make> <model> <serial>") can contain the dots
     // and spaces at_path would otherwise parse as a nested path.
-    bool tableHasOutput(const toml::table& root, std::string_view name) {
+    bool tableHasOutputKey(const toml::table& root, std::string_view name, std::string_view key) {
       const toml::node* outputs = root.get("output");
       if (outputs == nullptr || !outputs->is_table()) {
         return false;
       }
       const toml::node* entry = outputs->as_table()->get(name);
-      return entry != nullptr && entry->is_table() && !entry->as_table()->empty();
+      return entry != nullptr && entry->is_table() && entry->as_table()->contains(key);
     }
 
   } // namespace
@@ -123,13 +123,14 @@ namespace andromeda {
     return true;
   }
 
-  bool documentSetsOutput(const std::filesystem::path& configRoot, std::string_view name) {
+  bool
+  documentSetsOutputKey(const std::filesystem::path& configRoot, std::string_view name, std::string_view key) {
     std::string content;
     if (std::ifstream in(configRoot); in) {
       content.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
     }
     try {
-      return tableHasOutput(toml::parse(content), name);
+      return tableHasOutputKey(toml::parse(content), name, key);
     } catch (const toml::parse_error&) {
       return false;
     }

@@ -1337,9 +1337,9 @@ namespace andromeda {
             continue;
           }
           entry.output->setMirrorSource(nullptr, /*applyState=*/false);
-          if (const std::string name = savedOutputName(entry.output->identity()); !documentSetsOutput(configRootPath(), name)) {
-            (void)saveMirror(configRootPath().parent_path() / "displays.toml", name, std::nullopt);
-          }
+          (void)saveMirror(
+              configRootPath().parent_path() / "displays.toml", savedOutputName(entry.output->identity()), std::nullopt
+          );
         }
         entry.output->adoptOutputManagerEnabled(entry.head->state.enabled);
       }
@@ -1393,16 +1393,8 @@ namespace andromeda {
       saved.reserve(requested.size());
       for (const RequestedHead& entry : requested) {
         const wlr_output_head_v1_state& state = entry.head->state;
-        std::string name = savedOutputName(entry.output->identity());
-        if (documentSetsOutput(configRootPath(), name)) {
-          kLog.warn(
-              "output '{}' set in {}, which overrides changes made here; not persisting to displays.toml", name,
-              configRootPath().filename().string()
-          );
-          continue;
-        }
         saved.push_back({
-            .name = std::move(name),
+            .name = savedOutputName(entry.output->identity()),
             .enabled = state.enabled,
             .width = state.mode != nullptr ? state.mode->width : state.custom_mode.width,
             .height = state.mode != nullptr ? state.mode->height : state.custom_mode.height,

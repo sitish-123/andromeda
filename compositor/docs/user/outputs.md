@@ -395,8 +395,10 @@ with the last applied arrangement:
 files = ["displays.toml"]
 ```
 
-`[output]` tables in the including file still win, so remove hand-written
-output tables for any display you manage from a settings app.
+A key in an `[output]` table of the including file still wins over the same
+key in the `displays.toml` table of the same name; the other keys come from
+`displays.toml`. A table named by connector and one named by descriptor do not
+merge: the descriptor table wins whole.
 Tools such as `wlr-randr`, `kanshi`, and `wdisplays` can change enabled state, mode, position, scale, transform, and adaptive sync while Andromeda is running. Those changes last until another tool request or a changed output-state policy in the configuration replaces them. An identical or unrelated reload is inert.
 
 ## Multi-monitor example
