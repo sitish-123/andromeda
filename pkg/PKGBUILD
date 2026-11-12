@@ -139,6 +139,7 @@ package_andromeda-system-git() {
   install -Dm755 desktop/system/target/release/andromeda-system "$pkgdir/usr/lib/andromeda/andromeda-system"
   # Started on demand by D-Bus activation from the shell or the greeter.
   install -Dm644 desktop/system/data/andromeda-system.service "$pkgdir/usr/lib/systemd/system/andromeda-system.service"
+  install -Dm644 desktop/system/data/andromeda-system.sysctl "$pkgdir/usr/lib/sysctl.d/50-andromeda-system.conf"
   install -Dm644 desktop/system/data/org.andromeda.System1.conf "$pkgdir/usr/share/dbus-1/system.d/org.andromeda.System1.conf"
   install -Dm644 desktop/system/data/org.andromeda.System1.service \
     "$pkgdir/usr/share/dbus-1/system-services/org.andromeda.System1.service"
