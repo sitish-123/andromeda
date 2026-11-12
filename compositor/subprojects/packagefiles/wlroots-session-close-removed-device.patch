@@ -1,0 +1,58 @@
+--- a/backend/session/session.c
++++ b/backend/session/session.c
+@@ -1,11 +1,16 @@
+ #include <assert.h>
++#include <errno.h>
+ #include <libudev.h>
++#include <linux/input.h>
++#include <linux/major.h>
+ #include <stdarg.h>
+ #include <stddef.h>
+ #include <stdlib.h>
+ #include <stdio.h>
+ #include <string.h>
++#include <sys/ioctl.h>
+ #include <sys/stat.h>
++#include <sys/sysmacros.h>
+ #include <sys/types.h>
+ #include <unistd.h>
+ #include <wayland-server-core.h>
+@@ -21,6 +26,10 @@
+ 
+ #define WAIT_GPU_TIMEOUT 10000 // ms
+ 
++// Set while closing a removed device: logind releases a removed device by itself, so its
++// ReleaseDevice reply for one is "Device not taken", which is no error.
++static bool closing_removed_device = false;
++
+ static void handle_enable_seat(struct libseat *seat, void *data) {
+ 	struct wlr_session *session = data;
+ 	session->active = true;
+@@ -72,6 +81,9 @@ static enum wlr_log_importance libseat_log_level_to_wlr(
+ static void log_libseat(enum libseat_log_level level,
+ 		const char *fmt, va_list args) {
+ 	enum wlr_log_importance importance = libseat_log_level_to_wlr(level);
++	if (closing_removed_device) {
++		importance = WLR_DEBUG;
++	}
+ 
+ 	static char wlr_fmt[1024];
+ 	snprintf(wlr_fmt, sizeof(wlr_fmt), "[libseat] %s", fmt);
+@@ -371,9 +383,16 @@ error:
+ 
+ void wlr_session_close_file(struct wlr_session *session,
+ 		struct wlr_device *dev) {
++	// evdev answers ENODEV once the kernel removed the device, which is before udev
++	// (and so logind) learns of the removal.
++	int version;
++	closing_removed_device = major(dev->dev) == INPUT_MAJOR &&
++		ioctl(dev->fd, EVIOCGVERSION, &version) == -1 && errno == ENODEV;
+ 	if (libseat_close_device(session->seat_handle, dev->device_id) == -1) {
+-		wlr_log_errno(WLR_ERROR, "Failed to close device %d", dev->device_id);
++		wlr_log_errno(closing_removed_device ? WLR_DEBUG : WLR_ERROR,
++			"Failed to close device %d", dev->device_id);
+ 	}
++	closing_removed_device = false;
+ 
+ 	assert(wl_list_empty(&dev->events.change.listener_list));
+ 	// TODO: assert that the "remove" listener list is empty as well. Listeners
