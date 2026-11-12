@@ -1019,6 +1019,7 @@ core_sources = files(
   'src/output/zoom.cpp',
   'src/server/effects.cpp',
   'src/output/output.cpp',
+  'src/output/stall_probe.cpp',
   'src/output/held_frame.cpp',
   'src/output/hdr_metadata.cpp',
   'src/input/seat.cpp',

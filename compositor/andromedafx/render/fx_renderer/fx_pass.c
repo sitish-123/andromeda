@@ -109,6 +109,12 @@ struct fx_frame_stats fx_frame_stats_take(void) {
   return taken;
 }
 
+static uint64_t fence_wait_ns;
+
+uint64_t fx_fence_wait_ns(void) {
+  return fence_wait_ns;
+}
+
 static uint64_t region_area(const pixman_region32_t* region) {
   int count = 0;
   const pixman_box32_t* boxes = pixman_region32_rectangles(region, &count);
@@ -445,7 +451,11 @@ static bool sync_implicit_target(struct fx_renderer* renderer, struct wlr_buffer
 
   bool ok = attached && !egl->ignores_implicit_fences;
   if (!ok && egl->eglClientWaitSyncKHR != NULL) {
+    struct timespec start, end;
+    clock_gettime(CLOCK_MONOTONIC, &start);
     ok = egl->eglClientWaitSyncKHR(egl->display, sync, 0, EGL_FOREVER_KHR) == EGL_CONDITION_SATISFIED_KHR;
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    fence_wait_ns += (uint64_t)(timespec_to_nsec(&end) - timespec_to_nsec(&start));
   }
   wlr_egl_destroy_sync(egl, sync);
   return ok;
@@ -522,7 +532,11 @@ static bool render_pass_submit(struct wlr_render_pass* wlr_pass) {
     }
   } else if (pass->implicit_sync_target) {
     if (!sync_implicit_target(renderer, pass->output_buffer->buffer)) {
+      struct timespec start, end;
+      clock_gettime(CLOCK_MONOTONIC, &start);
       glFinish();
+      clock_gettime(CLOCK_MONOTONIC, &end);
+      fence_wait_ns += (uint64_t)(timespec_to_nsec(&end) - timespec_to_nsec(&start));
     }
   } else {
     glFlush();

@@ -23,6 +23,9 @@ struct fx_frame_stats {
 
 struct fx_frame_stats fx_frame_stats_take(void);
 
+// Total time the CPU blocked in render-fence waits since start, in ns; never resets.
+uint64_t fx_fence_wait_ns(void);
+
 #ifdef __cplusplus
 }
 #endif

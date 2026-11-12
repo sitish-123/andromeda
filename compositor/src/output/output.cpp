@@ -1956,11 +1956,10 @@ namespace andromeda {
   }
 
   void Output::onFrame(Output* self, void* /*data*/) {
-    const auto start = std::chrono::steady_clock::now();
+    self->m_stallProbe.frameStart();
     self->handleFrame();
-    const auto ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-    if (ms >= 250.0) {
-      kLog.warn("output '{}': frame took {:.1f} ms (main loop blocked)", self->m_output->name, ms);
+    if (const std::optional<std::string> stall = self->m_stallProbe.frameEnd(250.0)) {
+      kLog.warn("output '{}': {}", self->m_output->name, *stall);
     }
   }
 
@@ -2751,7 +2750,9 @@ namespace andromeda {
       bool built = false;
       {
         ANDROMEDA_ZONE("Output::buildState");
+        m_stallProbe.mark(StallProbe::Mark::BuildStart);
         built = wlr_scene_output_build_state(m_sceneOutput, &state, &sceneOptions);
+        m_stallProbe.mark(StallProbe::Mark::BuildEnd);
       }
       if (built && m_frameTimers != nullptr) {
         m_frameTimers->recordDamage(state);
@@ -2824,6 +2825,7 @@ namespace andromeda {
           SceneCommit observation(*this, state, false, zoom);
           errno = 0;
           commitOk = wlr_output_commit_state(m_output, &state);
+          m_stallProbe.mark(StallProbe::Mark::CommitEnd);
           if (!commitOk && hasBuffer && errno == EBUSY) {
             ++m_busyStats.busy;
             busyRetry = m_busyRetries < kBusyCommitRetries;

@@ -12,6 +12,7 @@
 #include "output/frame_schedule.h"
 #include "output/hdr_metadata.h"
 #include "output/hdr_transition.h"
+#include "output/stall_probe.h"
 #include "scene/effect_audio.h"
 #include "scene/effect_selection.h"
 #include "util/listener.h"
@@ -356,6 +357,7 @@ namespace andromeda {
     int m_arrangedLayoutY = 0;
 
     bool m_handlingFrame = false;
+    StallProbe m_stallProbe;
     ConfiguredCommit m_configuredCommit;
     bool m_gammaDirty = false;
     bool m_softwareCursorLocked = false;
