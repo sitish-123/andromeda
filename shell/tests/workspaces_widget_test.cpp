@@ -77,5 +77,24 @@ int main() {
     TEST_CHECK(near(lens.start(), 16.8F) && near(lens.end(), 36.8F));
   }
 
+  // Reduced motion: the lens jumps with the dots each frame of their travel, and its fade-in keeps rising.
+  {
+    MotionService::instance().setReduced(true);
+    Node parent;
+    AnimationManager animations;
+    LensTrack lens;
+    lens.setFlat(colorSpecFromRole(ColorRole::Accent));
+    lens.attach(parent, animations, false, 1.0F);
+    lens.moveTo(12.0F, 32.0F, 0.0F, 7.0F, 3.5F, false);
+    lens.moveTo(14.0F, 34.0F, 0.0F, 7.0F, 3.5F, true);
+    animations.tick(16.0F);
+    const float first = lens.opacity();
+    lens.moveTo(16.0F, 36.0F, 0.0F, 7.0F, 3.5F, true);
+    animations.tick(16.0F);
+    TEST_CHECK(near(lens.start(), 16.0F));
+    TEST_CHECK(first < 1.0F && lens.opacity() > first);
+    MotionService::instance().setReduced(false);
+  }
+
   return 0;
 }

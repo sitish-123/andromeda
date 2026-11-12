@@ -77,11 +77,15 @@ public:
       return;
     }
     if (MotionService::instance().reduced()) {
-      // Rulebook 7.8: the lens jumps and its new place fades in.
-      cancel();
+      // Rulebook 7.8: the lens jumps and its new place fades in. A fade already running keeps going: the dots move the
+      // lens every frame of their own travel.
+      cancelTravel();
       m_start = start;
       m_end = end;
       apply();
+      if (m_fadeId != 0) {
+        return;
+      }
       setOpacity(0.0F);
       m_fadeId = m_animations->drive(
           0, 0.0F, 1.0F, Style::spring(Tokens::springFade), [this](float v) { setOpacity(v); },
@@ -135,6 +139,7 @@ public:
   // Main-axis edges as drawn now.
   [[nodiscard]] float start() const noexcept { return m_start; }
   [[nodiscard]] float end() const noexcept { return m_end; }
+  [[nodiscard]] float opacity() const noexcept { return m_lens != nullptr ? m_lens->opacity() : 0.0F; }
 
   void hide() {
     cancel();
@@ -147,6 +152,15 @@ public:
 
 private:
   void cancel() {
+    cancelTravel();
+    if (m_animations != nullptr && m_fadeId != 0) {
+      m_animations->cancel(m_fadeId);
+      m_fadeId = 0;
+      setOpacity(1.0F);
+    }
+  }
+
+  void cancelTravel() {
     if (m_animations == nullptr) {
       return;
     }
@@ -157,11 +171,6 @@ private:
     if (m_endId != 0) {
       m_animations->cancel(m_endId);
       m_endId = 0;
-    }
-    if (m_fadeId != 0) {
-      m_animations->cancel(m_fadeId);
-      m_fadeId = 0;
-      setOpacity(1.0F);
     }
   }
 

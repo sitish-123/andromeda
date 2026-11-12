@@ -84,7 +84,10 @@ private:
   void syncLens(bool animate);
   // islandDots: the compositor's slide on this output drives the dots and the capsule frame by frame.
   void onWorkspaceSlide();
-  void applySlide();
+  // False when this bar cannot show the slide; the follow state is then dropped.
+  bool applySlide();
+  void placeSlideLens();
+  void cancelStretchDecay();
   void endSlide();
   void applyItemLayout(Item& item);
   void applyItemLayouts();
@@ -171,12 +174,15 @@ private:
   static void flowItems(std::vector<Item>& items, float gap);
 
   // The slide the capsule follows, with the capsule's last start edge, its speed (px/s) and the compositor time of
-  // the frame it was drawn for.
+  // the frame it was drawn for. `span` is the capsule without stretch; `stretch` (px) widens its start edge when
+  // positive and its end edge when negative.
   struct SlideFollow {
     WorkspaceSlide slide;
     float lensStart = 0.0F;
     float velocity = 0.0F;
     double timeMs = 0.0;
+    LensSpan span;
+    float stretch = 0.0F;
   };
 
   struct ItemSnapshot {
@@ -239,6 +245,7 @@ private:
   bool m_isVertical = false;
 
   AnimationManager::Id m_animId = 0;
+  AnimationManager::Id m_stretchDecayId = 0;
   ColorSpec m_focusedColor = colorSpecFromRole(ColorRole::Accent);
   ColorSpec m_occupiedColor = colorSpecFromRole(ColorRole::Accent);
   ColorSpec m_emptyColor = colorSpecFromRole(ColorRole::Accent);

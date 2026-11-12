@@ -1007,8 +1007,7 @@ void WorkspacesWidget::retarget(Renderer& renderer) {
   }
   computeTargets();
   applyItemLayouts();
-  if (m_slideFollow.has_value()) {
-    applySlide();
+  if (m_slideFollow.has_value() && applySlide()) {
     return;
   }
   startAnimation();
@@ -1017,18 +1016,28 @@ void WorkspacesWidget::retarget(Renderer& renderer) {
 
 void WorkspacesWidget::onWorkspaceSlide() {
   std::optional<WorkspaceSlide> slide = m_platform.workspaceSlide(m_output);
-  // Reduced motion: the compositor crossfades and the capsule jumps and fades in on its own (rulebook 7.8).
-  if (!slide.has_value() || MotionService::instance().reduced() || !MotionService::instance().enabled()) {
+  // Reduced motion follows too: the compositor's gesture tracks 1:1 and its settle has no overshoot (rulebook 7.8).
+  if (!slide.has_value() || !MotionService::instance().enabled()) {
     endSlide();
     return;
   }
-  if (m_slideFollow.has_value()) {
+  const bool following = m_slideFollow.has_value();
+  if (following) {
     m_slideFollow->slide = std::move(*slide);
   } else {
     const double timeMs = slide->timeMs;
-    m_slideFollow = SlideFollow{.slide = std::move(*slide), .lensStart = 0.0F, .velocity = 0.0F, .timeMs = timeMs};
+    m_slideFollow = SlideFollow{.slide = std::move(*slide), .timeMs = timeMs};
   }
-  applySlide();
+  if (!applySlide() && following) {
+    // The slide left the workspaces this bar shows: the dots and capsule travel back on their own springs.
+    for (auto& item : m_items) {
+      item.fromWidth = item.currentWidth;
+      item.fromOpacity = item.currentOpacity;
+    }
+    computeTargets();
+    startAnimation();
+    syncLens(true);
+  }
 }
 
 WorkspacesWidget::LensSpan
@@ -1057,7 +1066,7 @@ WorkspacesWidget::layoutSlide(std::vector<Item>& items, std::size_t from, std::s
   return {.start = std::lerp(source.start, target.start, f), .end = std::lerp(source.end, target.end, f)};
 }
 
-void WorkspacesWidget::applySlide() {
+bool WorkspacesWidget::applySlide() {
   SlideFollow& follow = *m_slideFollow;
   const auto indexOf = [this](const std::string& id) -> std::optional<std::size_t> {
     for (std::size_t i = 0; i < m_items.size(); ++i) {
@@ -1071,32 +1080,63 @@ void WorkspacesWidget::applySlide() {
   const std::optional<std::size_t> to = indexOf(follow.slide.to);
   if (!m_islandDots || isMinimal() || !from.has_value() || !to.has_value()) {
     m_slideFollow.reset();
-    return;
+    cancelStretchDecay();
+    return false;
   }
   cancelAnimation();
-  LensSpan span = layoutSlide(m_items, *from, *to, follow.slide.progress, m_gap);
+  follow.span = layoutSlide(m_items, *from, *to, follow.slide.progress, m_gap);
   // P1 stretch: the trailing edge lags by the trail spring's steady-state lag (2 zeta / omega) at the capsule's
-  // speed, at most one gap; the leading edge stays on the compositor's position.
+  // speed, at most one gap; the leading edge stays on the compositor's position. Reduced motion has no stretch.
   const double dt = (follow.slide.timeMs - follow.timeMs) / 1000.0;
   if (dt > 0.0) {
-    follow.velocity = static_cast<float>((span.start - follow.lensStart) / dt);
+    follow.velocity = static_cast<float>((follow.span.start - follow.lensStart) / dt);
   }
-  follow.lensStart = span.start;
+  follow.lensStart = follow.span.start;
   follow.timeMs = follow.slide.timeMs;
   const float trailLag = 2.0F * Tokens::springTrail.damping / std::sqrt(Tokens::springTrail.stiffness);
-  const float stretch = std::min(m_gap, std::abs(follow.velocity) * trailLag);
-  if (follow.velocity > 0.0F) {
-    span.start -= stretch;
-  } else {
-    span.end += stretch;
-  }
+  const float stretch =
+      MotionService::instance().reduced() ? 0.0F : std::min(m_gap, std::abs(follow.velocity) * trailLag);
+  follow.stretch = follow.velocity > 0.0F ? stretch : -stretch;
   applyItemLayouts();
   updateContainerSize();
-  m_lens.follow(span.start, span.end, 0.0F, m_indicatorHeight, m_indicatorHeight * 0.5F);
+  placeSlideLens();
+  // Lines stop while the fingers rest: the stretch then relaxes on the trail spring until the next line.
+  cancelStretchDecay();
+  if (follow.stretch != 0.0F && m_animations != nullptr) {
+    m_stretchDecayId = m_animations->drive(
+        0, follow.stretch, 0.0F, Style::spring(Tokens::springTrail),
+        [this](float v) {
+          if (m_slideFollow.has_value()) {
+            m_slideFollow->stretch = v;
+            placeSlideLens();
+          }
+        },
+        [this] { m_stretchDecayId = 0; }, this, 0.0F, Unit::Px
+    );
+  }
   if (root() != nullptr) {
     root()->markPaintDirty();
   }
   requestRedraw();
+  return true;
+}
+
+void WorkspacesWidget::placeSlideLens() {
+  const SlideFollow& follow = *m_slideFollow;
+  m_lens.follow(
+      follow.span.start - std::max(follow.stretch, 0.0F), follow.span.end + std::max(-follow.stretch, 0.0F), 0.0F,
+      m_indicatorHeight, m_indicatorHeight * 0.5F
+  );
+  if (root() != nullptr) {
+    root()->markPaintDirty();
+  }
+}
+
+void WorkspacesWidget::cancelStretchDecay() {
+  if (m_stretchDecayId != 0 && m_animations != nullptr) {
+    m_animations->cancel(m_stretchDecayId);
+  }
+  m_stretchDecayId = 0;
 }
 
 void WorkspacesWidget::endSlide() {
@@ -1104,6 +1144,7 @@ void WorkspacesWidget::endSlide() {
     return;
   }
   m_slideFollow.reset();
+  cancelStretchDecay();
   computeTargets();
   for (auto& item : m_items) {
     item.currentWidth = item.targetWidth;
