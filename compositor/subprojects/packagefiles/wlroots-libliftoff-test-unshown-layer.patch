@@ -1,0 +1,43 @@
+--- a/backend/drm/libliftoff.c
++++ b/backend/drm/libliftoff.c
+@@ -409,6 +409,28 @@
+ 	}
+ }
+ 
++// A test sets no layer feedback (accepted comes only from a real commit), and libliftoff passes a test whose search
++// left a layer without a plane. With the primary buffer on no plane (the composition layer holds that same buffer),
++// the CRTC scans out nothing.
++static bool connector_has_unshown_layer(const struct wlr_drm_connector_state *state) {
++	struct wlr_drm_crtc *crtc = state->connector->crtc;
++	if (liftoff_layer_needs_composition(crtc->primary->liftoff_layer) &&
++			liftoff_layer_needs_composition(crtc->liftoff_composition_layer)) {
++		return true;
++	}
++	if (!(state->base->committed & WLR_OUTPUT_STATE_LAYERS)) {
++		return false;
++	}
++	for (size_t i = 0; i < state->base->layers_len; i++) {
++		struct wlr_drm_layer *layer =
++			get_drm_layer(state->connector->backend, state->base->layers[i].layer);
++		if (liftoff_layer_needs_composition(layer->liftoff)) {
++			return true;
++		}
++	}
++	return false;
++}
++
+ static bool commit(struct wlr_drm_backend *drm,
+ 		const struct wlr_drm_device_state *state,
+ 		struct wlr_drm_page_flip *page_flip, uint32_t flags, bool test_only) {
+@@ -471,6 +493,11 @@
+ 			wlr_drm_conn_log(conn, WLR_DEBUG, "Failed to scan-out cursor plane");
+ 			goto out;
+ 		}
++
++		if (test_only && connector_has_unshown_layer(&state->connectors[i])) {
++			wlr_drm_conn_log(conn, WLR_DEBUG, "A layer would get no plane");
++			goto out;
++		}
+ 	}
+ 
+ 	ok = drmModeAtomicCommit(drm->fd, req, flags, page_flip) == 0;

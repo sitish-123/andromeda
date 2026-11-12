@@ -6,7 +6,9 @@ depth = 1
 # Skips layer feedback for planes another CRTC still holds at startup (no liftoff handle; upstream reads NULL).
 # Registers the planes a previous master left on a CRTC at its first commit, not only on a modeset (no modeset at login).
 # Resets IN_FENCE_FD to -1 on frames without a fence (the last fd is closed; every allocation failed with EINVAL, no plane).
-diff_files = wlroots-cursor-plane-unchanged.patch, wlroots-feedback-unregistered-plane.patch, wlroots-register-planes-without-modeset.patch, wlroots-libliftoff-clear-in-fence.patch
+# Fails a test that leaves a layer or the primary buffer without a plane. libliftoff links into the private libwlroots,
+# so the compositor's liftoff_* interposer (src/server/liftoff_deadline.cpp) never runs in the package.
+diff_files = wlroots-cursor-plane-unchanged.patch, wlroots-feedback-unregistered-plane.patch, wlroots-register-planes-without-modeset.patch, wlroots-libliftoff-clear-in-fence.patch, wlroots-libliftoff-test-unshown-layer.patch
 
 [provide]
 dependency_names = wlroots-0.20
