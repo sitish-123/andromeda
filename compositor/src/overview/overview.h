@@ -561,6 +561,8 @@ namespace andromeda {
     [[nodiscard]] static bool growsFromDesk(const OutputState& state, const Card& card);
     // Sets Card::grows for every card from what is on screen now: at an open, and at a close for the row it returns to.
     void classifyEntrance();
+    // The open finished: zoom and appear at rest at 1.
+    [[nodiscard]] bool openSettled() const;
     // Scratch lists layoutChrome refills every frame, kept to avoid reallocating them.
     std::vector<ov::ChromeWorkspace> m_chromeWorkspaces;
     std::vector<std::string> m_chromeNames; // owns the names m_chromeWorkspaces views
@@ -611,6 +613,8 @@ namespace andromeda {
     double m_lastTickMsec = 0.0;
     // The last tick is at most two 60 Hz frames old: frames are still running, so a motion may start from it.
     [[nodiscard]] bool tickedRecently() const;
+    // A navigation release is selecting its landing workspace and moves the row itself afterwards.
+    bool m_navigationReleasing = false;
     double m_fingerTarget = 0.0;
     std::optional<std::chrono::steady_clock::time_point> m_gestureOpenedAt;
     std::string m_filter;

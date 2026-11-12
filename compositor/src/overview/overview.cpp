@@ -1146,8 +1146,11 @@ namespace andromeda {
         animateRow(*state, static_cast<double>(group->active()->index()));
       }
     }
-    // Close mirrors the open: what the desktop will show returns to its rect, the rest fades in place.
-    classifyEntrance();
+    // Close mirrors the open: what the desktop will show returns to its rect, the rest fades in place. A close before
+    // the open settled keeps the open's classes, which the cards are still drawn by.
+    if (openSettled()) {
+      classifyEntrance();
+    }
     startAnimation(0.0, true, release);
   }
 
@@ -1243,6 +1246,16 @@ namespace andromeda {
   bool Overview::growsFromDesk(const OutputState& state, const Card& card) {
     // Strip and Grid zoom whole workspace cards out of the screen, so their windows ride along.
     return (state.placedStyle != ov::Style::Spaces && state.placedStyle != ov::Style::TaskView) || card.grows;
+  }
+
+  bool Overview::openSettled() const {
+    // At rest both classes draw a card in its slot, so classifying again does not show.
+    return m_active
+        && !m_closing
+        && m_progress == 1.0
+        && !m_zoomAnim.animating()
+        && !m_appearOpacity.animating()
+        && !m_appearScale.animating();
   }
 
   void Overview::classifyEntrance() {
@@ -1579,15 +1592,14 @@ namespace andromeda {
     if (!m_active) {
       return 0.0;
     }
+    // A swipe from the settled overview may close it: classify for the row it shows.
+    if (openSettled()) {
+      classifyEntrance();
+    }
     // A swipe catches the zoom where it is drawn, as niri and GNOME do: a running open or close stops there, and a
     // close turns back into an overview the fingers hold. Reading it as fully open or closed jumps the first frame.
     m_zoomAnim.snap(m_progress);
     m_targetProgress = m_progress;
-    // A swipe from the settled overview may close it: classify for the row it shows. At rest both classes draw a card
-    // in its slot, so the change does not show.
-    if (!m_closing && m_progress >= 1.0) {
-      classifyEntrance();
-    }
     if (m_closing) {
       m_closing = false;
       m_server->notifyOverviewChanged();
@@ -1859,7 +1871,8 @@ namespace andromeda {
     }
     const auto row = static_cast<double>(group->active()->index());
     target->activeWorkspaceIndex = group->active()->index();
-    if (std::abs(target->rowScroll.target() - row) < 0.001 && target->rowScroll.animating()) {
+    if (m_navigationReleasing
+        || (std::abs(target->rowScroll.target() - row) < 0.001 && target->rowScroll.animating())) {
       return;
     }
     if (m_closing) {

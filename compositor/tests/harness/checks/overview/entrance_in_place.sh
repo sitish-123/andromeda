@@ -7,6 +7,7 @@ source "$ANDROMEDA_HARNESS_LIB"
 
 readonly STYLE=${ENTRANCE_STYLE:-spaces}
 readonly BLUE='b > 0.4 && r < 0.25 && g < 0.25'
+readonly RED='r > 0.4 && g < 0.25 && b < 0.25'
 readonly FRAMES=24
 IMAGE="$ANDROMEDA_RUNTIME_DIR/entrance.png"
 
@@ -41,16 +42,21 @@ grim -o HEADLESS-1 "$IMAGE"
 read -r sx sy sw sh < <("$ANDROMEDA_PIXEL_PROBE" "$IMAGE" bbox "$BLUE")
 ((sw > 0)) || { echo "$STYLE: no blue card in the open overview"; exit 1; }
 read -r _ _ final < <("$ANDROMEDA_PIXEL_PROBE" "$IMAGE" max "${sw}x${sh}+${sx}+${sy}")
+# The red window is on screen at the open: its card grows from the window and returns to it, larger than its slot.
+read -r _ _ rw _ < <("$ANDROMEDA_PIXEL_PROBE" "$IMAGE" bbox "$RED")
+((rw > 0)) || { echo "$STYLE: no red card in the open overview"; exit 1; }
 "$ANDROMEDA" msg overview-close > /dev/null
 "$ANDROMEDA" settle > /dev/null
 
 "$ANDROMEDA" clock-freeze > /dev/null
 "$ANDROMEDA" msg overview-open > /dev/null
-blues=()
+blues=() reds=()
 for frame in $(seq "$FRAMES"); do
   "$ANDROMEDA" clock-advance 8 > /dev/null
   grim -o HEADLESS-1 "$IMAGE"
   [[ -n ${ENTRANCE_SHOTS:-} ]] && cp "$IMAGE" "$ENTRANCE_SHOTS/$STYLE-$((frame * 8))ms.png"
+  read -r _ _ red_w _ < <("$ANDROMEDA_PIXEL_PROBE" "$IMAGE" bbox "$RED")
+  reds+=("$red_w")
   read -r x y w h < <("$ANDROMEDA_PIXEL_PROBE" "$IMAGE" bbox "$BLUE")
   if ((w > 0)) && ((x < sx - 1 || y < sy - 1 || x + w > sx + sw + 1 || y + h > sy + sh + 1)); then
     echo "$STYLE: at $((frame * 8)) ms the blue card is at ${w}x${h}+${x}+${y}, outside its slot ${sw}x${sh}+${sx}+${sy}"
@@ -68,6 +74,7 @@ for b in "${blues[@]}"; do
   ((b > first + 20 && b < final - 20)) && partial=1
 done
 ((rising && partial)) || { echo "$STYLE: the blue card did not fade in (max blue per frame: ${blues[*]}, settled $final)"; exit 1; }
+((reds[1] > rw + 20)) || { echo "$STYLE: the red card did not grow from its window: widths ${reds[*]}, slot $rw"; exit 1; }
 "$ANDROMEDA" settle > /dev/null
 
 # Blue level inside the slot, and an exit when the card left the slot.
@@ -85,12 +92,15 @@ sample() {
 # The close mirrors the open: the card fades out where it is, from the first frame.
 "$ANDROMEDA" clock-freeze > /dev/null
 "$ANDROMEDA" msg overview-close > /dev/null
-closing=()
+closing=() closing_reds=()
 for frame in 1 2 3 4; do
   "$ANDROMEDA" clock-advance 8 > /dev/null
   sample "closing at $((frame * 8)) ms"
   closing+=("$level")
+  read -r _ _ red_w _ < <("$ANDROMEDA_PIXEL_PROBE" "$IMAGE" bbox "$RED")
+  closing_reds+=("$red_w")
 done
+((closing_reds[3] > rw + 4)) || { echo "$STYLE: the red card did not return to its window: widths ${closing_reds[*]}, slot $rw"; exit 1; }
 ((closing[3] < final - 20)) || { echo "$STYLE: the blue card did not fade out in place: ${closing[*]} (open $final)"; exit 1; }
 
 # Reopened mid-close, it turns around from where it is drawn instead of starting the entrance again from nothing.

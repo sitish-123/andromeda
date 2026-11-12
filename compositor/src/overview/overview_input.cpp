@@ -1038,11 +1038,14 @@ namespace andromeda {
               * m_navigationScale
               * GesturePhysics::rubberBandDerivative(position, 0.0, last, GesturePhysics::kOverscrollLimit);
       if (index != static_cast<int>(group->active()->index())) {
+        // The release below moves the row; the activation must not move it first (under reduced motion, a jump).
+        m_navigationReleasing = true;
         group->select(group->workspaceAt(static_cast<size_t>(index)));
+        m_navigationReleasing = false;
         state = stateFor(output);
       }
-      if (state != nullptr) {
-        animateRow(*state, static_cast<double>(index), velocity);
+      if (state != nullptr && group->active() != nullptr) {
+        animateRow(*state, static_cast<double>(group->active()->index()), velocity);
       }
       return;
     }
