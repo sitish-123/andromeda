@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # harness: outputs=1
 # A config.toml [output] table that sets only some keys overrides only those keys: a mode applied through
-# wlr-output-management is still written to displays.toml, and the next session starts with that mode and the
-# config.toml scale. Runs on one private instance with the harness's containment.
+# wlr-output-management is still written to displays.toml, a scale config.toml sets is not, and the next session
+# starts with that mode and the config.toml scale. Runs on one private instance with the harness's containment.
 set -euo pipefail
 
 readonly OUTPUT_MANAGEMENT=${ANDROMEDA_OUTPUT_MANAGEMENT_CLIENT:-./build-debug/tests/output-management-client}
@@ -70,7 +70,8 @@ state() {
 
 write_config 2
 start_server
-OUTPUT_MANAGEMENT_MODE=1600x900@60000 private "$OUTPUT_MANAGEMENT" apply enable HEADLESS-1 > /dev/null
+OUTPUT_MANAGEMENT_MODE=1600x900@60000 OUTPUT_MANAGEMENT_SCALE=1.25 private "$OUTPUT_MANAGEMENT" apply enable HEADLESS-1 \
+  > /dev/null
 for _ in $(seq 40); do
   grep -qsE '^mode = ["'\'']1600x900' "$SAVED" && break
   sleep 0.1
@@ -78,6 +79,11 @@ done
 if ! grep -qsE '^mode = ["'\'']1600x900' "$SAVED"; then
   echo "a mode applied to HEADLESS-1 was not written to displays.toml while config.toml sets only its scale:"
   sed 's/^/  | /' "$SAVED" 2> /dev/null || echo "  | (no displays.toml)"
+  exit 1
+fi
+if grep -q '^scale' "$SAVED"; then
+  echo "a scale applied to HEADLESS-1 was saved though config.toml sets its scale:"
+  sed 's/^/  | /' "$SAVED"
   exit 1
 fi
 stop_server

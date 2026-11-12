@@ -4,7 +4,9 @@
 #include "core/toml.h"
 #include "output/identity.h"
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <format>
 #include <fstream>
 #include <iterator>
@@ -25,31 +27,45 @@ namespace andromeda {
 
     toml::table outputTable(const SavedOutput& output) {
       toml::table table;
-      table.insert("enabled", output.enabled);
-      if (output.width > 0 && output.height > 0) {
+      if (output.enabled) {
+        table.insert("enabled", *output.enabled);
+      }
+      if (const std::optional<SavedMode>& mode = output.mode; mode && mode->width > 0 && mode->height > 0) {
         table.insert(
             "mode",
-            output.refreshMHz > 0 ? std::format("{}x{}@{:.3f}", output.width, output.height, output.refreshMHz / 1000.0)
-                                  : std::format("{}x{}", output.width, output.height)
+            mode->refreshMHz > 0 ? std::format("{}x{}@{:.3f}", mode->width, mode->height, mode->refreshMHz / 1000.0)
+                                 : std::format("{}x{}", mode->width, mode->height)
         );
       }
       if (output.position) {
         table.insert("position", toml::array{(*output.position)[0], (*output.position)[1]});
       }
-      table.insert("scale", output.scale);
-      if (output.transform >= 0 && output.transform < static_cast<int>(kTransformNames.size())) {
-        table.insert("transform", kTransformNames[static_cast<size_t>(output.transform)]);
+      if (output.scale) {
+        table.insert("scale", *output.scale);
       }
-      table.insert("vrr", output.adaptiveSync ? "always" : "disabled");
+      if (output.transform && *output.transform >= 0 && *output.transform < static_cast<int>(kTransformNames.size())) {
+        table.insert("transform", kTransformNames[static_cast<size_t>(*output.transform)]);
+      }
+      if (output.adaptiveSync) {
+        table.insert("vrr", *output.adaptiveSync ? "always" : "disabled");
+      }
       return table;
+    }
+
+    template <typename T> std::optional<T> changed(const std::optional<T>& live, const std::optional<T>& requested) {
+      return live != requested ? requested : std::nullopt;
     }
 
     void mergeOutputs(toml::table& root, std::span<const SavedOutput> outputs) {
       for (const SavedOutput& output : outputs) {
+        toml::table saved = outputTable(output);
+        if (saved.empty()) {
+          continue;
+        }
         toml::table& table = generatedTable(root, {"output", output.name});
         // zwlr_output_manager_v1 only knows on and off, so an apply keeps a VRR mode set through set_property.
         const bool keepVrr = table["vrr"].value<std::string>() == "fullscreen";
-        for (auto&& [key, value] : outputTable(output)) {
+        for (auto&& [key, value] : saved) {
           if (!(keepVrr && key.str() == "vrr")) {
             table.insert_or_assign(key, std::move(value));
           }
@@ -64,17 +80,6 @@ namespace andromeda {
       } else {
         table.erase("mirror");
       }
-    }
-
-    // Direct member lookup, not at_path: an EDID descriptor name ("<make> <model> <serial>") can contain the dots
-    // and spaces at_path would otherwise parse as a nested path.
-    bool tableHasOutputKey(const toml::table& root, std::string_view name, std::string_view key) {
-      const toml::node* outputs = root.get("output");
-      if (outputs == nullptr || !outputs->is_table()) {
-        return false;
-      }
-      const toml::node* entry = outputs->as_table()->get(name);
-      return entry != nullptr && entry->is_table() && entry->as_table()->contains(key);
     }
 
   } // namespace
@@ -125,14 +130,60 @@ namespace andromeda {
 
   bool
   documentSetsOutputKey(const std::filesystem::path& configRoot, std::string_view name, std::string_view key) {
+    return std::ranges::contains(documentOutputKeys(configRoot, name), key);
+  }
+
+  std::vector<std::string> documentOutputKeys(const std::filesystem::path& configRoot, std::string_view name) {
     std::string content;
     if (std::ifstream in(configRoot); in) {
       content.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
     }
+    toml::table root;
     try {
-      return tableHasOutputKey(toml::parse(content), name, key);
+      root = toml::parse(content);
     } catch (const toml::parse_error&) {
-      return false;
+      return {};
+    }
+    std::vector<std::string> keys;
+    // Direct member lookup, not at_path: an EDID descriptor name ("<make> <model> <serial>") can contain the dots
+    // and spaces at_path would otherwise parse as a nested path.
+    const toml::table* outputs = root["output"].as_table();
+    const toml::table* table = outputs != nullptr ? (*outputs)[name].as_table() : nullptr;
+    if (table != nullptr) {
+      for (const auto& [key, value] : *table) {
+        keys.emplace_back(key.str());
+      }
+    }
+    return keys;
+  }
+
+  SavedOutput changedOutputKeys(const SavedOutput& live, const SavedOutput& requested) {
+    // Scales travel as wl_fixed (1/256) and are stored as float; nearer than that is the same scale.
+    const bool sameScale = live.scale && requested.scale && std::abs(*live.scale - *requested.scale) < 1.0 / 512;
+    return {
+        .name = requested.name,
+        .enabled = changed(live.enabled, requested.enabled),
+        .mode = changed(live.mode, requested.mode),
+        .position = changed(live.position, requested.position),
+        .scale = sameScale ? std::nullopt : requested.scale,
+        .transform = changed(live.transform, requested.transform),
+        .adaptiveSync = changed(live.adaptiveSync, requested.adaptiveSync),
+    };
+  }
+
+  void dropSavedKey(SavedOutput& output, std::string_view key) {
+    if (key == "enabled") {
+      output.enabled.reset();
+    } else if (key == "mode") {
+      output.mode.reset();
+    } else if (key == "position") {
+      output.position.reset();
+    } else if (key == "scale") {
+      output.scale.reset();
+    } else if (key == "transform") {
+      output.transform.reset();
+    } else if (key == "vrr") {
+      output.adaptiveSync.reset();
     }
   }
 

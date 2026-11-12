@@ -213,6 +213,8 @@ int main(int argc, char** argv) {
     }
   }
 
+  // OUTPUT_MANAGEMENT_SCALE applies that scale to OUTPUT.
+  const char* scaleText = std::getenv("OUTPUT_MANAGEMENT_SCALE");
   // OUTPUT_MANAGEMENT_MODE="WIDTHxHEIGHT@MHZ" applies that custom mode to OUTPUT.
   int32_t customWidth = 0;
   int32_t customHeight = 0;
@@ -281,7 +283,8 @@ int main(int argc, char** argv) {
     const int32_t y = targetHead && argc == 6 ? requestedY : head.y;
     zwlr_output_configuration_head_v1_set_position(configured, x, y);
     zwlr_output_configuration_head_v1_set_transform(configured, head.transform);
-    zwlr_output_configuration_head_v1_set_scale(configured, wl_fixed_from_double(head.scale));
+    const double scale = targetHead && scaleText != nullptr ? std::strtod(scaleText, nullptr) : head.scale;
+    zwlr_output_configuration_head_v1_set_scale(configured, wl_fixed_from_double(scale));
     if (state.managerVersion >= 4 && head.adaptiveSync >= 0) {
       zwlr_output_configuration_head_v1_set_adaptive_sync(configured, static_cast<uint32_t>(head.adaptiveSync));
     }

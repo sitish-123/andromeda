@@ -8,25 +8,41 @@
 #include <string>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 namespace andromeda {
 
   struct OutputIdentity;
 
-  // One output as a settings client last applied it through zwlr_output_manager_v1.
-  struct SavedOutput {
-    // Descriptor ("<make> <model> <serial>") when the display reports EDID, else the connector.
-    std::string name;
-    bool enabled = true;
+  struct SavedMode {
     int width = 0;
     int height = 0;
     int refreshMHz = 0;
+
+    bool operator==(const SavedMode&) const = default;
+  };
+
+  // One output as a settings client applied it through zwlr_output_manager_v1. Only the keys that are set are written.
+  struct SavedOutput {
+    // Descriptor ("<make> <model> <serial>") when the display reports EDID, else the connector.
+    std::string name;
+    std::optional<bool> enabled;
+    std::optional<SavedMode> mode;
     // Unset for a mirror, which keeps the position it last had on the desktop.
     std::optional<std::array<int, 2>> position;
-    double scale = 1.0;
-    int transform = 0; // wl_output_transform
-    bool adaptiveSync = false;
+    std::optional<double> scale;
+    std::optional<int> transform; // wl_output_transform
+    std::optional<bool> adaptiveSync;
+
+    bool operator==(const SavedOutput&) const = default;
   };
+
+  // The keys of `requested` whose value differs from `live`, so an apply saves only what its request changed and never
+  // a value the compositor chose (a capped mode, an automatic scale). The result keeps the name of `requested`.
+  [[nodiscard]] SavedOutput changedOutputKeys(const SavedOutput& live, const SavedOutput& requested);
+
+  // Unsets the key of `output` that the [output] config key `key` stores ("mode", "vrr").
+  void dropSavedKey(SavedOutput& output, std::string_view key);
 
   // Name an output's saved table uses: its descriptor when the display reports EDID, else its connector.
   [[nodiscard]] std::string savedOutputName(const OutputIdentity& identity);
@@ -58,5 +74,8 @@ namespace andromeda {
   // as false.
   [[nodiscard]] bool
   documentSetsOutputKey(const std::filesystem::path& configRoot, std::string_view name, std::string_view key);
+  // The keys `configRoot` sets in its [output.<name>] table; empty for a damaged or missing file.
+  [[nodiscard]] std::vector<std::string>
+  documentOutputKeys(const std::filesystem::path& configRoot, std::string_view name);
 
 } // namespace andromeda

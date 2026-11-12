@@ -83,6 +83,39 @@ namespace andromeda {
       return (state.committed & WLR_OUTPUT_STATE_ADAPTIVE_SYNC_ENABLED) == 0
           || state.adaptive_sync_enabled == adaptiveSyncEnabled;
     }
+
+    // `output` as output management reports it now, in the shape an apply saves.
+    SavedOutput liveSavedOutput(const Output& output, bool mirror) {
+      const wlr_output& wlr = *output.wlr();
+      const wlr_box box = output.layoutBox();
+      return {
+          .name = savedOutputName(output.identity()),
+          .enabled = output.desktopEnabled() || mirror,
+          .mode = wlr.current_mode != nullptr
+              ? SavedMode{wlr.current_mode->width, wlr.current_mode->height, wlr.current_mode->refresh}
+              : SavedMode{wlr.width, wlr.height, wlr.refresh},
+          .position = mirror ? std::nullopt : std::optional(std::array{box.x, box.y}),
+          .scale = wlr.scale,
+          .transform = static_cast<int>(wlr.transform),
+          .adaptiveSync = wlr.adaptive_sync_status == WLR_OUTPUT_ADAPTIVE_SYNC_ENABLED,
+      };
+    }
+
+    SavedOutput requestedSavedOutput(const wlr_output_head_v1_state& state, const std::string& name, bool mirror) {
+      return {
+          .name = name,
+          .enabled = state.enabled,
+          .mode = state.mode != nullptr ? SavedMode{state.mode->width, state.mode->height, state.mode->refresh}
+                                        : SavedMode{
+                                              state.custom_mode.width, state.custom_mode.height,
+                                              state.custom_mode.refresh
+                                          },
+          .position = mirror ? std::nullopt : std::optional(std::array{state.x, state.y}),
+          .scale = state.scale,
+          .transform = static_cast<int>(state.transform),
+          .adaptiveSync = state.adaptive_sync_enabled,
+      };
+    }
   } // namespace
 
   void Server::onNewOutput(wl_listener* listener, void* data) {
@@ -1058,6 +1091,7 @@ namespace andromeda {
       Output* output = nullptr;
       bool wasDesktopEnabled = false;
       bool wasMirror = false;
+      SavedOutput live;
     };
     std::vector<RequestedHead> requested;
     wlr_output_configuration_head_v1* head = nullptr;
@@ -1068,6 +1102,7 @@ namespace andromeda {
             .output = output,
             .wasDesktopEnabled = output->desktopEnabled(),
             .wasMirror = output->mirrorSource() != nullptr,
+            .live = liveSavedOutput(*output, output->mirrorSource() != nullptr),
         });
       }
     }
@@ -1337,9 +1372,15 @@ namespace andromeda {
             continue;
           }
           entry.output->setMirrorSource(nullptr, /*applyState=*/false);
-          (void)saveMirror(
-              configRootPath().parent_path() / "displays.toml", savedOutputName(entry.output->identity()), std::nullopt
-          );
+          if (const std::string name = savedOutputName(entry.output->identity());
+              documentSetsOutputKey(configRootPath(), name, "mirror")) {
+            kLog.info(
+                "output '{}': {} sets mirror; not saving it to displays.toml", name,
+                configRootPath().filename().string()
+            );
+          } else {
+            (void)saveMirror(configRootPath().parent_path() / "displays.toml", name, std::nullopt);
+          }
         }
         entry.output->adoptOutputManagerEnabled(entry.head->state.enabled);
       }
@@ -1392,18 +1433,24 @@ namespace andromeda {
       std::vector<SavedOutput> saved;
       saved.reserve(requested.size());
       for (const RequestedHead& entry : requested) {
-        const wlr_output_head_v1_state& state = entry.head->state;
-        saved.push_back({
-            .name = savedOutputName(entry.output->identity()),
-            .enabled = state.enabled,
-            .width = state.mode != nullptr ? state.mode->width : state.custom_mode.width,
-            .height = state.mode != nullptr ? state.mode->height : state.custom_mode.height,
-            .refreshMHz = state.mode != nullptr ? state.mode->refresh : state.custom_mode.refresh,
-            .position = entry.wasMirror ? std::nullopt : std::optional(std::array{state.x, state.y}),
-            .scale = state.scale,
-            .transform = static_cast<int>(state.transform),
-            .adaptiveSync = state.adaptive_sync_enabled,
-        });
+        SavedOutput changed = changedOutputKeys(
+            entry.live, requestedSavedOutput(entry.head->state, entry.live.name, entry.wasMirror)
+        );
+        std::vector<std::string> owned;
+        for (const std::string& key : documentOutputKeys(configRootPath(), changed.name)) {
+          const SavedOutput before = changed;
+          dropSavedKey(changed, key);
+          if (before != changed) {
+            owned.push_back(key);
+          }
+        }
+        if (!owned.empty()) {
+          kLog.info(
+              "output '{}': {} sets {}; not saving {} to displays.toml", changed.name,
+              configRootPath().filename().string(), owned, owned.size() == 1 ? "it" : "them"
+          );
+        }
+        saved.push_back(std::move(changed));
       }
       if (const auto file = configRootPath().parent_path() / "displays.toml"; !saveOutputs(file, saved)) {
         kLog.warn("failed to save output state to '{}'", file.string());
