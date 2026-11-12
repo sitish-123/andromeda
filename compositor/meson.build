@@ -34,6 +34,13 @@ else
   )
 endif
 
+andromeda_version_h = vcs_tag(
+  input: 'src/core/git_version.h.in',
+  output: 'andromeda_version.h',
+  command: ['git', 'describe', '--tags', '--abbrev=0', '--match', 'v*'],
+  fallback: fs.read('VERSION').strip(),
+)
+
 andromeda_data_dir = get_option('prefix') / get_option('datadir')
 andromeda_data_dir_config = configuration_data()
 andromeda_data_dir_config.set_quoted('ANDROMEDA_DATA_DIR', andromeda_data_dir)
@@ -1168,8 +1175,8 @@ andromeda_core_dep = declare_dependency(
 # every test links.
 andromeda = executable(
   'andromeda',
-  ['src/main.cpp', 'src/core/build_info.cpp', 'src/server/liftoff_deadline.cpp', andromeda_git_revision_h],
-  cpp_args: jemalloc_cpp_args + ['-DANDROMEDA_VERSION="' + meson.project_version() + '"'],
+  ['src/main.cpp', 'src/core/build_info.cpp', 'src/server/liftoff_deadline.cpp', andromeda_git_revision_h, andromeda_version_h],
+  cpp_args: jemalloc_cpp_args,
   dependencies: [andromeda_core_dep] + jemalloc_deps,
   install: true,
   install_rpath: wlroots_dep.type_name() == 'internal' ? get_option('prefix') / wlroots_private_libdir : '',

@@ -1,0 +1,3 @@
+#pragma once
+
+#define ANDROMEDA_VERSION "@VCS_TAG@"

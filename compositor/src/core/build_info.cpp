@@ -1,10 +1,7 @@
 #include "core/build_info.h"
 
 #include "andromeda_git_revision.h"
-
-#ifndef ANDROMEDA_VERSION
-#define ANDROMEDA_VERSION "unknown"
-#endif
+#include "andromeda_version.h"
 
 namespace andromeda::build_info {
 
