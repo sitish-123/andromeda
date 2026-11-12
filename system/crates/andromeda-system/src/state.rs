@@ -267,4 +267,46 @@ mod tests {
         }
         assert!(files > 0, "no rule files in {dir}");
     }
+
+    struct At(std::collections::HashMap<&'static str, crate::expr::Value>);
+
+    impl crate::expr::Values for At {
+        fn value_of(&self, name: &str) -> Option<crate::expr::Value> {
+            self.0.get(name).cloned()
+        }
+    }
+
+    /// The lowest `display.refresh_cap_hz` the shipped power rules hold once this state has lasted 10 min.
+    fn shipped_refresh_cap(on_battery: bool, profile: &str) -> Option<i64> {
+        use crate::expr::Value;
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/rules/power.toml")).unwrap();
+        let state = At(std::collections::HashMap::from([
+            ("power.on_battery", Value::Bool(on_battery)),
+            ("power.profile", Value::Str(profile.to_owned())),
+            ("power.profile_by_rule", Value::Bool(false)),
+            ("battery.percent", Value::Num(80.0)),
+            ("battery.warning", Value::Str("none".to_owned())),
+        ]));
+        let t0 = std::time::Instant::now();
+        let mut cap: Option<i64> = None;
+        for rule in crate::rules::load(&text, &Fields).unwrap().into_iter().map(Result::unwrap) {
+            let mut ep = crate::rules::Episode::default();
+            ep.step(&rule, &state, t0);
+            ep.step(&rule, &state, t0 + std::time::Duration::from_secs(600));
+            if ep.active() {
+                for hold in rule.holds.iter().filter(|h| h.knob == "display.refresh_cap_hz") {
+                    let hz = hold.value.as_integer().unwrap();
+                    cap = Some(cap.map_or(hz, |c| c.min(hz)));
+                }
+            }
+        }
+        cap
+    }
+
+    #[test]
+    fn power_saver_caps_the_refresh_rate_only_on_battery() {
+        assert_eq!(shipped_refresh_cap(false, "power-saver"), None);
+        assert_eq!(shipped_refresh_cap(true, "power-saver"), Some(60));
+        assert_eq!(shipped_refresh_cap(true, "balanced"), None);
+    }
 }

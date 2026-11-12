@@ -16,7 +16,7 @@ holds = [
 ]
 alert = { urgency = "normal", action = "undo", text = "low_power_plan" }
 
-# The user picked Power Saver: the same savings as low_power_plan, without the dim and without an alert.
+# The user picked Power Saver: the wifi savings of low_power_plan, without the dim and without an alert.
 # `for` waits out the moment between a low_power_plan release and the profile change that follows it.
 [[rule]]
 id = "power.user_saver"
@@ -25,7 +25,16 @@ priority = "automatic"
 when = "power.profile == 'power-saver' and not power.profile_by_rule"
 for = "5s"
 clear = "power.profile != 'power-saver'"
-holds = [{ knob = "network.wifi_power_save", value = true }, { knob = "display.refresh_cap_hz", value = 60 }]
+holds = [{ knob = "network.wifi_power_save", value = true }]
+
+# Power saver on battery: the panel runs at most 60 Hz. On AC the user's refresh rate stays.
+[[rule]]
+id = "power.saver_refresh_cap"
+scope = "session"
+priority = "automatic"
+when = "power.on_battery and power.profile == 'power-saver'"
+clear = "not power.on_battery or power.profile != 'power-saver'"
+holds = [{ knob = "display.refresh_cap_hz", value = 60 }]
 
 # Power saver on battery: apps hidden for 3 min are frozen until the user reaches for them (docs/qos.md §3, T3).
 # The compositor's general.freeze_hidden_apps setting turns this off.
