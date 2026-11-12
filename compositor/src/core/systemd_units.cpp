@@ -230,8 +230,12 @@ namespace andromeda {
     sd_bus_message* message = nullptr;
     if (sd_bus_message_new_method_call(m_bus, &message, kService, kPath, kManager, method) >= 0
         && sd_bus_message_append(message, "s", unit.c_str()) >= 0) {
-      sent = call(message, [unit, method, done = std::move(done)](sd_bus_message* reply) {
-        const bool ok = sd_bus_message_is_method_error(reply, nullptr) == 0;
+      sent = call(message, [unit, frozen, method, done = std::move(done)](sd_bus_message* reply) {
+        // A unit that exited or was unloaded has no cgroup left to thaw: the thaw has nothing to do.
+        const bool gone = !frozen
+            && (sd_bus_message_is_method_error(reply, "org.freedesktop.systemd1.UnitInactive") != 0
+                || sd_bus_message_is_method_error(reply, "org.freedesktop.systemd1.NoSuchUnit") != 0);
+        const bool ok = gone || sd_bus_message_is_method_error(reply, nullptr) == 0;
         if (!ok) {
           logFailure(std::string(method) + " " + unit, reply);
         }
