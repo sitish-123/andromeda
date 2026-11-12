@@ -54,6 +54,15 @@ void AndromedaWorkspaceBackend::setOverviewChangeCallback(ChangeCallback callbac
 
 bool AndromedaWorkspaceBackend::canTrackOverviewState() const noexcept { return m_runtime.available(); }
 
+void AndromedaWorkspaceBackend::setSlideChangeCallback(ChangeCallback callback) {
+  m_slideChangeCallback = std::move(callback);
+}
+
+std::optional<WorkspaceSlide> AndromedaWorkspaceBackend::workspaceSlide(const std::string& outputName) const {
+  const auto it = m_slides.find(outputName);
+  return it != m_slides.end() ? std::optional(it->second) : std::nullopt;
+}
+
 int AndromedaWorkspaceBackend::pollFd() const noexcept { return m_runtime.pollFd(); }
 
 short AndromedaWorkspaceBackend::pollEvents() const noexcept { return m_runtime.pollEvents(); }
@@ -219,10 +228,15 @@ void AndromedaWorkspaceBackend::handleStreamReset() {
   m_overviewKnown = false;
   m_overviewOpen = false;
   m_overviewGesture.reset();
+  const bool slid = !m_slides.empty();
+  m_slides.clear();
   notifyChanged();
   notifyWindowsChanged();
   if (overviewWasOpen) {
     notifyOverviewChanged();
+  }
+  if (slid && m_slideChangeCallback) {
+    m_slideChangeCallback();
   }
 }
 
@@ -320,6 +334,29 @@ void AndromedaWorkspaceBackend::handleEvent(std::string_view event, const nlohma
     m_overviewGesture = gesture;
     if (changed) {
       notifyOverviewChanged();
+    }
+    return;
+  }
+
+  if (event == "workspace_slide") {
+    const std::string output = jsonString(data, "output");
+    const std::string phase = jsonString(data, "phase");
+    if (output.empty()) {
+      return;
+    }
+    if (phase == "tracking" || phase == "settling") {
+      m_slides[output] = WorkspaceSlide{
+          .phase = phase == "tracking" ? WorkspaceSlide::Phase::Tracking : WorkspaceSlide::Phase::Settling,
+          .from = jsonString(data, "from"),
+          .to = jsonString(data, "to"),
+          .progress = data.value("progress", 0.0),
+          .timeMs = data.value("time_ms", 0.0),
+      };
+    } else if (m_slides.erase(output) == 0) {
+      return;
+    }
+    if (m_slideChangeCallback) {
+      m_slideChangeCallback();
     }
     return;
   }

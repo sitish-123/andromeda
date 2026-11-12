@@ -51,6 +51,18 @@ struct WorkspaceWindow {
   std::optional<WindowAppMenu> appMenu;
 };
 
+// A running workspace slide on one output (Andromeda IPC "workspace_slide"): the screen shows `progress` of the way
+// from workspace `from` to workspace `to` (ids as in Workspace::id).
+struct WorkspaceSlide {
+  enum class Phase : std::uint8_t { Tracking, Settling };
+  Phase phase = Phase::Settling;
+  std::string from;
+  std::string to;
+  double progress = 0.0;
+  double timeMs = 0.0; // the compositor's animation clock at the frame
+  bool operator==(const WorkspaceSlide&) const = default;
+};
+
 struct WorkspaceWindowAssignment {
   std::string windowId;
   std::string workspaceKey;
@@ -192,6 +204,13 @@ namespace compositors {
     [[nodiscard]] virtual bool isOverviewOpen() const noexcept { return true; }
     // The finger's progress while a swipe drives the overview, else nullopt.
     [[nodiscard]] virtual std::optional<float> overviewGestureProgress() const noexcept { return std::nullopt; }
+    // Overrides take ownership of the callback.
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
+    virtual void setSlideChangeCallback(ChangeCallback callback) { (void)callback; }
+    // The slide running on `outputName`, else nullopt.
+    [[nodiscard]] virtual std::optional<WorkspaceSlide> workspaceSlide(const std::string& /*outputName*/) const {
+      return std::nullopt;
+    }
     virtual void cleanup() = 0;
   };
 

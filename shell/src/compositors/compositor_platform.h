@@ -3,6 +3,7 @@
 #include "compositors/keyboard_backend.h"
 #include "compositors/workspace_backend.h"
 #include "compositors/shell_wayland_connection.h"
+#include "ui/signal.h"
 
 #include <array>
 #include <chrono>
@@ -209,6 +210,10 @@ public:
   [[nodiscard]] bool overviewStepsChromeAside() const noexcept;
   // The finger's progress (0 closed, 1 open) while a swipe drives the Andromeda overview: chrome follows it.
   [[nodiscard]] std::optional<float> overviewGestureProgress() const noexcept;
+  // The workspace slide running on `output` (Andromeda only); workspaceSlideChanged fires once per compositor frame
+  // while any output slides, and once when a slide ends.
+  [[nodiscard]] std::optional<WorkspaceSlide> workspaceSlide(wl_output* output) const;
+  [[nodiscard]] Signal<>& workspaceSlideChanged() noexcept { return m_workspaceSlideChanged; }
 
   [[nodiscard]] bool closeOverview() const;
   // Opens or closes the compositor overview; false when the compositor has no overview action.
@@ -250,6 +255,7 @@ private:
   std::unique_ptr<KeyboardLayoutBackend> m_keyboardLayoutBackend;
   ChangeCallback m_workspaceChangeCallback;
   ChangeCallback m_overviewChangeCallback;
+  Signal<> m_workspaceSlideChanged;
   ChangeCallback m_keyboardLayoutChangeCallback;
   ChangeCallback m_toplevelChangeCallback;
   std::function<void(bool active)> m_toplevelTitleCallback;

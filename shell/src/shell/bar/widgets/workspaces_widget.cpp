@@ -6,6 +6,7 @@
 #include "core/ui_phase.h"
 #include "render/animation/animation.h"
 #include "render/animation/animation_manager.h"
+#include "render/animation/motion_service.h"
 #include "render/core/renderer.h"
 #include "render/scene/input_area.h"
 #include "render/scene/node.h"
@@ -115,6 +116,9 @@ void WorkspacesWidget::create() {
   m_container = container.get();
   setRoot(std::move(container));
 
+  if (m_islandDots) {
+    m_slideConn = m_platform.workspaceSlideChanged().connect([this] { onWorkspaceSlide(); });
+  }
   if (showsActiveIcon()) {
     m_appIconColorizeConn = shellAppIconColorizationChanged().connect([this] {
       m_iconColorizeRefreshPending = true;
@@ -760,6 +764,9 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
   } else {
     finishAnimation();
   }
+  if (m_slideFollow.has_value()) {
+    applySlide();
+  }
 }
 
 void WorkspacesWidget::computeTargets() {
@@ -777,15 +784,17 @@ void WorkspacesWidget::computeTargets() {
   }
 }
 
-void WorkspacesWidget::updateItemFlowPositions() {
+void WorkspacesWidget::updateItemFlowPositions() { flowItems(m_items, m_gap); }
+
+void WorkspacesWidget::flowItems(std::vector<Item>& items, float gap) {
   // A gap precedes an item only in proportion to how visible both it and the items before it are, so
   // gaps grow and collapse with the pills they separate. precedingProgress is the accumulated (clamped)
   // visibility of earlier items: it keeps the first visible pill from getting a leading gap.
   float cursor = 0.0F;
   float precedingProgress = 0.0F;
-  for (auto& item : m_items) {
+  for (auto& item : items) {
     const float itemProgress = std::clamp(item.currentOpacity, 0.0F, 1.0F);
-    cursor += m_gap * std::min(precedingProgress, itemProgress);
+    cursor += gap * std::min(precedingProgress, itemProgress);
     item.currentX = cursor;
     cursor += item.currentWidth;
     precedingProgress = std::min(1.0F, precedingProgress + itemProgress);
@@ -998,8 +1007,117 @@ void WorkspacesWidget::retarget(Renderer& renderer) {
   }
   computeTargets();
   applyItemLayouts();
+  if (m_slideFollow.has_value()) {
+    applySlide();
+    return;
+  }
   startAnimation();
   syncLens(true);
+}
+
+void WorkspacesWidget::onWorkspaceSlide() {
+  std::optional<WorkspaceSlide> slide = m_platform.workspaceSlide(m_output);
+  // Reduced motion: the compositor crossfades and the capsule jumps and fades in on its own (rulebook 7.8).
+  if (!slide.has_value() || MotionService::instance().reduced() || !MotionService::instance().enabled()) {
+    endSlide();
+    return;
+  }
+  if (m_slideFollow.has_value()) {
+    m_slideFollow->slide = std::move(*slide);
+  } else {
+    const double timeMs = slide->timeMs;
+    m_slideFollow = SlideFollow{.slide = std::move(*slide), .lensStart = 0.0F, .velocity = 0.0F, .timeMs = timeMs};
+  }
+  applySlide();
+}
+
+WorkspacesWidget::LensSpan
+WorkspacesWidget::layoutSlide(std::vector<Item>& items, std::size_t from, std::size_t to, double progress, float gap) {
+  const auto layoutAt = [&items, gap](double position) {
+    for (std::size_t k = 0; k < items.size(); ++k) {
+      Item& item = items[k];
+      item.currentOpacity = item.targetOpacity;
+      if (item.targetOpacity <= 0.0F) {
+        item.currentWidth = 0.0F;
+        continue;
+      }
+      const double closeness = std::clamp(1.0 - std::abs(position - static_cast<double>(k)), 0.0, 1.0);
+      item.currentWidth = std::lerp(item.inactiveWidth, item.activeWidth, static_cast<float>(closeness));
+    }
+    flowItems(items, gap);
+  };
+  // The capsule keeps its rest size and travels from its rest place on `from` to its rest place on `to`; past the
+  // end (a spring's overshoot) it keeps going along the same line.
+  layoutAt(static_cast<double>(from));
+  const LensSpan source{.start = items[from].currentX, .end = items[from].currentX + items[from].currentWidth};
+  layoutAt(static_cast<double>(to));
+  const LensSpan target{.start = items[to].currentX, .end = items[to].currentX + items[to].currentWidth};
+  const auto f = static_cast<float>(progress);
+  layoutAt(static_cast<double>(from) + progress * (static_cast<double>(to) - static_cast<double>(from)));
+  return {.start = std::lerp(source.start, target.start, f), .end = std::lerp(source.end, target.end, f)};
+}
+
+void WorkspacesWidget::applySlide() {
+  SlideFollow& follow = *m_slideFollow;
+  const auto indexOf = [this](const std::string& id) -> std::optional<std::size_t> {
+    for (std::size_t i = 0; i < m_items.size(); ++i) {
+      if (!m_items[i].exiting && m_items[i].output == m_output && m_items[i].workspace.id == id) {
+        return i;
+      }
+    }
+    return std::nullopt;
+  };
+  const std::optional<std::size_t> from = indexOf(follow.slide.from);
+  const std::optional<std::size_t> to = indexOf(follow.slide.to);
+  if (!m_islandDots || isMinimal() || !from.has_value() || !to.has_value()) {
+    m_slideFollow.reset();
+    return;
+  }
+  cancelAnimation();
+  LensSpan span = layoutSlide(m_items, *from, *to, follow.slide.progress, m_gap);
+  // P1 stretch: the trailing edge lags by the trail spring's steady-state lag (2 zeta / omega) at the capsule's
+  // speed, at most one gap; the leading edge stays on the compositor's position.
+  const double dt = (follow.slide.timeMs - follow.timeMs) / 1000.0;
+  if (dt > 0.0) {
+    follow.velocity = static_cast<float>((span.start - follow.lensStart) / dt);
+  }
+  follow.lensStart = span.start;
+  follow.timeMs = follow.slide.timeMs;
+  const float trailLag = 2.0F * Tokens::springTrail.damping / std::sqrt(Tokens::springTrail.stiffness);
+  const float stretch = std::min(m_gap, std::abs(follow.velocity) * trailLag);
+  if (follow.velocity > 0.0F) {
+    span.start -= stretch;
+  } else {
+    span.end += stretch;
+  }
+  applyItemLayouts();
+  updateContainerSize();
+  m_lens.follow(span.start, span.end, 0.0F, m_indicatorHeight, m_indicatorHeight * 0.5F);
+  if (root() != nullptr) {
+    root()->markPaintDirty();
+  }
+  requestRedraw();
+}
+
+void WorkspacesWidget::endSlide() {
+  if (!m_slideFollow.has_value()) {
+    return;
+  }
+  m_slideFollow.reset();
+  computeTargets();
+  for (auto& item : m_items) {
+    item.currentWidth = item.targetWidth;
+    item.currentOpacity = item.targetOpacity;
+  }
+  updateItemFlowPositions();
+  applyItemLayouts();
+  updateContainerSize();
+  syncLens(false);
+  finishAnimation();
+  if (root() != nullptr) {
+    root()->markPaintDirty();
+  }
+  requestRedraw();
 }
 
 // The capsule leads toward the new workspace on snap and trails on trail (P1); the dots stay under it.

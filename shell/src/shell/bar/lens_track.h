@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/animation/animation_manager.h"
+#include "render/animation/motion_service.h"
 #include "render/scene/node.h"
 #include "ui/builders.h"
 #include "ui/controls/box.h"
@@ -75,6 +76,19 @@ public:
       apply();
       return;
     }
+    if (MotionService::instance().reduced()) {
+      // Rulebook 7.8: the lens jumps and its new place fades in.
+      cancel();
+      m_start = start;
+      m_end = end;
+      apply();
+      setOpacity(0.0F);
+      m_fadeId = m_animations->drive(
+          0, 0.0F, 1.0F, Style::spring(Tokens::springFade), [this](float v) { setOpacity(v); },
+          [this] { m_fadeId = 0; }, m_lens
+      );
+      return;
+    }
     const bool forward = end > m_end || start > m_start;
     const auto snap = Style::spring(Tokens::springSnap);
     const auto trail = Style::spring(Tokens::springTrail);
@@ -103,6 +117,25 @@ public:
     apply();
   }
 
+  // Puts the pane where an outside driver has it this frame (the compositor's workspace slide): no spring of its own.
+  void follow(float start, float end, float cross, float crossSize, float radius) {
+    if (m_lens == nullptr) {
+      return;
+    }
+    cancel();
+    m_shown = true;
+    m_cross = cross;
+    m_crossSize = crossSize;
+    m_radius = radius;
+    m_start = m_targetStart = start;
+    m_end = m_targetEnd = end;
+    apply();
+  }
+
+  // Main-axis edges as drawn now.
+  [[nodiscard]] float start() const noexcept { return m_start; }
+  [[nodiscard]] float end() const noexcept { return m_end; }
+
   void hide() {
     cancel();
     m_shown = false;
@@ -125,6 +158,16 @@ private:
       m_animations->cancel(m_endId);
       m_endId = 0;
     }
+    if (m_fadeId != 0) {
+      m_animations->cancel(m_fadeId);
+      m_fadeId = 0;
+      setOpacity(1.0F);
+    }
+  }
+
+  void setOpacity(float opacity) {
+    m_lens->setOpacity(opacity);
+    m_shadow->setOpacity(opacity);
   }
 
   void apply() {
@@ -160,4 +203,5 @@ private:
   float m_radius = 0.0F;
   AnimationManager::Id m_startId = 0;
   AnimationManager::Id m_endId = 0;
+  AnimationManager::Id m_fadeId = 0;
 };

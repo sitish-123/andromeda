@@ -236,6 +236,7 @@ CompositorPlatform::CompositorPlatform(ShellWaylandConnection& wayland)
   m_workspaceMetadataBackend = createWorkspaceMetadataBackend(*m_runtimeRegistry);
   if (m_workspaceMetadataBackend != nullptr) {
     m_workspaceMetadataBackend->setWindowChangeCallback([this] { notifyToplevelsChanged(); });
+    m_workspaceMetadataBackend->setSlideChangeCallback([this] { m_workspaceSlideChanged.emit(); });
   }
   if (auto focusedOutputBackend = createFocusedOutputBackend(*m_runtimeRegistry); focusedOutputBackend != nullptr) {
     m_focusedOutputBackends.push_back(std::move(focusedOutputBackend));
@@ -266,6 +267,7 @@ CompositorPlatform::~CompositorPlatform() {
     m_workspaceMetadataBackend->setChangeCallback({});
     m_workspaceMetadataBackend->setWindowChangeCallback({});
     m_workspaceMetadataBackend->setOverviewChangeCallback({});
+    m_workspaceMetadataBackend->setSlideChangeCallback({});
   }
   cleanup();
   m_wayland.setOutputLifecycleCallbacks({}, {});
@@ -1133,6 +1135,13 @@ std::optional<float> CompositorPlatform::overviewGestureProgress() const noexcep
     return std::nullopt;
   }
   return m_workspaceMetadataBackend->overviewGestureProgress();
+}
+
+std::optional<WorkspaceSlide> CompositorPlatform::workspaceSlide(wl_output* output) const {
+  if (m_workspaceMetadataBackend == nullptr || output == nullptr) {
+    return std::nullopt;
+  }
+  return m_workspaceMetadataBackend->workspaceSlide(connectorNameForOutput(output));
 }
 
 bool CompositorPlatform::toggleOverview() const {

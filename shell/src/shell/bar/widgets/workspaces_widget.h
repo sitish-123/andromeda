@@ -82,6 +82,10 @@ private:
   void cancelAnimation();
   void finishAnimation();
   void syncLens(bool animate);
+  // islandDots: the compositor's slide on this output drives the dots and the capsule frame by frame.
+  void onWorkspaceSlide();
+  void applySlide();
+  void endSlide();
   void applyItemLayout(Item& item);
   void applyItemLayouts();
   void snapshotItemsForRebuild();
@@ -155,6 +159,26 @@ private:
     float currentOpacity = 1.0F;
   };
 
+  // Main-axis capsule edges for a slide `progress` of the way from item `from` to item `to`: the capsule is that
+  // fraction of the way between its two rest places, and each dot widens by its closeness to the slide position, so
+  // dots and capsule share one driver and land on the compositor's frame.
+  struct LensSpan {
+    float start = 0.0F;
+    float end = 0.0F;
+  };
+  [[nodiscard]] static LensSpan
+  layoutSlide(std::vector<Item>& items, std::size_t from, std::size_t to, double progress, float gap);
+  static void flowItems(std::vector<Item>& items, float gap);
+
+  // The slide the capsule follows, with the capsule's last start edge, its speed (px/s) and the compositor time of
+  // the frame it was drawn for.
+  struct SlideFollow {
+    WorkspaceSlide slide;
+    float lensStart = 0.0F;
+    float velocity = 0.0F;
+    double timeMs = 0.0;
+  };
+
   struct ItemSnapshot {
     std::string key;
     Workspace workspace;
@@ -189,6 +213,9 @@ private:
   bool m_islandDots = false;
   AsyncTextureCache* m_asyncTextures = nullptr;
   LensTrack m_lens; // islandDots: the current-workspace capsule, travels per P1
+  // Set while the capsule follows the compositor's slide; empty while it travels on its own springs.
+  std::optional<SlideFollow> m_slideFollow;
+  Signal<>::ScopedConnection m_slideConn;
   bool m_changeColorOnHover = true;
   wl_output* m_lastFocusedOutput = nullptr;
   std::string m_cachedActiveWindowAppId;

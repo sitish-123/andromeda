@@ -38,6 +38,8 @@ public:
   [[nodiscard]] bool hasOverviewState() const noexcept override { return m_overviewKnown; }
   [[nodiscard]] bool isOverviewOpen() const noexcept override { return m_overviewOpen; }
   [[nodiscard]] std::optional<float> overviewGestureProgress() const noexcept override { return m_overviewGesture; }
+  void setSlideChangeCallback(ChangeCallback callback) override;
+  [[nodiscard]] std::optional<WorkspaceSlide> workspaceSlide(const std::string& outputName) const override;
   [[nodiscard]] int pollFd() const noexcept override;
   [[nodiscard]] short pollEvents() const noexcept override;
   [[nodiscard]] int pollTimeoutMs() const noexcept override;
@@ -86,6 +88,9 @@ private:
   bool m_overviewKnown = false;
   bool m_overviewOpen = false;
   std::optional<float> m_overviewGesture;
+  // Running slides by output name; an output leaves when its slide ends.
+  std::unordered_map<std::string, WorkspaceSlide> m_slides;
+  ChangeCallback m_slideChangeCallback;
   ChangeCallback m_changeCallback;
   ChangeCallback m_windowChangeCallback;
   ChangeCallback m_overviewChangeCallback;
