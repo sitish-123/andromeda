@@ -178,12 +178,16 @@ namespace andromeda {
 
   // -: input
 
-  bool Overview::handleButton(uint32_t button, bool pressed, double lx, double ly, uint32_t timeMsec) {
+  bool
+  Overview::handleButton(uint32_t button, bool pressed, double lx, double ly, uint32_t timeMsec, ov::HoldSource from) {
     if (pressed) {
       cancelNavigation();
     }
     if (!interactive()) {
       return true; // Swallow everything while zooming back in.
+    }
+    if (button == BTN_LEFT && !m_pointer.admits(from)) {
+      return true;
     }
 
     if (!pressed) {
@@ -205,6 +209,7 @@ namespace andromeda {
         return true;
       }
       if (m_closePress != nullptr) {
+        m_pointer.release();
         const View* pressed = std::exchange(m_closePress, nullptr);
         // Sliding off the button before letting go cancels, like any button.
         if (closeButtonAt(lx, ly) == pressed) {
@@ -260,8 +265,10 @@ namespace andromeda {
       return true;
     }
     if (windowMenuPress(lx, ly)) {
-      m_pointer.press(nullptr);
-      m_pressWorkspace = nullptr;
+      if (button == BTN_LEFT) {
+        m_pointer.press(from, nullptr);
+        m_pressWorkspace = nullptr;
+      }
       return true;
     }
     if (button == BTN_RIGHT) {
@@ -281,7 +288,7 @@ namespace andromeda {
       return true;
     }
     if (menuPress(lx, ly)) {
-      m_pointer.press(nullptr);
+      m_pointer.press(from, nullptr);
       m_pressWorkspace = nullptr;
       return true;
     }
@@ -300,7 +307,7 @@ namespace andromeda {
       if (workspace != nullptr) {
         group->select(workspace);
       }
-      m_pointer.press(nullptr);
+      m_pointer.press(from, nullptr);
       m_pressWorkspace = nullptr;
       return true;
     }
@@ -313,13 +320,13 @@ namespace andromeda {
       if (second) {
         startRename();
       }
-      m_pointer.press(nullptr);
+      m_pointer.press(from, nullptr);
       m_pressWorkspace = nullptr;
       return true;
     }
     if (const View* close = closeButtonAt(lx, ly)) {
       m_closePress = close;
-      m_pointer.press(nullptr);
+      m_pointer.press(from, nullptr);
       m_pressWorkspace = nullptr;
       return true;
     }
@@ -327,7 +334,9 @@ namespace andromeda {
     if (card != nullptr && cardInThumb(*card)) {
       card = nullptr;
     }
-    m_pointer.press(card);
+    if (!m_pointer.press(from, card)) {
+      return true;
+    }
     m_pressWorkspace = nullptr;
     m_pressX = lx;
     m_pressY = ly;
@@ -339,8 +348,8 @@ namespace andromeda {
     return true;
   }
 
-  void Overview::handleMotion(double lx, double ly, uint32_t timeMsec) {
-    if (!interactive()) {
+  void Overview::handleMotion(double lx, double ly, uint32_t timeMsec, ov::HoldSource from) {
+    if (!interactive() || !m_pointer.admits(from)) {
       return;
     }
     // The live target resolves through preferredOutput(), and the overview owns motion while it is up: repaint when
@@ -350,7 +359,7 @@ namespace andromeda {
       m_pointerOutput = output;
       applyProgress();
     }
-    if (m_middlePressed) {
+    if (m_middlePressed && from == ov::HoldSource::pointer()) {
       const WorkspaceGroup* group = m_middleOutput != nullptr ? m_middleOutput->workspaceGroup() : nullptr;
       const bool horizontal = group != nullptr && group->workspaceAxis() == WorkspaceAxis::Horizontal;
       if (!m_middleDragging) {
@@ -428,7 +437,10 @@ namespace andromeda {
     }
   }
 
-  void Overview::cancelDrag() {
+  void Overview::cancelDrag(std::optional<ov::HoldSource> from) {
+    if (from.has_value() && !held(*from)) {
+      return;
+    }
     if (dragCard() != nullptr) {
       endDrag(false);
     }

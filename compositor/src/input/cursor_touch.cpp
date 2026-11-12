@@ -66,7 +66,7 @@ namespace andromeda {
         overview != nullptr && overview->active() && !m_server->sessionLocked() && !overviewPassthroughLayer(layer)) {
       if (overview->interactive() && !m_overviewTouch) {
         m_overviewTouch = OverviewTouch{.touchId = event->touch_id, .lastX = lx, .lastY = ly};
-        overview->handleButton(BTN_LEFT, true, lx, ly, event->time_msec);
+        overview->handleButton(BTN_LEFT, true, lx, ly, event->time_msec, ov::HoldSource::touch(event->touch_id));
       }
       return;
     }
@@ -124,7 +124,9 @@ namespace andromeda {
       const OverviewTouch touch = *m_overviewTouch;
       m_overviewTouch.reset();
       if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
-        overview->handleButton(BTN_LEFT, false, touch.lastX, touch.lastY, event->time_msec);
+        overview->handleButton(
+            BTN_LEFT, false, touch.lastX, touch.lastY, event->time_msec, ov::HoldSource::touch(touch.touchId)
+        );
       }
       return;
     }
@@ -150,7 +152,9 @@ namespace andromeda {
           m_cursor, &event->touch->base, event->x, event->y, &m_overviewTouch->lastX, &m_overviewTouch->lastY
       );
       if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
-        overview->handleMotion(m_overviewTouch->lastX, m_overviewTouch->lastY, event->time_msec);
+        overview->handleMotion(
+            m_overviewTouch->lastX, m_overviewTouch->lastY, event->time_msec, ov::HoldSource::touch(event->touch_id)
+        );
       }
       return;
     }
@@ -193,9 +197,10 @@ namespace andromeda {
     (void)event;
     m_server->notifyIdleActivity();
     if (m_overviewTouch) {
+      const int32_t touchId = m_overviewTouch->touchId;
       m_overviewTouch.reset();
       if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
-        overview->cancelDrag();
+        overview->cancelDrag(ov::HoldSource::touch(touchId));
       }
     }
     if (m_trackerTouch && m_trackerTouch->drag.claimed) {

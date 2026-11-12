@@ -23,9 +23,7 @@ namespace andromeda {
     m_dragClaimY = m_dragY;
     m_dragSamples.clear();
     m_dropThumb = nullptr;
-    if (m_return.has_value() && m_return->view.get() == view) {
-      m_return.reset();
-    }
+    m_reflows.erase(view);
     m_dragSourceWorkspace = view->workspace();
     m_dragSourceColumn = -1;
     m_dragSourceRow = -1;
@@ -62,14 +60,25 @@ namespace andromeda {
       return static_cast<double>(timeMsec - sample.msec) > kReleaseWindowMs;
     });
     m_dragSamples.push_back({timeMsec, lx, ly});
-    m_dragScale = dragScaleAt(*card, lx, ly);
+    // Each event only moves the card at its current scale; the next frame tick rescales and lays it out once.
     placeDragCard(*card);
-    layoutCard(*card, liveTargetView());
+    wlr_scene_node_set_position(&card->tree->node, card->box.x, card->box.y);
+    m_dragLayoutDirty = true;
     retargetDrop(lx, ly);
     updateEdgeScroll(lx, ly);
   }
 
-  double Overview::dragScaleAt(const Card& card, double lx, double ly) const {
+  void Overview::layoutDragCard() {
+    Card* card = dragCard();
+    if (!std::exchange(m_dragLayoutDirty, false) || card == nullptr) {
+      return;
+    }
+    m_dragScale = dragScaleAt(m_dragX, m_dragY);
+    placeDragCard(*card);
+    layoutCard(*card, liveTargetView());
+  }
+
+  double Overview::dragScaleAt(double lx, double ly) const {
     const auto smoothstep = [](double x) {
       x = std::clamp(x, 0.0, 1.0);
       return x * x * (3.0 - 2.0 * x);
@@ -77,8 +86,11 @@ namespace andromeda {
     const double lift = kDragLiftShare * m_dragSlotScale;
     const double lifted =
         std::lerp(m_dragSlotScale, lift, smoothstep(std::hypot(lx - m_dragClaimX, ly - m_dragClaimY) / kDragThreshold));
-    // The thumb row of the card's output: its thumbs' vertical extent and the scale a window has inside one.
-    const OutputState* state = card.owner;
+    // The thumb row of the output under the pointer: its thumbs' vertical extent and the scale a window has inside one.
+    const auto under = std::ranges::find_if(m_outputs, [lx, ly](const auto& candidate) {
+      return boxContains(candidate->outputBox, lx, ly);
+    });
+    const OutputState* state = under != m_outputs.end() ? under->get() : nullptr;
     if (state == nullptr) {
       return lifted;
     }
@@ -353,29 +365,18 @@ namespace andromeda {
     rebuildCard(view);
     applyProgress();
     // A card the layout did not place (hidden, filtered out) has no path to travel.
-    if (m_return.has_value() && !m_return->started) {
-      m_return.reset();
-    }
+    m_return.reset();
   }
 
   void Overview::startDropReturn(View& view, const ov::Rect& from, const SpringConfig& spring, double vx, double vy) {
     const auto& animation = config().animation;
     const bool fade = config().appearance.reduceMotion;
+    m_reflows.erase(&view);
     if (!animation.enabled || (!fade && !animation.overview.enabled)) {
       m_return.reset();
       return;
     }
-    const SpringConfig fadeSpring{.damping = Tokens::springFade.damping, .stiffness = Tokens::springFade.stiffness};
-    m_return =
-        DropReturn{.view = &view, .from = from, .spring = fade ? fadeSpring : spring, .vx = vx, .vy = vy, .fade = fade};
-  }
-
-  float Overview::returnOpacity(const View* view) const {
-    if (!m_return.has_value() || !m_return->fade || !m_return->started || m_return->view.get() != view) {
-      return 1.0F;
-    }
-    // Out at the release point over the first half, in at the slot over the second.
-    return static_cast<float>(std::clamp(std::abs(1.0 - 2.0 * m_return->t.current()), 0.0, 1.0));
+    m_return = DropReturn{.view = &view, .from = from, .spring = spring, .vx = vx, .vy = vy, .fade = fade};
   }
 
   void Overview::restoreDragSlot(View& view) {
@@ -533,6 +534,7 @@ namespace andromeda {
     m_thumbDragging = false;
     m_pressThumb = false;
     m_pressWorkspace = nullptr;
+    m_pointer.release();
     hideDropHint();
     stopEdgeScroll();
     m_server->cursor()->overrideCursor(nullptr);

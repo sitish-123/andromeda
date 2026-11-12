@@ -454,7 +454,8 @@ namespace andromeda {
         structure.push_back(reinterpret_cast<uintptr_t>(group->workspaceAt(index)));
       }
     }
-    const bool reflowed = state.placed && structure != state.structure;
+    const bool reflowed = state.placed && (structure != state.structure || state.rowJumped);
+    state.rowJumped = false;
     state.structure.swap(structure);
     if (!state.placed || style != state.placedStyle || row != state.placedRow || input != state.placedInput) {
       state.placement = ov::placeAt(style, input, row);
@@ -504,6 +505,7 @@ namespace andromeda {
                static_cast<double>(box.y)},
           .kind = card.kind,
           .shown = true,
+          .opacity = workspace != nullptr ? reflowOpacity(workspace) : 1.0F,
       };
     }
     state.mainBox.reset();
@@ -531,7 +533,11 @@ namespace andromeda {
       const double z = view.fit.s;
       const wlr_box& full = view.box;
       const int backgroundRadius = static_cast<int>(std::lround(config().appearance.cornerRadius * z));
-      layoutWorkspaceBackground(background.fill, full, backgroundRadius, thumb ? thumbColor : backgroundColor);
+      const float alpha = (thumb ? thumbAlpha : static_cast<float>(m_progress)) * view.opacity;
+      layoutWorkspaceBackground(
+          background.fill, full, backgroundRadius,
+          view.opacity < 1.0F ? tint(workspaceFill, alpha) : (thumb ? thumbColor : backgroundColor)
+      );
       if (background.mirrors.empty()) {
         continue;
       }
@@ -540,11 +546,12 @@ namespace andromeda {
       for (const auto& mirror : background.mirrors) {
         wlr_box box{};
         const bool visible = desktopSourceBox(*mirror->source, box);
-        wlr_scene_node_set_enabled(&mirror->buffer->node, visible && (!thumb || thumbAlpha > 0.0F));
+        const float mirrorAlpha = (thumb ? thumbAlpha : 1.0F) * view.opacity;
+        wlr_scene_node_set_enabled(&mirror->buffer->node, visible && mirrorAlpha > 0.0F);
         if (!visible) {
           continue;
         }
-        wlr_scene_buffer_set_opacity(mirror->buffer, thumb ? thumbAlpha : 1.0F);
+        wlr_scene_buffer_set_opacity(mirror->buffer, mirrorAlpha);
         wlr_scene_node_set_position(
             &mirror->buffer->node, full.x + static_cast<int>(std::lround(box.x * z)),
             full.y + static_cast<int>(std::lround(box.y * z))
@@ -602,7 +609,8 @@ namespace andromeda {
       if (filter != card.filter.target()) {
         drive(card.filter, filter, filter > card.filter.current() ? Tokens::springFade : Tokens::springFadeOut);
       }
-      card.opacity = static_cast<float>(opacity * card.filter.current()) * returnOpacity(card.view);
+      card.opacity =
+          static_cast<float>(opacity * card.filter.current()) * (&card != dragCard() ? reflowOpacity(card.view) : 1.0F);
       card.clip = {};
       if (place->clip.has_value()) {
         const ov::Insets& cut = *place->clip;
@@ -752,58 +760,98 @@ namespace andromeda {
   }
 
   ov::Rect Overview::reflowRect(const void* key, const ov::Rect& target, bool began) {
+    const auto& animation = config().animation;
+    const bool reduced = config().appearance.reduceMotion;
+    const auto jumpFrom = [&target](const ov::Rect& last) {
+      return std::array<double, 4>{last.x - target.x, last.y - target.y, last.w - target.w, last.h - target.h};
+    };
+    const auto startFade = [this](const void* fadeKey, const ov::Rect& from) {
+      auto it = m_reflows.find(fadeKey);
+      Crossfade* fade = it != m_reflows.end() ? std::get_if<Crossfade>(&it->second) : nullptr;
+      if (fade == nullptr) {
+        fade = &m_reflows[fadeKey].emplace<Crossfade>();
+      }
+      // A card still fading out keeps fading where it was; one fading in leaves from where it is now drawn.
+      if (fade->phase == Crossfade::Phase::In) {
+        fade->from = from;
+        fade->phase = Crossfade::Phase::Out;
+      } else if (fade->opacity.current() >= 1.0) {
+        fade->from = from;
+      }
+      fade->opacity.steerSpring(0.0, motionSpring(Tokens::springFadeOut));
+      scheduleFrames();
+    };
     if (m_return.has_value() && m_return->view.get() == key) {
-      DropReturn& back = *m_return;
-      if (!back.started) {
-        // The release velocity, projected onto the path to the target, in path lengths per second.
-        const double dx = target.x + target.w / 2 - (back.from.x + back.from.w / 2);
-        const double dy = target.y + target.h / 2 - (back.from.y + back.from.h / 2);
-        const double length2 = dx * dx + dy * dy;
-        const double velocity = length2 > 1.0 ? (back.vx * dx + back.vy * dy) / length2 : 0.0;
-        back.t.snap(0.0);
-        back.t.settleSpring(1.0, back.spring, velocity);
-        back.started = true;
+      const DropReturn back = *m_return;
+      m_return.reset();
+      if (back.fade) {
+        m_reflows.erase(key);
+        startFade(key, back.from);
+      } else {
+        // The release rect is the glide's start, the release velocity its speed.
+        Glide& glide = m_reflows[key].emplace<Glide>();
+        glide.spring = back.spring;
+        const std::array<double, 4> jump = jumpFrom(back.from);
+        const std::array<double, 4> velocity{back.vx, back.vy, 0.0, 0.0};
+        for (size_t i = 0; i < jump.size(); ++i) {
+          glide.offset[i].snap(jump[i]);
+          glide.offset[i].settleSpring(0.0, glide.spring, velocity[i]);
+        }
         scheduleFrames();
       }
-      m_reflowOffsets.erase(key);
-      const double t = back.t.current();
-      const ov::Rect shown = back.fade ? (t < 0.5 ? back.from : target) : ov::lerpRect(back.from, target, t);
-      m_shownRects[key] = shown;
-      return shown;
-    }
-    const auto& animation = config().animation;
-    const bool glides = m_active && animation.enabled && animation.overview.enabled && !config().appearance.reduceMotion;
-    if (began && glides) {
-      // Only a rect that jumped glides; one following its window's own layout spring is already smooth.
+    } else if (began && m_active && animation.enabled && (reduced || animation.overview.enabled)) {
+      // Only a rect that jumped moves; one following its window's own layout spring is already smooth.
       if (const auto shown = m_shownRects.find(key); shown != m_shownRects.end()) {
-        const ov::Rect& last = shown->second;
-        const std::array<double, 4> jump{last.x - target.x, last.y - target.y, last.w - target.w, last.h - target.h};
+        const std::array<double, 4> jump = jumpFrom(shown->second);
         if (std::ranges::any_of(jump, [](double d) { return std::abs(d) > 0.5; })) {
-          auto [it, fresh] = m_reflowOffsets.try_emplace(key);
-          for (size_t i = 0; i < jump.size(); ++i) {
-            // Keep the speed a running glide has; its offset now measures from the new place.
-            const double velocity = fresh ? 0.0 : it->second[i].velocity();
-            it->second[i].snap(jump[i]);
-            if (animation.overview.workspaceCurve.easing == Easing::Spring) {
-              it->second[i].settleSpring(0.0, motionSpring(Tokens::springMove), velocity);
-              if (!fresh && m_lastTickMsec > 0.0) {
-                it->second[i].startClockAt(m_lastTickMsec);
-              }
-            } else {
-              it->second[i].retarget(0.0, animation.overview.durationMs, animation.overview.workspaceCurve);
+          if (reduced) {
+            startFade(key, shown->second);
+          } else {
+            auto it = m_reflows.find(key);
+            Glide* glide = it != m_reflows.end() ? std::get_if<Glide>(&it->second) : nullptr;
+            const bool fresh = glide == nullptr;
+            if (fresh) {
+              glide = &m_reflows[key].emplace<Glide>();
+              glide->spring = motionSpring(Tokens::springMove);
             }
+            for (size_t i = 0; i < jump.size(); ++i) {
+              // Keep the speed and the spring a running glide has; its offset now measures from the new place.
+              AnimatedValue& offset = glide->offset[i];
+              const double velocity = fresh ? 0.0 : offset.velocity();
+              offset.snap(jump[i]);
+              if (animation.overview.workspaceCurve.easing == Easing::Spring) {
+                offset.settleSpring(0.0, glide->spring, velocity);
+                if (!fresh && m_lastTickMsec > 0.0) {
+                  offset.startClockAt(m_lastTickMsec);
+                }
+              } else {
+                offset.retarget(0.0, animation.overview.durationMs, animation.overview.workspaceCurve);
+              }
+            }
+            scheduleFrames();
           }
-          scheduleFrames();
         }
       }
     }
     ov::Rect shown = target;
-    if (const auto offset = m_reflowOffsets.find(key); offset != m_reflowOffsets.end()) {
-      const auto& o = offset->second;
-      shown = {target.x + o[0].current(), target.y + o[1].current(), target.w + o[2].current(), target.h + o[3].current()};
+    if (const auto motion = m_reflows.find(key); motion != m_reflows.end()) {
+      if (const auto* glide = std::get_if<Glide>(&motion->second)) {
+        const auto& o = glide->offset;
+        shown = {
+            target.x + o[0].current(), target.y + o[1].current(), target.w + o[2].current(), target.h + o[3].current()
+        };
+      } else if (const auto& fade = std::get<Crossfade>(motion->second); fade.phase == Crossfade::Phase::Out) {
+        shown = fade.from;
+      }
     }
     m_shownRects[key] = shown;
     return shown;
+  }
+
+  float Overview::reflowOpacity(const void* key) const {
+    const auto motion = m_reflows.find(key);
+    const auto* fade = motion != m_reflows.end() ? std::get_if<Crossfade>(&motion->second) : nullptr;
+    return fade != nullptr ? static_cast<float>(std::clamp(fade->opacity.current(), 0.0, 1.0)) : 1.0F;
   }
 
   void Overview::applyPinnedOpacity(float alpha) const {
@@ -1200,6 +1248,22 @@ namespace andromeda {
       applyProgress();
       return;
     }
+    if (config().appearance.reduceMotion) {
+      // Reduced motion (rulebook 7.8): a gesture release settles on `close` without the fingers' speed; any other
+      // move jumps the row, and what it moved crossfades from its old place.
+      if (releaseVelocity != 0.0) {
+        state.rowScroll.settleSpring(target, motionSpring(Tokens::springClose));
+        scheduleFrames();
+        return;
+      }
+      state.rowScroll.snap(target);
+      state.rowJumped = true;
+      applyProgress();
+      if (dragCard() != nullptr) {
+        retargetDrop(m_dragX, m_dragY);
+      }
+      return;
+    }
     if (overview.workspaceCurve.easing == Easing::Spring && releaseVelocity != 0.0) {
       state.rowScroll.settleSpring(target, overview.workspaceCurve.spring, releaseVelocity);
     } else if (overview.workspaceCurve.easing == Easing::Spring) {
@@ -1245,6 +1309,7 @@ namespace andromeda {
     bool active = m_dropHint != nullptr && m_dropHint->tickAnimations(nowMsec);
     active = tickEdgePan(nowMsec) || active;
     m_lastTickMsec = nowMsec;
+    layoutDragCard();
     const bool zoomTicked = m_zoomAnim.tick(nowMsec);
     if (zoomTicked && m_zoomAnim.animating() && m_zoomAnim.curve().easing == Easing::Spring) {
       static_cast<void>(m_zoomAnim.finishSpringTail(motionPixelsPerUnit(false)));
@@ -1255,21 +1320,6 @@ namespace andromeda {
     if (m_active) {
       updateAppear();
     }
-    bool rowTicked = false;
-    for (auto it = m_reflowOffsets.begin(); it != m_reflowOffsets.end();) {
-      bool running = false;
-      for (AnimatedValue& offset : it->second) {
-        if (offset.tick(nowMsec)) {
-          rowTicked = true;
-          if (offset.animating() && offset.curve().easing == Easing::Spring) {
-            static_cast<void>(offset.finishSpringTail(1.0));
-          }
-        }
-        running = running || offset.animating();
-      }
-      it = running ? std::next(it) : m_reflowOffsets.erase(it);
-    }
-    active = active || !m_reflowOffsets.empty();
     // An opacity ends within one 8-bit level; a scale within a pixel of the largest card, an output.
     constexpr double kOpacityLevels = 255.0;
     const auto tickTail = [nowMsec](AnimatedValue& value, double pixelsPerUnit) {
@@ -1279,6 +1329,33 @@ namespace andromeda {
       }
       return ticked;
     };
+    bool rowTicked = false;
+    for (auto it = m_reflows.begin(); it != m_reflows.end();) {
+      bool running = false;
+      if (auto* glide = std::get_if<Glide>(&it->second)) {
+        for (AnimatedValue& offset : glide->offset) {
+          if (offset.tick(nowMsec)) {
+            rowTicked = true;
+            if (offset.animating() && offset.curve().easing == Easing::Spring) {
+              static_cast<void>(offset.finishSpringTail(1.0));
+            }
+          }
+          running = running || offset.animating();
+        }
+      } else {
+        auto& fade = std::get<Crossfade>(it->second);
+        rowTicked = tickTail(fade.opacity, kOpacityLevels) || rowTicked;
+        if (!fade.opacity.animating() && fade.phase == Crossfade::Phase::Out) {
+          // Out where it was, then in at its place.
+          fade.phase = Crossfade::Phase::In;
+          fade.opacity.steerSpring(1.0, motionSpring(Tokens::springFade));
+          rowTicked = true;
+        }
+        running = fade.opacity.animating();
+      }
+      it = running ? std::next(it) : m_reflows.erase(it);
+    }
+    active = active || !m_reflows.empty();
     bool appearTicked = tickTail(m_appearOpacity, kOpacityLevels);
     appearTicked = tickTail(m_appearScale, motionPixelsPerUnit(true)) || appearTicked;
     for (const auto& state : m_outputs) {
@@ -1288,13 +1365,6 @@ namespace andromeda {
       }
     }
     active = active || m_appearOpacity.animating() || m_appearScale.animating();
-    if (m_return.has_value() && m_return->started) {
-      rowTicked = m_return->t.tick(nowMsec) || rowTicked;
-      if (!m_return->t.animating()) {
-        m_return.reset();
-      }
-    }
-    active = active || m_return.has_value();
     for (const auto& state : m_outputs) {
       const bool ticked = state->rowScroll.tick(nowMsec);
       if (ticked && state->rowScroll.animating() && state->rowScroll.curve().easing == Easing::Spring) {
@@ -1344,7 +1414,7 @@ namespace andromeda {
 
   bool Overview::hasActiveAnimations() const {
     return m_zoomAnim.animating()
-        || !m_reflowOffsets.empty()
+        || !m_reflows.empty()
         || m_appearOpacity.animating()
         || m_appearScale.animating()
         || std::ranges::any_of(
@@ -1353,7 +1423,6 @@ namespace andromeda {
                  return std::ranges::any_of(state->cards, [](const auto& card) { return card->filter.animating(); });
                }
         )
-        || m_return.has_value()
         || std::ranges::any_of(m_outputs, [](const auto& state) { return state->rowScroll.animating(); })
         || (m_dropHint != nullptr && m_dropHint->hasActiveAnimations());
   }
@@ -1414,7 +1483,7 @@ namespace andromeda {
     m_server->cursor()->resetWheelAccumulation();
     m_return.reset();
     m_shownRects.clear();
-    m_reflowOffsets.clear();
+    m_reflows.clear();
     cancelNavigation();
     clearMiddlePress();
     hideDropHint();

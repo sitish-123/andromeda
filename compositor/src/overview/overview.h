@@ -22,6 +22,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 #include <wayland-server-core.h>
 
@@ -127,10 +128,15 @@ namespace andromeda {
     void onDesktopLayerChanged(Output* output);
 
     // Input entry points; called from Cursor/Keyboard while active.
-    bool handleButton(uint32_t button, bool pressed, double lx, double ly, uint32_t timeMsec);
-    void handleMotion(double lx, double ly, uint32_t timeMsec);
-    // Ends a held card or thumb without a drop: the card returns to its slot (Escape, touch cancel).
-    void cancelDrag();
+    // `from` is the device: a touch point acts as the left button. The device that pressed owns the hold until its
+    // release; the other devices' left presses, releases and motion are ignored meanwhile.
+    bool handleButton(uint32_t button, bool pressed, double lx, double ly, uint32_t timeMsec, ov::HoldSource from);
+    void handleMotion(double lx, double ly, uint32_t timeMsec, ov::HoldSource from);
+    // Ends a held card or thumb without a drop: the card returns to its slot (Escape, touch cancel). With `from`, only
+    // a hold that device owns.
+    void cancelDrag(std::optional<ov::HoldSource> from = std::nullopt);
+    // Whether `from` holds the left button in the overview, so its release belongs here.
+    [[nodiscard]] bool held(ov::HoldSource from) const { return m_pointer.owner() == from; }
     bool handleAxisNotch(bool vertical, double direction, double lx, double ly);
     // Swipe and finger-scroll input both arrive as content-direction deltas and share one navigation lifetime; the
     // source only selects the travel distances and decides who may end the gesture. Scroll samples are combined at
@@ -273,6 +279,7 @@ namespace andromeda {
       ov::Fit fit{};
       ov::CardKind kind = ov::CardKind::Frame;
       bool shown = false;
+      float opacity = 1.0F; // a reflow crossfade's factor
     };
 
     struct OutputState {
@@ -317,6 +324,8 @@ namespace andromeda {
       // its rows by it, Spaces and Task View morph between neighbours. Wheel steps, keyboard moves and touchpad
       // releases all animate this one value; a gesture in flight snaps it to follow the fingers.
       AnimatedValue rowScroll;
+      // A reduced-motion row move snapped rowScroll: the next layout crossfades what it moved.
+      bool rowJumped = false;
       size_t activeWorkspaceIndex = 0;
     };
 
@@ -477,7 +486,9 @@ namespace andromeda {
     void updateDrag(double lx, double ly, uint32_t timeMsec);
     // The dragged card's scale at pointer (lx, ly): lifted off its slot, then pulled toward the thumb size as the
     // pointer nears the thumb row (.agent/TASK-overview.md "Drag spec").
-    [[nodiscard]] double dragScaleAt(const Card& card, double lx, double ly) const;
+    [[nodiscard]] double dragScaleAt(double lx, double ly) const;
+    // The frame tick's drag work: rescales and lays out the dragged card once for the motion since the last frame.
+    void layoutDragCard();
     // Places the dragged card at its scale with the grab point under (m_dragX, m_dragY).
     void placeDragCard(Card& card);
     // The workspace whose thumb in the Spaces or Task View row is under the point, and that thumb's box.
@@ -549,18 +560,30 @@ namespace andromeda {
     std::vector<std::string> m_chromeNames; // owns the names m_chromeWorkspaces views
     std::vector<ov::ChromeWindow> m_chromeWindows;
     std::unique_ptr<ov::AppIcons> m_appIcons;
-    // Reflow: a card or workspace card whose placed rect jumped in a structural change glides on `move` from where it
-    // was drawn; an offset from its new place springs to zero, so a second jump keeps its speed. Keys are View and
-    // Workspace pointers, rects are layout coordinates before the open progress, so a card rebuilt or dropped on
-    // another output still glides.
+    // Reflow: a card or workspace card whose placed rect jumped in a structural change (or a reduced-motion row jump)
+    // glides from where it was drawn: an offset from its new place springs to zero on the glide's own spring, so a
+    // second jump keeps its speed. Under reduced motion it crossfades instead (rulebook 7.8): out where it was on
+    // `fade_out`, then in at its place on `fade`. Keys are View and Workspace pointers, rects are layout coordinates
+    // before the open progress, so a card rebuilt or dropped on another output still moves.
+    struct Glide {
+      std::array<AnimatedValue, 4> offset; // x, y, w, h minus the target's
+      SpringConfig spring;
+    };
+    struct Crossfade {
+      enum class Phase : uint8_t { Out, In };
+      ov::Rect from;
+      Phase phase = Phase::Out;
+      AnimatedValue opacity{1.0};
+    };
     std::unordered_map<const void*, ov::Rect> m_shownRects;
-    std::unordered_map<const void*, std::array<AnimatedValue, 4>> m_reflowOffsets;
+    std::unordered_map<const void*, std::variant<Glide, Crossfade>> m_reflows;
     ov::Rect reflowRect(const void* key, const ov::Rect& target, bool began);
+    // Opacity factor a crossfade puts on `key`'s card: 1 unless it is fading.
+    [[nodiscard]] float reflowOpacity(const void* key) const;
     // Steers `value` to `to` on the rulebook `spring`; instant with animations off.
     static void drive(AnimatedValue& value, double to, const Tokens::Spring& spring);
-    // A released card on its own spring, outside the shared reflow: it travels from its release rect, or under reduced
-    // motion fades out there and in at its place. The spring starts at the first layout that knows the target, so the
-    // release velocity projects onto the real path.
+    // A released card waiting for the first layout that knows its slot. That layout turns it into the card's reflow:
+    // a glide from the release rect on `spring` with the release velocity, or a crossfade under reduced motion.
     struct DropReturn {
       Ref<View> view;
       ov::Rect from;
@@ -568,12 +591,8 @@ namespace andromeda {
       double vx = 0; // release velocity, layout px/s
       double vy = 0;
       bool fade = false;
-      bool started = false;
-      AnimatedValue t{0.0};
     };
     std::optional<DropReturn> m_return;
-    // Opacity factor the return puts on `view`'s card: 1 unless it is fading.
-    [[nodiscard]] float returnOpacity(const View* view) const;
     Ref<View> m_pendingFocus;
     bool m_cardPresentationDirty = false;
     // Touchpads report faster than the display: the gesture's IPC overview event goes out once per frame.
@@ -630,6 +649,7 @@ namespace andromeda {
     double m_dragGrabY = 0;
     double m_dragSlotScale = 1.0; // card scale in its slot when the drag claimed it
     double m_dragScale = 1.0;
+    bool m_dragLayoutDirty = false; // the drag moved since the last frame tick
     double m_dragClaimX = 0; // pointer at the claim
     double m_dragClaimY = 0;
     struct DragSample {
