@@ -14,3 +14,6 @@ service = "andromeda-greeter"
 [default_session]
 command = "/usr/lib/andromeda/andromeda-greeter-session"
 user = "greeter"
+# The greeter user's own session needs no pam_gnome_keyring: under general.service it starts a keyring daemon for
+# a user without a home and logs "couldn't unlock the login keyring".
+service = "greetd"
