@@ -1205,6 +1205,7 @@ if build_tests
     'island_queue',
     'island_morph',
     'island_lane_layout',
+    'island_banner_swipe',
     'osd_reveal',
     'input_area',
     'input_bidi',

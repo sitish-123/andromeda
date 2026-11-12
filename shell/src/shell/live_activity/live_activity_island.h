@@ -6,6 +6,7 @@
 #include "render/scene/input_dispatcher.h"
 #include "notification/notification.h"
 #include "shell/bar/center_island_space.h"
+#include "shell/live_activity/island_banner_swipe.h"
 #include "shell/live_activity/island_morph_driver.h"
 #include "shell/live_activity/island_queue.h"
 #include "system/icon_resolver.h"
@@ -233,6 +234,8 @@ private:
     Label* bannerBody = nullptr;
     Node* bannerActionRow = nullptr;
     std::array<Button*, 3> bannerActions{};
+    Button* bannerClose = nullptr; // shown while the pointer is over the banner
+    bool bannerHover = false;
     std::string artUrl;
     std::string hoverArtUrl;
     MorphDriver morph{Face::Rest};
@@ -241,10 +244,15 @@ private:
     Timer collapse;
     float reveal = 1.0F; // 0..1 from `from` to `to`
     float osdProgress = 0.0F;
-    float dragOffset = 0.0F; // banner swipe: surface translate, px (negative = up)
+    float dragOffset = 0.0F; // banner swipe: surface translate along dragAxis, logical px (negative = up)
+    BannerSwipeAxis dragAxis = BannerSwipeAxis::Undecided;
+    float dragStartX = 0.0F; // pointer press, logical px; a scroll travels from 0
     float dragStartY = 0.0F;
-    float dragLastY = 0.0F;
-    float dragVelocity = 0.0F; // px/ms
+    float dragTravelX = 0.0F; // scroll travel since the first scroll event
+    float dragTravelY = 0.0F;
+    float dragLastTravel = 0.0F; // along dragAxis, at dragLastAt
+    float dragVelocity = 0.0F;   // px/ms along dragAxis
+    Timer scrollEnd;             // the scroll drag releases when its events stop
     std::chrono::steady_clock::time_point dragLastAt;
     desk::motion::Spring dragSpring;
     Timer dragTimer;
@@ -292,14 +300,19 @@ private:
   void applyContent(Instance& inst);
   void applyReveal(Instance& inst, float reveal);
   void animateReveal(Instance& inst, Face face, float velocity);
-  void bannerDragStart(Instance& inst, float y);
-  void bannerDragMove(Instance& inst, float y);
+  void bannerDragStart(Instance& inst, float x, float y);
+  void bannerDragMove(Instance& inst, float x, float y);
+  void bannerDragTravel(Instance& inst, float dx, float dy);
   void bannerDragEnd(Instance& inst);
+  [[nodiscard]] bool bannerScroll(Instance& inst, const InputArea::PointerData& d);
+  void setBannerHover(Instance& inst, bool hover);
+  void closeBanner();
   void startBannerSpring(Instance& inst, bool dismiss);
   [[nodiscard]] bool bannerDragStale(const Instance& inst) const;
   void finishBannerDrag(Instance& inst, bool dismiss);
   void applyBannerOffset(Instance& inst, float offset);
-  [[nodiscard]] float bannerMinOffset(const Instance& inst) const;
+  // The signed dismissal end of dragAxis, logical px: up leaves one row on the output, right one column.
+  [[nodiscard]] float bannerLimit(const Instance& inst) const;
   void updateFace(Instance& inst);
   void applyLayer(Instance& inst);
   void updateAllFaces();
@@ -391,6 +404,8 @@ private:
   float m_barsPhase = 0.0F;
   Timer m_osdTimer;
   Timer m_bannerTimer;
+  // The banner whose timeout a hover paused; it restarts in full when the pointer leaves.
+  std::optional<std::uint32_t> m_bannerPausedFor;
   Queue m_queue;
   // Read-only views: only m_queue changes the OSD and the banners.
   const std::optional<OsdContent>& m_osd = m_queue.osd();

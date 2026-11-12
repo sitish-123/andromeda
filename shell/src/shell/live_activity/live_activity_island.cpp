@@ -131,6 +131,12 @@ namespace {
   constexpr float kHoverButton = 32.0F;
   constexpr float kHoverGap = 12.0F;
   constexpr float kHoverButtonGap = 8.0F;
+  constexpr float kCloseInset = 8.0F; // banner close button to the card's top and trailing edges
+  constexpr auto kScrollEnd = std::chrono::milliseconds(60);
+  // wl_pointer axis_source.finger and axis.horizontal_scroll. Not from wayland-client-protocol.h: its math.h puts
+  // std::lerp in the global namespace, which clashes with lerp below.
+  constexpr std::uint32_t kAxisSourceFinger = 1;
+  constexpr std::uint32_t kAxisHorizontal = 1;
   // Art, three buttons, their gaps and the padding: what the media face needs besides its text.
   float hoverFixed() { return 2.0F * kBannerPad + kHoverArt + 2.0F * kHoverGap + 3.0F * kHoverButton + 2.0F * kHoverButtonGap; }
   constexpr float kIdleTextMax = 220.0F;
@@ -1600,6 +1606,21 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
   inst.bannerTime->setLineHeight(Tokens::typeCaption.line);
   inst.bannerTitle->setLineHeight(Tokens::typeHeadline.line);
   inst.bannerBody->setLineHeight(Tokens::typeFootnote.line);
+  // The close button covers the time in the top trailing corner while the pointer is over the banner.
+  banner->addChild(ui::button({
+      .out = &inst.bannerClose,
+      .glyph = "close",
+      .glyphSize = Tokens::sizeSymbolInline,
+      .controlHeight = Tokens::sizeControlS,
+      .radius = Tokens::sizeControlS * 0.5F,
+      .width = Tokens::sizeControlS,
+      .height = Tokens::sizeControlS,
+      .visible = false,
+      .participatesInLayout = false,
+      .onClick = [this] { closeBanner(); },
+  }));
+  inst.bannerClose->setCustomPalette(livePalette(false));
+  inst.bannerClose->setOnEnter([this, instPtr] { setBannerHover(*instPtr, true); });
   inst.faceNode[static_cast<std::size_t>(Face::Banner)] = banner.get();
   tint->addChild(std::move(banner));
 
@@ -1607,13 +1628,21 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
   // The stroke lies over every face; it must not take the hits meant for the face buttons.
   ring->setHitTestVisible(false);
   auto restArea = ui::inputArea({
-      .onEnter = [this, instPtr](const InputArea::PointerData&) { hoverEnter(*instPtr); },
-      .onLeave = [this, instPtr] { hoverLeave(*instPtr); },
-      .onMotion = [this, instPtr](const InputArea::PointerData& d) { bannerDragMove(*instPtr, d.localY); },
+      .onEnter =
+          [this, instPtr](const InputArea::PointerData&) {
+            hoverEnter(*instPtr);
+            setBannerHover(*instPtr, true);
+          },
+      .onLeave =
+          [this, instPtr] {
+            hoverLeave(*instPtr);
+            setBannerHover(*instPtr, false);
+          },
+      .onMotion = [this, instPtr](const InputArea::PointerData& d) { bannerDragMove(*instPtr, d.sceneX, d.sceneY); },
       .onPress =
           [this, instPtr](const InputArea::PointerData& d) {
             if (d.button == BTN_LEFT) {
-              d.pressed ? bannerDragStart(*instPtr, d.localY) : bannerDragEnd(*instPtr);
+              d.pressed ? bannerDragStart(*instPtr, d.sceneX, d.sceneY) : bannerDragEnd(*instPtr);
             }
           },
       .onClick =
@@ -1657,6 +1686,7 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
               m_open(instPtr->output, fromBanner ? "detail-notifications" : "calendar", laneSheetSource(*instPtr));
             }
           },
+      .onAxisHandler = [this, instPtr](const InputArea::PointerData& d) { return bannerScroll(*instPtr, d); },
   });
   inst.restArea = restArea.get();
 
@@ -2068,6 +2098,11 @@ void LiveActivityIsland::applyContent(Instance& inst) {
     inst.faceNode[i]->setSize(r.w, r.h);
     inst.faceNode[i]->layout(renderer);
   }
+  // Out of the banner's flex layout: laid out here, in the top trailing corner of the card.
+  inst.bannerClose->layout(renderer);
+  inst.bannerClose->setPosition(
+      inst.faceNode[static_cast<std::size_t>(Face::Banner)]->width() - Tokens::sizeControlS - kCloseInset, kCloseInset
+  );
   inst.to = faceRect(inst, inst.morph.shown());
   if (inst.reveal >= 1.0F) {
     inst.from = inst.to;
@@ -2272,8 +2307,8 @@ void LiveActivityIsland::animateReveal(Instance& inst, Face face, float velocity
   inst.surface->requestRedraw();
 }
 
-// Banner swipe: the island follows the pointer upward 1:1 and downward at 0.3; a release past 40 % of the card or a fast
-// upward flick dismisses it on the collapse spring with the release velocity, anything else springs back.
+// Banner swipe (island_banner_swipe.h): up or right, by pointer or two-finger scroll. An up dismissal settles on the
+// collapse spring, a sideways one on page, both with the release velocity; anything else springs back.
 std::unique_ptr<Node> LiveActivityIsland::bannerActionRow(Instance& inst) {
   auto row = ui::row({.align = FlexAlign::Center, .gap = kActionGap});
   for (std::size_t i = 0; i < inst.bannerActions.size(); ++i) {
@@ -2312,7 +2347,7 @@ void LiveActivityIsland::bannerAction(Instance& inst, std::size_t index) {
   }
 }
 
-void LiveActivityIsland::bannerDragStart(Instance& inst, float y) {
+void LiveActivityIsland::bannerDragStart(Instance& inst, float x, float y) {
   if (inst.morph.shown() != Face::Banner || inst.dsk == nullptr || !MotionService::instance().enabled()) {
     return;
   }
@@ -2320,23 +2355,47 @@ void LiveActivityIsland::bannerDragStart(Instance& inst, float y) {
     return;
   }
   inst.dragTimer.stop();
+  inst.scrollEnd.stop();
   inst.dragBannerId = m_banner->id;
   inst.dragging = true;
   inst.dragMoved = false;
+  inst.dragAxis = BannerSwipeAxis::Undecided;
+  inst.dragStartX = x;
   inst.dragStartY = y;
-  inst.dragLastY = inst.dragStartY;
+  inst.dragTravelX = 0.0F;
+  inst.dragTravelY = 0.0F;
+  inst.dragLastTravel = 0.0F;
   inst.dragLastAt = std::chrono::steady_clock::now();
   inst.dragVelocity = 0.0F;
 }
 
-float LiveActivityIsland::bannerMinOffset(const Instance& inst) const {
+float LiveActivityIsland::bannerLimit(const Instance& inst) const {
   const Rect banner = faceRect(inst, Face::Banner);
-  return -(banner.y + banner.h - 1.0F);
+  if (inst.dragAxis != BannerSwipeAxis::Horizontal) {
+    return -(banner.y + banner.h - 1.0F) * inst.scale;
+  }
+  const auto output = std::ranges::find_if(m_wayland->outputs(), [&inst](const auto& o) { return o.output == inst.output; });
+  if (output == m_wayland->outputs().end()) {
+    return banner.w * inst.scale;
+  }
+  // The surface's left edge on the output, from its anchor (islandAnchor) and margins (surfaceMargins).
+  const auto outputW = static_cast<float>(output->logicalWidth);
+  const float surfaceW = std::ceil(surfaceWidth(inst) * inst.scale);
+  const std::uint32_t anchor = islandAnchor(inst.space);
+  const auto margins = surfaceMargins(inst.space);
+  const float left = (anchor & LayerShellAnchor::Left) != 0 ? static_cast<float>(margins[3])
+      : (anchor & LayerShellAnchor::Right) != 0           ? outputW - surfaceW - static_cast<float>(margins[1])
+                                                          : (outputW - surfaceW) * 0.5F;
+  return outputW - left - banner.x * inst.scale - 1.0F;
 }
 
 void LiveActivityIsland::applyBannerOffset(Instance& inst, float offset) {
   inst.dragOffset = offset;
-  inst.dsk->set(DskSurfaceClient::Property::Translate, {0.0, static_cast<double>(offset), 0.0, 0.0});
+  const bool horizontal = inst.dragAxis == BannerSwipeAxis::Horizontal;
+  inst.dsk->set(
+      DskSurfaceClient::Property::Translate,
+      {horizontal ? static_cast<double>(offset) : 0.0, horizontal ? 0.0 : static_cast<double>(offset), 0.0, 0.0}
+  );
   inst.surface->requestRedraw();
 }
 
@@ -2344,7 +2403,12 @@ bool LiveActivityIsland::bannerDragStale(const Instance& inst) const {
   return inst.morph.shown() != Face::Banner || !m_banner.has_value() || m_banner->id != inst.dragBannerId;
 }
 
-void LiveActivityIsland::bannerDragMove(Instance& inst, float y) {
+void LiveActivityIsland::bannerDragMove(Instance& inst, float x, float y) {
+  // The pointer reports output-relative coordinates; the moving surface does not shift them.
+  bannerDragTravel(inst, x - inst.dragStartX, y - inst.dragStartY);
+}
+
+void LiveActivityIsland::bannerDragTravel(Instance& inst, float dx, float dy) {
   if (!inst.dragging) {
     return;
   }
@@ -2353,25 +2417,25 @@ void LiveActivityIsland::bannerDragMove(Instance& inst, float y) {
     startBannerSpring(inst, false);
     return;
   }
-  const float screenY = y; // the pointer reports output-relative y; the moving surface does not shift it
+  inst.dragAxis = bannerSwipeAxis(inst.dragAxis, dx, dy);
+  if (inst.dragAxis == BannerSwipeAxis::Undecided) {
+    return;
+  }
+  inst.dragMoved = true;
+  const float travel = inst.dragAxis == BannerSwipeAxis::Horizontal ? dx : dy;
   const auto now = std::chrono::steady_clock::now();
   const float dtMs = std::chrono::duration<float, std::milli>(now - inst.dragLastAt).count();
   // Samples closer than 4 ms are merged into the next one: they would give a wild speed.
   if (dtMs >= 4.0F) {
-    inst.dragVelocity = dtMs < 80.0F ? std::clamp((screenY - inst.dragLastY) / dtMs, -4.0F, 4.0F) : 0.0F;
-    inst.dragLastY = screenY;
+    inst.dragVelocity = dtMs < 80.0F ? std::clamp((travel - inst.dragLastTravel) / dtMs, -4.0F, 4.0F) : 0.0F;
+    inst.dragLastTravel = travel;
     inst.dragLastAt = now;
   }
-  const float delta = screenY - inst.dragStartY;
-  if (std::abs(delta) > 4.0F) {
-    inst.dragMoved = true;
-  }
-  if (inst.dragMoved) {
-    applyBannerOffset(inst, std::max(delta < 0.0F ? delta : delta * 0.3F, bannerMinOffset(inst)));
-  }
+  applyBannerOffset(inst, bannerSwipeOffset(travel, bannerLimit(inst)));
 }
 
 void LiveActivityIsland::bannerDragEnd(Instance& inst) {
+  inst.scrollEnd.stop();
   if (!inst.dragging) {
     return;
   }
@@ -2382,22 +2446,89 @@ void LiveActivityIsland::bannerDragEnd(Instance& inst) {
   if (std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - inst.dragLastAt).count() > 80.0F) {
     inst.dragVelocity = 0.0F;
   }
-  const Rect banner = faceRect(inst, Face::Banner);
-  const bool dismiss =
-      !bannerDragStale(inst) && (inst.dragOffset < -0.4F * banner.h || inst.dragVelocity < -0.5F);
-  startBannerSpring(inst, dismiss);
+  startBannerSpring(
+      inst, !bannerDragStale(inst) && bannerSwipeDismisses(inst.dragOffset, inst.dragVelocity, bannerLimit(inst))
+  );
+}
+
+// A two-finger scroll over the banner drags it as a finger would: the content follows the fingers, so the travel is
+// the negated scroll. The drag releases when no scroll event came for kScrollEnd.
+bool LiveActivityIsland::bannerScroll(Instance& inst, const InputArea::PointerData& d) {
+  if (d.axisSource != kAxisSourceFinger) {
+    return false;
+  }
+  if (!inst.dragging) {
+    bannerDragStart(inst, 0.0F, 0.0F);
+    if (!inst.dragging) {
+      return false;
+    }
+  }
+  (d.axis == kAxisHorizontal ? inst.dragTravelX : inst.dragTravelY) -= static_cast<float>(d.axisValue);
+  bannerDragTravel(inst, inst.dragTravelX, inst.dragTravelY);
+  auto* instPtr = &inst;
+  inst.scrollEnd.start(kScrollEnd, [this, instPtr] {
+    bannerDragEnd(*instPtr);
+    // No click follows a scroll: the next click must not be taken for the end of a drag.
+    instPtr->dragMoved = false;
+  });
+  return true;
+}
+
+// Hovering the banner shows its close button and pauses its timeout; leaving restarts the timeout in full.
+void LiveActivityIsland::setBannerHover(Instance& inst, bool hover) {
+  inst.bannerHover = hover && inst.morph.shown() == Face::Banner;
+  if (inst.bannerClose != nullptr && inst.bannerClose->visible() != inst.bannerHover) {
+    inst.bannerClose->setVisible(inst.bannerHover);
+    inst.bannerTime->setOpacity(inst.bannerHover ? 0.0F : 1.0F);
+    inst.surface->requestLayout();
+  }
+  const bool anyHover = std::ranges::any_of(m_instances, [](const auto& i) { return i->bannerHover; });
+  // The notification's own expiry would close the banner too: it pauses with the island's timeout.
+  if (anyHover && m_banner.has_value() && m_bannerTimer.active()) {
+    m_bannerTimer.stop();
+    m_bannerPausedFor = m_banner->id;
+    if (m_notifications != nullptr) {
+      m_notifications->pauseExpiry(m_banner->id);
+    }
+  } else if (!anyHover && m_bannerPausedFor.has_value()) {
+    if (m_banner.has_value() && m_banner->id == *m_bannerPausedFor) {
+      apply(Queue::Step{.banner = Queue::TimerCmd::Start});
+    }
+    if (m_notifications != nullptr) {
+      m_notifications->resumeExpiry(*m_bannerPausedFor, static_cast<std::int32_t>(kBannerTime.count()));
+    }
+    m_bannerPausedFor.reset();
+  }
+}
+
+// The close button closes the notification (it leaves the notification center); the banner Returns into the island.
+void LiveActivityIsland::closeBanner() {
+  if (!m_banner.has_value()) {
+    return;
+  }
+  const std::uint32_t id = m_banner->id;
+  endBanner();
+  if (m_notifications != nullptr) {
+    (void)m_notifications->close(id, CloseReason::Dismissed);
+  }
 }
 
 void LiveActivityIsland::startBannerSpring(Instance& inst, bool dismiss) {
-  // The card keeps its bottom row on the output: a surface with nothing visible gets no frame callbacks, and its
+  // The card keeps one row or column on the output: a surface with nothing visible gets no frame callbacks, and its
   // client would never draw again.
-  const float target = dismiss ? bannerMinOffset(inst) : 0.0F;
+  const float target = dismiss ? bannerLimit(inst) : 0.0F;
   auto* instPtr = &inst;
-  const Tokens::Spring& token = dismiss ? Tokens::springCollapse : Tokens::springMorph;
+  const bool horizontal = inst.dragAxis == BannerSwipeAxis::Horizontal;
+  const bool reduced = MotionService::instance().reduced();
+  // A sideways release settles on page with the finger's velocity; reduced motion settles on close without it.
+  const Tokens::Spring& token = horizontal ? (reduced ? Tokens::springClose : Tokens::springPage)
+      : dismiss                             ? Tokens::springCollapse
+                                            : Tokens::springMorph;
+  const float velocity = horizontal && reduced ? 0.0F : inst.dragVelocity * 1000.0F;
   inst.dragDismiss = dismiss;
   // A timer steps the spring: a card swiped off the output gets no frame callbacks, so the frame clock would stall.
   inst.dragSpring = desk::motion::Spring(
-      inst.dragOffset, target, {.damping = token.damping, .stiffness = token.stiffness}, inst.dragVelocity * 1000.0F
+      inst.dragOffset, target, {.damping = token.damping, .stiffness = token.stiffness}, velocity
   );
   inst.dragLastAt = std::chrono::steady_clock::now();
   inst.dragTimer.startRepeating(std::chrono::milliseconds(8), [this, instPtr] {
@@ -2659,6 +2790,13 @@ bool LiveActivityIsland::onPointerEvent(const PointerEvent& event) {
       }
       break;
     case PointerEvent::Type::Axis:
+      if (inst->pointerInside) {
+        consumed = inst->inputDispatcher.pointerAxis(
+                       x, y, event.axis, event.axisSource, event.axisValue, event.axisDiscrete, event.axisValue120,
+                       event.axisLines, event.axisGestureSerial
+                   )
+            || consumed;
+      }
       break;
     }
     if (inst->sceneRoot->paintDirty() || inst->sceneRoot->layoutDirty()) {
