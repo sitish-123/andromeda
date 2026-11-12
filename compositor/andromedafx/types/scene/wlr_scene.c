@@ -1302,6 +1302,15 @@ static bool blur_samples_cache(const struct wlr_scene_blur* blur) {
   return blur->should_only_blur_bottom_layer || (blur->adaptive && blur->use_cache);
 }
 
+// The node draws blur this frame; matches should_blur_node_extend_damage, which sets up the offscreen buffers.
+static bool blur_node_draws(const struct wlr_scene_blur* blur, struct blur_data* scene_blur_data) {
+  if (blur_samples_cache(blur) && blur->strength == 1.0) {
+    return true;
+  }
+  struct blur_data blur_data = blur_data_apply_strength(scene_blur_data, blur->strength);
+  return is_scene_blur_enabled(&blur_data);
+}
+
 // Adds the visible part of every enabled blur node that samples the optimized cache, grown by the blur reach. A node
 // hidden under an opaque window (a bar island under fullscreen video) needs no cache until it shows again.
 static void scene_blur_cache_consumers(struct wlr_scene_node* node, int x, int y, int reach, pixman_region32_t* out) {
@@ -4323,6 +4332,10 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
     break;
   case WLR_SCENE_NODE_BLUR:;
     struct wlr_scene_blur* blur = wlr_scene_blur_from_node(node);
+    // A strength with no blur pass left draws nothing (get_main_buffer_blur).
+    if (!blur_node_draws(blur, &scene->blur_data)) {
+      break;
+    }
 
     struct wlr_texture* tex = NULL;
     struct wlr_scene_buffer* mask = wlr_scene_blur_get_transparency_mask_source(blur);

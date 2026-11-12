@@ -2466,6 +2466,45 @@ static bool test_backdrop_probe(struct fixture* fixture) {
   return ok;
 }
 
+static int error_logs;
+
+static void count_error_logs(enum wlr_log_importance importance, const char* fmt, va_list args) {
+  if (importance == WLR_ERROR) {
+    error_logs++;
+    vfprintf(stderr, fmt, args);
+    fputc('\n', stderr);
+  }
+}
+
+// A fading glass node whose strength leaves no blur pass draws nothing and logs no error each frame.
+static bool test_faded_blur(struct fixture* fixture) {
+  struct wlr_scene* scene = wlr_scene_create();
+  struct wlr_scene_output* scene_output = wlr_scene_output_create(scene, fixture->output);
+  const float blue[4] = {0, 0, 1, 1}, white[3] = {1, 1, 1};
+  wlr_scene_rect_create(&scene->tree, TEST_WIDTH, TEST_HEIGHT, blue);
+  struct wlr_scene_blur* blur = wlr_scene_blur_create(&scene->tree, TEST_WIDTH, TEST_HEIGHT);
+  wlr_scene_set_blur_data(scene, 3, 5, 0, 1, 1, 1);
+  wlr_scene_blur_set_tint_mix(blur, white, 0.5f);
+  wlr_scene_blur_set_strength(blur, 0.02f);
+
+  error_logs = 0;
+  wlr_log_init(WLR_DEBUG, count_error_logs);
+  struct wlr_output_state state;
+  struct wlr_buffer* rendered = fixture_render_scene(fixture, scene_output, &state);
+  wlr_log_init(WLR_ERROR, NULL);
+  bool ok = check(rendered != NULL, "scene renders");
+  ok &= check(error_logs == 0, "a faded blur node logs no error");
+  if (rendered != NULL) {
+    uint8_t pixel[4];
+    ok &= fixture_read_pixel(fixture, rendered, TEST_WIDTH / 2, TEST_HEIGHT / 2, pixel)
+        && check(pixel[0] > 250 && pixel[1] < 5 && pixel[2] < 5, "the backdrop shows through the faded node");
+    wlr_buffer_unlock(rendered);
+  }
+  wlr_output_state_finish(&state);
+  wlr_scene_node_destroy(&scene->tree.node);
+  return ok;
+}
+
 // Exercise dynamic sampling of every entry, interpolation and clamps.
 static bool test_audio_spectrum(struct fixture* fixture) {
   struct wlr_scene* scene = wlr_scene_create();
@@ -2950,6 +2989,8 @@ int main(int argc, char* argv[]) {
     ok = test_in_place_shape(&fixture);
   } else if (strcmp(argv[1], "backdrop-probe") == 0) {
     ok = test_backdrop_probe(&fixture);
+  } else if (strcmp(argv[1], "faded-blur") == 0) {
+    ok = test_faded_blur(&fixture);
   } else if (strcmp(argv[1], "audio-spectrum") == 0) {
     ok = test_audio_spectrum(&fixture);
   } else if (strcmp(argv[1], "output-effects") == 0) {

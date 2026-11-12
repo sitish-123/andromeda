@@ -334,6 +334,7 @@ if build_tests
     'output-effects',
     'audio-spectrum',
     'backdrop-probe',
+    'faded-blur',
   ]
     test('effects-' + case_name, andromedafx_effects_test, args: case_name, suite: 'andromedafx')
   endforeach
