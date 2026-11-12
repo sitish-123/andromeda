@@ -1022,6 +1022,11 @@ void WorkspacesWidget::onWorkspaceSlide() {
     return;
   }
   const bool following = m_slideFollow.has_value();
+  // A keybind switch starts as a settle: under reduced motion it jumps and fades (rulebook 7.8), only a gesture follows.
+  if (!following && MotionService::instance().reduced() && slide->phase != WorkspaceSlide::Phase::Tracking) {
+    endSlide();
+    return;
+  }
   if (following) {
     m_slideFollow->slide = std::move(*slide);
   } else {
@@ -1096,13 +1101,18 @@ bool WorkspacesWidget::applySlide() {
   const float trailLag = 2.0F * Tokens::springTrail.damping / std::sqrt(Tokens::springTrail.stiffness);
   const float stretch =
       MotionService::instance().reduced() ? 0.0F : std::min(m_gap, std::abs(follow.velocity) * trailLag);
-  follow.stretch = follow.velocity > 0.0F ? stretch : -stretch;
+  if (dt > 0.0) {
+    follow.stretch = follow.velocity > 0.0F ? stretch : -stretch;
+  }
   applyItemLayouts();
   updateContainerSize();
   placeSlideLens();
-  // Lines stop while the fingers rest: the stretch then relaxes on the trail spring until the next line.
-  cancelStretchDecay();
-  if (follow.stretch != 0.0F && m_animations != nullptr) {
+  // Lines stop while the fingers rest: the stretch then relaxes on the trail spring until the next line. A repeat of
+  // the same frame (dt == 0) keeps the stretch and its running decay.
+  if (dt > 0.0) {
+    cancelStretchDecay();
+  }
+  if (dt > 0.0 && follow.stretch != 0.0F && m_animations != nullptr) {
     m_stretchDecayId = m_animations->drive(
         0, follow.stretch, 0.0F, Style::spring(Tokens::springTrail),
         [this](float v) {
