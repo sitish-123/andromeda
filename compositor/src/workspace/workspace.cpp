@@ -3395,7 +3395,8 @@ namespace andromeda {
     const Slide* running = m_slide.data();
     const bool carry = running != nullptr
         && std::max(running->base->index(), m_active->index()) - std::min(running->base->index(), m_active->index()) <= 1;
-    const double start = carry ? m_slideAnim.current() - m_slideAnim.target() : 0.0;
+    const double carried = m_slideAnim.current() - m_slideAnim.target();
+    const double start = carry && std::abs(carried) <= 1.0 ? carried : 0.0;
     slideFinish();
     const size_t idx = m_active->index();
     Slide slide;
@@ -3572,7 +3573,8 @@ namespace andromeda {
       const size_t idx = m_active->index();
       Workspace* shown = offset < 0 ? (idx > 0 ? workspaceAt(idx - 1) : nullptr) : workspaceAt(idx + 1);
       const bool towardTarget = (offset < 0) == (workspace->index() < idx);
-      if (std::abs(activeIndex - baseIndex) <= 1 && offset != 0 && (!towardTarget || shown == workspace)) {
+      if (std::abs(activeIndex - baseIndex) <= 1 && std::abs(offset) <= 1.0 && offset != 0
+          && (!towardTarget || shown == workspace)) {
         carried = offset;
         carriedVelocity = m_slideAnim.animating() ? m_slideAnim.velocity() : 0.0;
         beside = towardTarget ? nullptr : shown;

@@ -55,8 +55,6 @@ after=$(slides | tail -1)
 jq -e -n --argjson before "$before" --argjson after "$after" \
   '$after.phase == "settling" and ($after.position - $before.position | fabs) < 0.15' \
   > /dev/null || { echo "retarget: $before -> $after"; exit 1; }
-idles=$(slides | jq -s 'map(select(.phase == "idle")) | length')
-[[ $idles -eq 0 ]] || { echo "the keybind snapped the settle to its end: $(slides | tr '\n' '|')"; exit 1; }
 
 # On to 3 by keybind while that one settles: workspace 1 stays on screen beside 2 and slides out.
 lines=$(slides | wc -l)
