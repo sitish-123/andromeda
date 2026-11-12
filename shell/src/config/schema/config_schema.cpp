@@ -62,9 +62,33 @@ namespace noctalia::config::schema {
             &WeatherConfig::enabled, "enabled",
             RowSpec{.section = "location", .group = "weather", .label = "services.weather", .tags = "forecast"}
         ),
-        field(&WeatherConfig::effects, "effects"),
-        field(&WeatherConfig::refreshMinutes, "refresh_minutes", kRefreshMinutesRange),
-        field(&WeatherConfig::unit, "unit"),
+        field(
+            &WeatherConfig::effects, "effects",
+            RowSpec{.section = "location", .group = "weather", .label = "services.weather-effects", .tags = "forecast visuals"}
+        ),
+        field(
+            &WeatherConfig::refreshMinutes, "refresh_minutes", kRefreshMinutesRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "location",
+                .group = "weather",
+                .label = "services.weather-refresh-interval",
+                .tags = "forecast",
+            }
+        ),
+        field(
+            &WeatherConfig::unit, "unit",
+            RowSpec{
+                .kind = RowSpec::Kind::Select,
+                .section = "location",
+                .group = "weather",
+                .label = "services.weather-unit",
+                .tags = "temperature",
+                .segmented = true,
+                .choices = {{"metric", "settings.options.weather.unit.metric"},
+                            {"imperial", "settings.options.weather.unit.imperial"}},
+            }
+        ),
     };
     return s;
   }
@@ -146,24 +170,92 @@ namespace noctalia::config::schema {
   }
 
   const Schema<LockscreenConfig>& lockscreenSchema() {
+    const auto lock = [](std::string_view label, std::string_view tags, RowSpec::Kind kind = RowSpec::Kind::Toggle,
+                         std::string_view suffix = {}) {
+      return RowSpec{
+          .kind = kind, .section = "security", .group = "lock-screen", .label = label, .tags = tags, .suffix = suffix
+      };
+    };
+    const auto lockSelect = [&](std::string_view label, std::string_view tags, std::vector<RowSpec::Choice> choices,
+                                bool segmented = false) {
+      auto row = lock(label, tags, RowSpec::Kind::Select);
+      row.segmented = segmented;
+      row.choices = std::move(choices);
+      return row;
+    };
     static const Schema<LockscreenConfig> s = {
         field(
             &LockscreenConfig::enabled, "enabled",
             RowSpec{.section = "security", .group = "lock-screen", .label = "lockscreen.enabled", .tags = "lock screen session"}
         ),
-        field(&LockscreenConfig::lockBeforeSuspend, "lock_before_suspend"),
-        field(&LockscreenConfig::gracePeriodSeconds, "grace_period_seconds", Range<std::int64_t>{0, 60}),
-        field(&LockscreenConfig::fingerprint, "fingerprint"),
-        field(&LockscreenConfig::face, "face"),
-        field(&LockscreenConfig::faceOnRequest, "face_on_request"),
-        field(&LockscreenConfig::theme, "theme"),
-        field(&LockscreenConfig::layout, "layout"),
-        field(&LockscreenConfig::notificationContent, "notification_content"),
-        field(&LockscreenConfig::ownerMessage, "owner_message"),
+        field(
+            &LockscreenConfig::lockBeforeSuspend, "lock_before_suspend",
+            lock("lockscreen.lock-before-suspend", "lock screen before suspend sleep lid close prepareforsleep")
+        ),
+        field(
+            &LockscreenConfig::gracePeriodSeconds, "grace_period_seconds", Range<std::int64_t>{0, 60},
+            lock(
+                "lockscreen.grace-period", "lock screen grace period passwordless unlock keypress mouse movement",
+                RowSpec::Kind::Stepper, "s"
+            )
+        ),
+        field(
+            &LockscreenConfig::fingerprint, "fingerprint",
+            lock("lockscreen.fingerprint", "lock screen fingerprint fprintd biometric")
+        ),
+        field(&LockscreenConfig::face, "face", lock("lockscreen.face", "lock screen face unlock camera gaze biometric")),
+        field(
+            &LockscreenConfig::faceOnRequest, "face_on_request",
+            lock("lockscreen.face-on-request", "lock screen face unlock tap request camera privacy")
+        ),
+        field(
+            &LockscreenConfig::theme, "theme",
+            lockSelect(
+                "lockscreen.theme", "lock screen style ryoku andromeda classic look theme",
+                {{"andromeda", "settings.schema.lockscreen.theme.andromeda"},
+                 {"ryoku", "settings.schema.lockscreen.theme.ryoku"}},
+                true
+            )
+        ),
+        field(
+            &LockscreenConfig::layout, "layout",
+            lockSelect(
+                "lockscreen.layout", "lock screen layout centered glance split minimal",
+                {{"centered", "settings.schema.lockscreen.layout.centered"},
+                 {"glance", "settings.schema.lockscreen.layout.glance"},
+                 {"split", "settings.schema.lockscreen.layout.split"},
+                 {"minimal", "settings.schema.lockscreen.layout.minimal"}}
+            )
+        ),
+        field(
+            &LockscreenConfig::notificationContent, "notification_content",
+            lockSelect(
+                "lockscreen.notification-content", "lock screen notification content privacy preview",
+                {{"hidden", "settings.schema.lockscreen.notification-content.hidden"},
+                 {"shown", "settings.schema.lockscreen.notification-content.shown"}}
+            )
+        ),
+        field(
+            &LockscreenConfig::ownerMessage, "owner_message",
+            lock("lockscreen.owner-message", "lock screen owner message lost found contact", RowSpec::Kind::Text)
+        ),
         field(&LockscreenConfig::clockStyle, "clock_style"),
-        field(&LockscreenConfig::clockSize, "clock_size"),
-        field(&LockscreenConfig::clockFormat24h, "clock_format_24h"),
-        field(&LockscreenConfig::clockSeconds, "clock_seconds"),
+        field(
+            &LockscreenConfig::clockSize, "clock_size",
+            lockSelect(
+                "lockscreen.clock-size", "lock screen clock size",
+                {{"", "settings.schema.lockscreen.clock-size.auto"},
+                 {"s", "settings.schema.lockscreen.clock-size.s"},
+                 {"m", "settings.schema.lockscreen.clock-size.m"},
+                 {"l", "settings.schema.lockscreen.clock-size.l"},
+                 {"xl", "settings.schema.lockscreen.clock-size.xl"}}
+            )
+        ),
+        field(
+            &LockscreenConfig::clockFormat24h, "clock_format_24h",
+            lock("lockscreen.clock-format-24h", "lock screen clock 24 hour 12")
+        ),
+        field(&LockscreenConfig::clockSeconds, "clock_seconds", lock("lockscreen.clock-seconds", "lock screen clock seconds")),
         field(&LockscreenConfig::clockWeight, "clock_weight", Range<std::int64_t>{0, 1000}),
         field(&LockscreenConfig::clockWidth, "clock_width", Range<std::int64_t>{0, 200}),
         field(&LockscreenConfig::clockRound, "clock_round", Range<std::int64_t>{-1, 100}),
@@ -173,14 +265,37 @@ namespace noctalia::config::schema {
         field(&LockscreenConfig::clockMotion, "clock_motion"),
         field(&LockscreenConfig::widgets, "widgets"),
         field(&LockscreenConfig::bottomSlot, "bottom_slot"),
-        field(&LockscreenConfig::allowEmptyPassword, "allow_empty_password"),
+        field(
+            &LockscreenConfig::allowEmptyPassword, "allow_empty_password",
+            lock("lockscreen.allow-empty-password", "lock screen empty password security key pam")
+        ),
         enumArrayField(
             &LockscreenConfig::transitions, "transition", kLockscreenTransitions, std::optional<LockscreenTransition>{}
         ),
-        field(&LockscreenConfig::transitionDurationMs, "transition_duration", kLockscreenTransitionDurationRange),
-        field(&LockscreenConfig::edgeSmoothness, "edge_smoothness", kUnitRange),
-        field(&LockscreenConfig::blurIntensity, "blur_intensity", kUnitRange),
-        field(&LockscreenConfig::tintIntensity, "tint_intensity", kUnitRange),
+        field(
+            &LockscreenConfig::transitionDurationMs, "transition_duration", kLockscreenTransitionDurationRange,
+            [&] {
+              auto row = lock("lockscreen.transition-duration", "lock screen transition animation duration", RowSpec::Kind::Slider);
+              row.integer = true;
+              return row;
+            }()
+        ),
+        field(
+            &LockscreenConfig::edgeSmoothness, "edge_smoothness", kUnitRange,
+            [&] {
+              auto row = lock("lockscreen.edge-smoothness", "lock screen transition feathering", RowSpec::Kind::Slider);
+              row.advanced = true;
+              return row;
+            }()
+        ),
+        field(
+            &LockscreenConfig::blurIntensity, "blur_intensity", kUnitRange,
+            lock("lockscreen.blur-intensity", "lock screen blur", RowSpec::Kind::Slider)
+        ),
+        field(
+            &LockscreenConfig::tintIntensity, "tint_intensity", kUnitRange,
+            lock("lockscreen.tint-intensity", "lock screen tint", RowSpec::Kind::Slider)
+        ),
         pathStringField(&LockscreenConfig::wallpaper, "wallpaper"),
         field(&LockscreenConfig::wallpaperOutputs, "wallpaper_outputs"),
         field(&LockscreenConfig::monitors, "monitors"),
@@ -269,7 +384,10 @@ namespace noctalia::config::schema {
   const Schema<NightLightConfig>& nightlightSchema() {
     static const Schema<NightLightConfig> s = {
         field(&NightLightConfig::enabled, "enabled"),
-        field(&NightLightConfig::force, "force"),
+        field(
+            &NightLightConfig::force, "force",
+            RowSpec{.section = "location", .group = "night-light", .label = "services.force-night-light", .tags = "nightlight"}
+        ),
         field(&NightLightConfig::dayTemperature, "temperature_day", Range<std::int64_t>{1000, 25000}),
         field(&NightLightConfig::nightTemperature, "temperature_night", Range<std::int64_t>{1000, 25000}),
         // Day must lead night by at least the gap; pull night down, bumping day up
@@ -309,7 +427,15 @@ namespace noctalia::config::schema {
             }
         ),
         field(&LocationConfig::address, "address"),
-        field(&LocationConfig::customSchedule, "custom_schedule"),
+        field(
+            &LocationConfig::customSchedule, "custom_schedule",
+            RowSpec{
+                .section = "location",
+                .group = "location",
+                .label = "services.custom-schedule",
+                .tags = "schedule custom time sunrise sunset",
+            }
+        ),
         field(
             &LocationConfig::sunset, "sunset",
             RowSpec{
@@ -1755,6 +1881,9 @@ namespace noctalia::config::schema {
     }
 
     const Schema<ShellConfig::LauncherConfig>& shellLauncherSchema() {
+      const auto launcherToggle = [](std::string_view label, std::string_view tags) {
+        return RowSpec{.section = "launcher", .group = "launcher", .label = label, .tags = tags};
+      };
       static const Schema<ShellConfig::LauncherConfig> s = {
           enumField(
               &ShellConfig::LauncherConfig::layout, "layout", ShellConfig::kLauncherLayouts,
@@ -1767,16 +1896,61 @@ namespace noctalia::config::schema {
                   .segmented = true,
               }
           ),
-          field(&ShellConfig::LauncherConfig::width, "width", noctalia::config::schema::kLauncherWidthRange),
-          enumField(
-              &ShellConfig::LauncherConfig::searchPosition, "search_position", ShellConfig::kLauncherSearchPositions
+          field(
+              &ShellConfig::LauncherConfig::width, "width", noctalia::config::schema::kLauncherWidthRange,
+              RowSpec{
+                  .kind = RowSpec::Kind::Slider,
+                  .section = "launcher",
+                  .group = "launcher",
+                  .label = "panels.launcher-width",
+                  .tags = "launcher panel width size",
+                  .suffix = "px",
+              }
           ),
-          enumField(&ShellConfig::LauncherConfig::defaultView, "default_view", ShellConfig::kLauncherDefaultViews),
-          field(&ShellConfig::LauncherConfig::categories, "categories"),
-          field(&ShellConfig::LauncherConfig::categoryIconsOnly, "category_icons_only"),
-          field(&ShellConfig::LauncherConfig::showNavigationLabels, "show_navigation_labels"),
-          field(&ShellConfig::LauncherConfig::showSettingsButton, "show_settings_button"),
-          field(&ShellConfig::LauncherConfig::showSessionButton, "show_session_button"),
+          enumField(
+              &ShellConfig::LauncherConfig::searchPosition, "search_position", ShellConfig::kLauncherSearchPositions,
+              RowSpec{
+                  .kind = RowSpec::Kind::Select,
+                  .section = "launcher",
+                  .group = "launcher",
+                  .label = "panels.launcher-search-position",
+                  .tags = "launcher search toolbar position top bottom",
+                  .segmented = true,
+              }
+          ),
+          enumField(
+              &ShellConfig::LauncherConfig::defaultView, "default_view", ShellConfig::kLauncherDefaultViews,
+              RowSpec{
+                  .kind = RowSpec::Kind::Select,
+                  .section = "launcher",
+                  .group = "launcher",
+                  .label = "panels.launcher-default-view",
+                  .tags = "launcher default view recent pinned all apps categories",
+              }
+          ),
+          field(
+              &ShellConfig::LauncherConfig::categories, "categories",
+              launcherToggle("panels.launcher-categories", "launcher categories chips filter recent all")
+          ),
+          field(
+              &ShellConfig::LauncherConfig::categoryIconsOnly, "category_icons_only",
+              launcherToggle("panels.launcher-category-icons-only", "launcher app category icons labels text")
+          ),
+          field(
+              &ShellConfig::LauncherConfig::showNavigationLabels, "show_navigation_labels",
+              launcherToggle(
+                  "panels.launcher-show-navigation-labels",
+                  "launcher navigation tabs labels text recent pinned all categories providers icons"
+              )
+          ),
+          field(
+              &ShellConfig::LauncherConfig::showSettingsButton, "show_settings_button",
+              launcherToggle("panels.launcher-show-settings-button", "launcher settings shortcut button")
+          ),
+          field(
+              &ShellConfig::LauncherConfig::showSessionButton, "show_session_button",
+              launcherToggle("panels.launcher-show-session-button", "launcher session power shortcut button")
+          ),
           field(
               &ShellConfig::LauncherConfig::showIcons, "show_icons",
               RowSpec{
@@ -3219,7 +3393,15 @@ namespace noctalia::config::schema {
               warnWrongType(tbl, "layer", parentPath, diag, "a string");
             }
           },
-          [](toml::table& tbl, const BarConfig& in) { tbl.insert_or_assign("layer", in.layer); }
+          [](toml::table& tbl, const BarConfig& in) { tbl.insert_or_assign("layer", in.layer); },
+          RowSpec{
+              .kind = RowSpec::Kind::Select,
+              .section = "bar",
+              .group = "general",
+              .tags = "layer shell z-order",
+              .segmented = true,
+              .choices = {{"top", "settings.options.layer.top"}, {"overlay", "settings.options.layer.overlay"}},
+          }
       );
     }
 
@@ -3241,6 +3423,16 @@ namespace noctalia::config::schema {
           },
           [](toml::table& tbl, const BarConfig& in) {
             tbl.insert_or_assign("radius", static_cast<std::int64_t>(in.radius));
+          },
+          RowSpec{
+              .kind = RowSpec::Kind::Slider,
+              .section = "bar",
+              .group = "shape",
+              .label = "bar.corner-radius",
+              .title = "shared.corner-radius",
+              .tags = "rounded",
+              .integer = true,
+              .range = {0.0F, 80.0F, 1.0F},
           }
       );
     }
@@ -3606,7 +3798,15 @@ namespace noctalia::config::schema {
   const Schema<BarDeadZoneConfig>& barDeadZoneSchema() {
     static const Schema<BarDeadZoneConfig> s = {
         field(&BarDeadZoneConfig::actions, "actions"),
-        field(&BarDeadZoneConfig::clickThrough, "click_through"),
+        field(
+            &BarDeadZoneConfig::clickThrough, "click_through",
+            RowSpec{
+                .section = "bar",
+                .group = "dead-zone",
+                .label = "bar.dead-zone-click-through",
+                .tags = "bar empty margin dead zone click through pass input region",
+            }
+        ),
     };
     return s;
   }
@@ -3620,15 +3820,63 @@ namespace noctalia::config::schema {
   }
 
   const Schema<BarConfig>& barFieldsSchema() {
+    const auto barCorner = [](std::string_view label, std::string_view title) {
+      return RowSpec{
+          .kind = RowSpec::Kind::Slider,
+          .section = "bar",
+          .group = "shape",
+          .label = label,
+          .title = title,
+          .tags = "rounded corner",
+          .advanced = true,
+          .integer = true,
+          .range = {0.0F, 80.0F, 1.0F},
+      };
+    };
+    const auto barMargin = [](std::string_view label, std::string_view title, std::string_view tags) {
+      return RowSpec{
+          .kind = RowSpec::Kind::Stepper,
+          .section = "bar",
+          .group = "layout",
+          .label = label,
+          .title = title,
+          .tags = tags,
+          .suffix = "px",
+          .range = {0.0F, 4096.0F, 1.0F},
+      };
+    };
+    const auto capsuleSlider = [](std::string_view tags, Range<double> range) {
+      return RowSpec{
+          .kind = RowSpec::Kind::Slider,
+          .section = "bar",
+          .group = "capsules",
+          .tags = tags,
+          .advanced = true,
+          .range = range,
+      };
+    };
     static const Schema<BarConfig> s = {
         field(
             &BarConfig::enabled, "enabled",
             RowSpec{.section = "bar", .group = "general", .title = "shared.enabled", .tags = "visible"}
         ),
         field(&BarConfig::autoHide, "auto_hide"),
-        field(&BarConfig::autoHideDelayMs, "auto_hide_delay_ms", kBarAutoHideDelayMsRange),
+        field(
+            &BarConfig::autoHideDelayMs, "auto_hide_delay_ms", kBarAutoHideDelayMsRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Stepper,
+                .section = "bar",
+                .group = "general",
+                .label = "bar.auto-hide-delay",
+                .tags = "autohide delay wait",
+                .suffix = "ms",
+            }
+        ),
         field(&BarConfig::smartAutoHide, "smart_auto_hide"),
-        field(&BarConfig::showOnWorkspaceSwitch, "show_on_workspace_switch"),
+        field(
+            &BarConfig::showOnWorkspaceSwitch, "show_on_workspace_switch",
+            RowSpec{.section = "bar", .group = "general", .tags = "workspace reveal peek autohide"}
+        ),
         field(
             &BarConfig::reserveSpace, "reserve_space",
             RowSpec{.section = "bar", .group = "general", .title = "shared.reserve-space", .tags = "exclusive zone"}
@@ -3656,22 +3904,53 @@ namespace noctalia::config::schema {
             }
         ),
         optionalFloatField(&BarConfig::solidOpacity, "solid_opacity", kUnitRange),
-        field(&BarConfig::compositorBlur, "compositor_blur"),
+        field(
+            &BarConfig::compositorBlur, "compositor_blur",
+            RowSpec{.section = "bar", .group = "effects", .tags = "blur frosted background effect wayland"}
+        ),
         field(
             &BarConfig::islands, "islands",
             RowSpec{.section = "bar", .group = "effects", .tags = "islands floating pills sections"}
         ),
         colorField(&BarConfig::border, "border"),
-        field(&BarConfig::borderWidth, "border_width", kBarBorderWidthRange),
+        field(
+            &BarConfig::borderWidth, "border_width", kBarBorderWidthRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "bar",
+                .group = "shape",
+                .tags = "outline stroke",
+                .advanced = true,
+                .range = {0.0F, 20.0F, 0.5F},
+            }
+        ),
         barRadiusField(),
-        field(&BarConfig::radiusTopLeft, "radius_top_left", kBarRadiusRange),
-        field(&BarConfig::radiusTopRight, "radius_top_right", kBarRadiusRange),
-        field(&BarConfig::radiusBottomLeft, "radius_bottom_left", kBarRadiusRange),
-        field(&BarConfig::radiusBottomRight, "radius_bottom_right", kBarRadiusRange),
-        field(&BarConfig::concaveEdgeCorners, "concave_edge_corners"),
-        field(&BarConfig::marginEnds, "margin_ends"),
-        field(&BarConfig::marginEdge, "margin_edge"),
-        field(&BarConfig::marginOppositeEdge, "margin_opposite_edge"),
+        field(
+            &BarConfig::radiusTopLeft, "radius_top_left", kBarRadiusRange,
+            barCorner("bar.corner-top-left", "shared.corner-top-left")
+        ),
+        field(
+            &BarConfig::radiusTopRight, "radius_top_right", kBarRadiusRange,
+            barCorner("bar.corner-top-right", "shared.corner-top-right")
+        ),
+        field(
+            &BarConfig::radiusBottomLeft, "radius_bottom_left", kBarRadiusRange,
+            barCorner("bar.corner-bottom-left", "shared.corner-bottom-left")
+        ),
+        field(
+            &BarConfig::radiusBottomRight, "radius_bottom_right", kBarRadiusRange,
+            barCorner("bar.corner-bottom-right", "shared.corner-bottom-right")
+        ),
+        field(
+            &BarConfig::concaveEdgeCorners, "concave_edge_corners",
+            RowSpec{.section = "bar", .group = "shape", .tags = "rounded corner carve"}
+        ),
+        field(&BarConfig::marginEnds, "margin_ends", std::nullopt, barMargin("bar.ends-margin", "shared.ends-margin", "gap inset")),
+        field(&BarConfig::marginEdge, "margin_edge", std::nullopt, barMargin("bar.edge-margin", "shared.edge-margin", "gap inset")),
+        field(
+            &BarConfig::marginOppositeEdge, "margin_opposite_edge", std::nullopt,
+            barMargin("bar.opposite-edge-margin", "shared.opposite-edge-margin", "gap inset strut")
+        ),
         field(&BarConfig::paddingEnd, "padding_end"),
         field(
             &BarConfig::padding, "padding", std::nullopt,
@@ -3702,7 +3981,18 @@ namespace noctalia::config::schema {
             &BarConfig::contactShadow, "contact_shadow",
             RowSpec{.section = "bar", .group = "effects", .title = "shared.contact-shadow", .tags = "shadow contact panel attached"}
         ),
-        field(&BarConfig::panelOverlap, "panel_overlap", kBarPanelOverlapRange),
+        field(
+            &BarConfig::panelOverlap, "panel_overlap", kBarPanelOverlapRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Stepper,
+                .section = "bar",
+                .group = "layout",
+                .tags = "seam gap overlap attached panel fractional scale",
+                .advanced = true,
+                .suffix = "px",
+                .range = {-2.0F, 3.0F, 1.0F},
+            }
+        ),
         field(
             &BarConfig::capsuleThickness, "capsule_thickness", kBarCapsuleThicknessRange,
             RowSpec{
@@ -3746,11 +4036,20 @@ namespace noctalia::config::schema {
             &BarConfig::widgetCapsuleGroups, "capsule_group", barCapsuleGroupSchema(),
             [](const BarCapsuleGroupStyle& g) { return !g.id.empty(); }
         ),
-        field(&BarConfig::widgetCapsulePadding, "capsule_padding", kBarCapsulePaddingRange),
+        field(
+            &BarConfig::widgetCapsulePadding, "capsule_padding", kBarCapsulePaddingRange,
+            capsuleSlider("pill inset", {0.0F, 48.0F, 1.0F})
+        ),
         optionalDoubleField(&BarConfig::widgetCapsuleRadius, "capsule_radius", kBarCapsuleRadiusRangeD),
-        field(&BarConfig::widgetCapsuleOpacity, "capsule_opacity", kBarOpacityRange),
+        field(
+            &BarConfig::widgetCapsuleOpacity, "capsule_opacity", kBarOpacityRange,
+            capsuleSlider("pill alpha", {0.0F, 1.0F, 0.01F})
+        ),
         capsuleBorderField(&BarConfig::widgetCapsuleBorder, &BarConfig::widgetCapsuleBorderSpecified, "capsule_border"),
-        field(&BarConfig::widgetCapsuleBorderWidth, "capsule_border_width", kBarCapsuleBorderWidthRange),
+        field(
+            &BarConfig::widgetCapsuleBorderWidth, "capsule_border_width", kBarCapsuleBorderWidthRange,
+            capsuleSlider("pill outline width", {})
+        ),
         field(
             &BarConfig::hoverHighlight, "hover_highlight",
             RowSpec{.section = "bar", .group = "widgets", .tags = "hover highlight mouse pointer"}

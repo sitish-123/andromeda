@@ -502,7 +502,6 @@ namespace settings {
   void registry_detail::add_panels_settings(RegistryContext& ctx) {
     using i18n::tr;
     const auto& cfg = ctx.cfg;
-    const auto& env = ctx.env;
     auto& entries = ctx.entries;
     auto& panelRows = ctx.panelRows;
 
@@ -609,87 +608,19 @@ namespace settings {
         noctalia::config::schema::launcherSchema(), cfg.shell.launcher, {"shell", "launcher"}
     );
     appendRow(entries, launcherRows, "layout");
-    {
-      auto width = sliderFor(cfg.shell.launcher.width, noctalia::config::schema::kLauncherWidthRange, true);
-      width.valueSuffix = "px";
-      auto e = makeEntry(
-          SettingsSection::Launcher, "launcher", tr("settings.schema.panels.launcher-width.label"),
-          tr("settings.schema.panels.launcher-width.description"), {"shell", "launcher", "width"}, std::move(width),
-          "launcher panel width size"
-      );
-      e.visibleWhen = launcherFull;
-      entries.push_back(std::move(e));
+    for (const auto* key : {"width", "search_position", "default_view"}) {
+      appendRow(entries, launcherRows, key);
+      entries.back().visibleWhen = launcherFull;
     }
-    {
-      auto e = makeEntry(
-          SettingsSection::Launcher, "launcher", tr("settings.schema.panels.launcher-search-position.label"),
-          tr("settings.schema.panels.launcher-search-position.description"), {"shell", "launcher", "search_position"},
-          asSegmented(enumSelect(ShellConfig::kLauncherSearchPositions, cfg.shell.launcher.searchPosition)),
-          "launcher search toolbar position top bottom"
-      );
-      e.visibleWhen = launcherFull;
-      entries.push_back(std::move(e));
-    }
-    {
-      auto e = makeEntry(
-          SettingsSection::Launcher, "launcher", tr("settings.schema.panels.launcher-default-view.label"),
-          tr("settings.schema.panels.launcher-default-view.description"), {"shell", "launcher", "default_view"},
-          enumSelect(ShellConfig::kLauncherDefaultViews, cfg.shell.launcher.defaultView),
-          "launcher default view recent pinned all apps categories"
-      );
-      e.visibleWhen = launcherFull;
-      entries.push_back(std::move(e));
-    }
-    {
-      auto e = makeEntry(
-          SettingsSection::Launcher, "launcher", tr("settings.schema.panels.launcher-categories.label"),
-          tr("settings.schema.panels.launcher-categories.description"), {"shell", "launcher", "categories"},
-          ToggleSetting{cfg.shell.launcher.categories}, "launcher categories chips filter recent all"
-      );
-      e.visibleWhen = launcherSimple;
-      entries.push_back(std::move(e));
-    }
-    {
-      auto e = makeEntry(
-          SettingsSection::Launcher, "launcher", tr("settings.schema.panels.launcher-category-icons-only.label"),
-          tr("settings.schema.panels.launcher-category-icons-only.description"),
-          {"shell", "launcher", "category_icons_only"}, ToggleSetting{cfg.shell.launcher.categoryIconsOnly},
-          "launcher app category icons labels text"
-      );
-      e.visibleWhen = [](const Config& c) {
-        return c.shell.launcher.layout == ShellConfig::LauncherLayout::Full || c.shell.launcher.categories;
-      };
-      entries.push_back(std::move(e));
-    }
-    {
-      auto e = makeEntry(
-          SettingsSection::Launcher, "launcher", tr("settings.schema.panels.launcher-show-navigation-labels.label"),
-          tr("settings.schema.panels.launcher-show-navigation-labels.description"),
-          {"shell", "launcher", "show_navigation_labels"}, ToggleSetting{cfg.shell.launcher.showNavigationLabels},
-          "launcher navigation tabs labels text recent pinned all categories providers icons"
-      );
-      e.visibleWhen = launcherFull;
-      entries.push_back(std::move(e));
-    }
-    {
-      auto e = makeEntry(
-          SettingsSection::Launcher, "launcher", tr("settings.schema.panels.launcher-show-settings-button.label"),
-          tr("settings.schema.panels.launcher-show-settings-button.description"),
-          {"shell", "launcher", "show_settings_button"}, ToggleSetting{cfg.shell.launcher.showSettingsButton},
-          "launcher settings shortcut button"
-      );
-      e.visibleWhen = launcherFull;
-      entries.push_back(std::move(e));
-    }
-    {
-      auto e = makeEntry(
-          SettingsSection::Launcher, "launcher", tr("settings.schema.panels.launcher-show-session-button.label"),
-          tr("settings.schema.panels.launcher-show-session-button.description"),
-          {"shell", "launcher", "show_session_button"}, ToggleSetting{cfg.shell.launcher.showSessionButton},
-          "launcher session power shortcut button"
-      );
-      e.visibleWhen = launcherFull;
-      entries.push_back(std::move(e));
+    appendRow(entries, launcherRows, "categories");
+    entries.back().visibleWhen = launcherSimple;
+    appendRow(entries, launcherRows, "category_icons_only");
+    entries.back().visibleWhen = [](const Config& c) {
+      return c.shell.launcher.layout == ShellConfig::LauncherLayout::Full || c.shell.launcher.categories;
+    };
+    for (const auto* key : {"show_navigation_labels", "show_settings_button", "show_session_button"}) {
+      appendRow(entries, launcherRows, key);
+      entries.back().visibleWhen = launcherFull;
     }
     for (const auto* key : {"show_icons", "show_app_origin_indicator", "app_grid", "compact"}) {
       appendRow(entries, launcherRows, key);
@@ -778,7 +709,6 @@ namespace settings {
   void registry_detail::add_controlcenter_settings(RegistryContext& ctx) {
     using i18n::tr;
     const auto& cfg = ctx.cfg;
-    const auto& env = ctx.env;
     auto& entries = ctx.entries;
     auto& panelRows = ctx.panelRows;
     const auto& panelPositionEntry = ctx.panelPositionEntry;

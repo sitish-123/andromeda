@@ -60,6 +60,7 @@ namespace noctalia::config::schema {
   //    the resolved bar).
   const Schema<BarConfig>& barFieldsSchema();
   const Schema<BarMonitorOverride>& barMonitorOverrideSchema();
+  const Schema<BarDeadZoneConfig>& barDeadZoneSchema();
 
   // True if `path` (a `{section, key, ...}` override path, e.g. {"shell","ui_scale"}
   // or {"bar","default","monitor","DP-1","thickness"}) resolves to a real key in the

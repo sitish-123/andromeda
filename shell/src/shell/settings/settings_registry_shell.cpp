@@ -56,141 +56,40 @@ namespace settings {
     auto lockscreenRows =
         generateSchemaEntries(noctalia::config::schema::lockscreenSchema(), cfg.lockscreen, {"lockscreen"});
     appendRow(entries, lockscreenRows, "enabled");
-    {
-      auto e = makeEntry(
-          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.lock-before-suspend.label"),
-          tr("settings.schema.lockscreen.lock-before-suspend.description"), {"lockscreen", "lock_before_suspend"},
-          ToggleSetting{cfg.lockscreen.lockBeforeSuspend}, "lock screen before suspend sleep lid close prepareforsleep"
-      );
-      e.visibleWhen = lockscreenOn;
-      entries.push_back(std::move(e));
+    const auto lockRow = [&](std::string_view key, const SettingVisibility& visibleWhen) {
+      appendRow(entries, lockscreenRows, key);
+      entries.back().visibleWhen = visibleWhen;
+    };
+    for (const auto* key : {"lock_before_suspend", "grace_period_seconds", "fingerprint", "face"}) {
+      lockRow(key, lockscreenOn);
     }
-    {
-      auto e = makeEntry(
-          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.grace-period.label"),
-          tr("settings.schema.lockscreen.grace-period.description"), {"lockscreen", "grace_period_seconds"},
-          StepperSetting{
-              .value = std::clamp(cfg.lockscreen.gracePeriodSeconds, 0, 60),
-              .minValue = 0,
-              .maxValue = 60,
-              .step = 1,
-              .valueSuffix = "s"
-          },
-          "lock screen grace period passwordless unlock keypress mouse movement"
-      );
-      e.visibleWhen = lockscreenOn;
-      entries.push_back(std::move(e));
-    }
-    {
-      auto e = makeEntry(
-          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.fingerprint.label"),
-          tr("settings.schema.lockscreen.fingerprint.description"), {"lockscreen", "fingerprint"},
-          ToggleSetting{cfg.lockscreen.fingerprint}, "lock screen fingerprint fprintd biometric"
-      );
-      e.visibleWhen = lockscreenOn;
-      entries.push_back(std::move(e));
-    }
-    {
-      auto e = makeEntry(
-          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.face.label"),
-          tr("settings.schema.lockscreen.face.description"), {"lockscreen", "face"}, ToggleSetting{cfg.lockscreen.face},
-          "lock screen face unlock camera gaze biometric"
-      );
-      e.visibleWhen = lockscreenOn;
-      entries.push_back(std::move(e));
-    }
-    {
-      auto e = makeEntry(
-          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.face-on-request.label"),
-          tr("settings.schema.lockscreen.face-on-request.description"), {"lockscreen", "face_on_request"},
-          ToggleSetting{cfg.lockscreen.faceOnRequest}, "lock screen face unlock tap request camera privacy"
-      );
-      e.visibleWhen = [](const Config& c) { return c.lockscreen.enabled && c.lockscreen.face; };
-      entries.push_back(std::move(e));
-    }
-    {
-      SelectSetting theme{
-          {SelectOption{.value = "andromeda", .label = tr("settings.schema.lockscreen.theme.andromeda")},
-           SelectOption{.value = "ryoku", .label = tr("settings.schema.lockscreen.theme.ryoku")}},
-          cfg.lockscreen.theme
-      };
-      theme.segmented = true;
-      auto e = makeEntry(
-          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.theme.label"),
-          tr("settings.schema.lockscreen.theme.description"), {"lockscreen", "theme"}, std::move(theme),
-          "lock screen style ryoku andromeda classic look theme"
-      );
-      e.visibleWhen = lockscreenOn;
-      entries.push_back(std::move(e));
-    }
+    lockRow("face_on_request", [](const Config& c) { return c.lockscreen.enabled && c.lockscreen.face; });
+    lockRow("theme", lockscreenOn);
     {
       // Andromeda-only rows: Ryoku draws its own dial and ignores layout and clock options.
       const SettingVisibility andromedaOn = [](const Config& c) {
         return c.lockscreen.enabled && c.lockscreen.theme == "andromeda";
       };
-      const auto select = [&](const char* key, const char* path, std::vector<SelectOption> options,
-                              const std::string& value, const char* search) {
-        auto e = makeEntry(
-            SettingsSection::Security, "lock-screen", tr(std::format("settings.schema.lockscreen.{}.label", key)),
-            tr(std::format("settings.schema.lockscreen.{}.description", key)), {"lockscreen", path},
-            SelectSetting{std::move(options), value}, search
-        );
-        e.visibleWhen = andromedaOn;
-        entries.push_back(std::move(e));
-      };
-      const auto option = [&](const char* key, const char* value) {
-        return SelectOption{.value = value, .label = tr(std::format("settings.schema.lockscreen.{}.{}", key, value))};
-      };
-      select(
-          "layout", "layout",
-          {option("layout", "centered"), option("layout", "glance"), option("layout", "split"),
-           option("layout", "minimal")},
-          cfg.lockscreen.layout, "lock screen layout centered glance split minimal"
-      );
+      lockRow("layout", andromedaOn);
       std::vector<SelectOption> styles;
       for (const ClockStyle& style : clockStyles()) {
-        styles.push_back(option("clock-style", std::string(style.id).c_str()));
+        styles.push_back(SelectOption{
+            .value = std::string(style.id),
+            .label = tr(std::format("settings.schema.lockscreen.clock-style.{}", style.id)),
+        });
       }
-      select("clock-style", "clock_style", std::move(styles), cfg.lockscreen.clockStyle, "lock screen clock style font");
-      select(
-          "clock-size", "clock_size",
-          {SelectOption{.value = "", .label = tr("settings.schema.lockscreen.clock-size.auto")},
-           option("clock-size", "s"), option("clock-size", "m"), option("clock-size", "l"), option("clock-size", "xl")},
-          cfg.lockscreen.clockSize, "lock screen clock size"
+      auto clockStyle = makeEntry(
+          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.clock-style.label"),
+          tr("settings.schema.lockscreen.clock-style.description"), {"lockscreen", "clock_style"},
+          SelectSetting{std::move(styles), cfg.lockscreen.clockStyle}, "lock screen clock style font"
       );
-      const auto toggle = [&](const char* key, const char* path, bool value, const char* search) {
-        auto e = makeEntry(
-            SettingsSection::Security, "lock-screen", tr(std::format("settings.schema.lockscreen.{}.label", key)),
-            tr(std::format("settings.schema.lockscreen.{}.description", key)), {"lockscreen", path},
-            ToggleSetting{value}, search
-        );
-        e.visibleWhen = andromedaOn;
-        entries.push_back(std::move(e));
-      };
-      toggle("clock-format-24h", "clock_format_24h", cfg.lockscreen.clockFormat24h, "lock screen clock 24 hour 12");
-      toggle("clock-seconds", "clock_seconds", cfg.lockscreen.clockSeconds, "lock screen clock seconds");
-      select(
-          "notification-content", "notification_content",
-          {option("notification-content", "hidden"), option("notification-content", "shown")},
-          cfg.lockscreen.notificationContent, "lock screen notification content privacy preview"
-      );
-      auto owner = makeEntry(
-          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.owner-message.label"),
-          tr("settings.schema.lockscreen.owner-message.description"), {"lockscreen", "owner_message"},
-          TextSetting{.value = cfg.lockscreen.ownerMessage}, "lock screen owner message lost found contact"
-      );
-      owner.visibleWhen = andromedaOn;
-      entries.push_back(std::move(owner));
+      clockStyle.visibleWhen = andromedaOn;
+      entries.push_back(std::move(clockStyle));
+      for (const auto* key : {"clock_size", "clock_format_24h", "clock_seconds", "notification_content", "owner_message"}) {
+        lockRow(key, andromedaOn);
+      }
     }
-    {
-      auto e = makeEntry(
-          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.allow-empty-password.label"),
-          tr("settings.schema.lockscreen.allow-empty-password.description"), {"lockscreen", "allow_empty_password"},
-          ToggleSetting{cfg.lockscreen.allowEmptyPassword}, "lock screen empty password security key pam"
-      );
-      e.visibleWhen = lockscreenOn;
-      entries.push_back(std::move(e));
-    }
+    lockRow("allow_empty_password", lockscreenOn);
     if (env.screencopySupported) {
       MultiSelectSetting transitions;
       transitions.options.reserve(std::size(kLockscreenTransitions));
@@ -208,26 +107,8 @@ namespace settings {
       );
       transitionEffects.visibleWhen = lockscreenOn;
       entries.push_back(std::move(transitionEffects));
-
-      auto transitionDuration = makeEntry(
-          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.transition-duration.label"),
-          tr("settings.schema.lockscreen.transition-duration.description"), {"lockscreen", "transition_duration"},
-          sliderFor(
-              cfg.lockscreen.transitionDurationMs, noctalia::config::schema::kLockscreenTransitionDurationRange, true
-          ),
-          "lock screen transition animation duration"
-      );
-      transitionDuration.visibleWhen = lockscreenOn;
-      entries.push_back(std::move(transitionDuration));
-
-      auto edgeSmoothness = makeEntry(
-          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.edge-smoothness.label"),
-          tr("settings.schema.lockscreen.edge-smoothness.description"), {"lockscreen", "edge_smoothness"},
-          sliderFor(cfg.lockscreen.edgeSmoothness, noctalia::config::schema::kUnitRange, false),
-          "lock screen transition feathering", true
-      );
-      edgeSmoothness.visibleWhen = lockscreenOn;
-      entries.push_back(std::move(edgeSmoothness));
+      lockRow("transition_duration", lockscreenOn);
+      lockRow("edge_smoothness", lockscreenOn);
     }
     {
       const SettingVisibility lockscreenWallpaperOn = [](const Config& c) {
@@ -253,24 +134,8 @@ namespace settings {
       e.visibleWhen = lockscreenWallpaperOn;
       entries.push_back(std::move(e));
     }
-    {
-      auto e = makeEntry(
-          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.blur-intensity.label"),
-          tr("settings.schema.lockscreen.blur-intensity.description"), {"lockscreen", "blur_intensity"},
-          sliderFor(cfg.lockscreen.blurIntensity, noctalia::config::schema::kUnitRange, false), "lock screen blur"
-      );
-      e.visibleWhen = lockscreenOn;
-      entries.push_back(std::move(e));
-    }
-    {
-      auto e = makeEntry(
-          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.tint-intensity.label"),
-          tr("settings.schema.lockscreen.tint-intensity.description"), {"lockscreen", "tint_intensity"},
-          sliderFor(cfg.lockscreen.tintIntensity, noctalia::config::schema::kUnitRange, false), "lock screen tint"
-      );
-      e.visibleWhen = lockscreenOn;
-      entries.push_back(std::move(e));
-    }
+    lockRow("blur_intensity", lockscreenOn);
+    lockRow("tint_intensity", lockscreenOn);
     {
       auto e = makeEntry(
           SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.monitors.label"),

@@ -306,14 +306,7 @@ namespace settings {
     }
 
     // Custom scheduling: explicit sunrise/sunset times for night light and theme auto mode.
-    {
-      auto e = makeEntry(
-          SettingsSection::Location, "location", tr("settings.schema.services.custom-schedule.label"),
-          tr("settings.schema.services.custom-schedule.description"), {"location", "custom_schedule"},
-          ToggleSetting{cfg.location.customSchedule}, "schedule custom time sunrise sunset"
-      );
-      entries.push_back(std::move(e));
-    }
+    appendRow(entries, locationRows, "custom_schedule");
     // Keep both required times editable before activation so the schedule can be valid when enabled.
     appendRow(entries, locationRows, "sunset");
     appendRow(entries, locationRows, "sunrise");
@@ -331,37 +324,9 @@ namespace settings {
       e.visibleWhen = weatherOn;
       entries.push_back(std::move(e));
     }
-    {
-      auto e = makeEntry(
-          SettingsSection::Location, "weather", tr("settings.schema.services.weather-unit.label"),
-          tr("settings.schema.services.weather-unit.description"), {"weather", "unit"},
-          asSegmented(plainSelect(
-              {{"metric", "settings.options.weather.unit.metric"},
-               {"imperial", "settings.options.weather.unit.imperial"}},
-              cfg.weather.unit
-          )),
-          "temperature"
-      );
-      e.visibleWhen = weatherOn;
-      entries.push_back(std::move(e));
-    }
-    {
-      auto e = makeEntry(
-          SettingsSection::Location, "weather", tr("settings.schema.services.weather-effects.label"),
-          tr("settings.schema.services.weather-effects.description"), {"weather", "effects"},
-          ToggleSetting{cfg.weather.effects}, "forecast visuals"
-      );
-      e.visibleWhen = weatherOn;
-      entries.push_back(std::move(e));
-    }
-    {
-      auto e = makeEntry(
-          SettingsSection::Location, "weather", tr("settings.schema.services.weather-refresh-interval.label"),
-          tr("settings.schema.services.weather-refresh-interval.description"), {"weather", "refresh_minutes"},
-          sliderFor(cfg.weather.refreshMinutes, noctalia::config::schema::kRefreshMinutesRange, true), "forecast"
-      );
-      e.visibleWhen = weatherOn;
-      entries.push_back(std::move(e));
+    for (const auto* key : {"unit", "effects", "refresh_minutes"}) {
+      appendRow(entries, weatherRows, key);
+      entries.back().visibleWhen = weatherOn;
     }
 
     if (!env.gammaControlAvailable) {
@@ -377,15 +342,10 @@ namespace settings {
           ToggleSetting{cfg.nightlight.enabled}, "nightlight"
       ));
       const SettingVisibility nightLightOn = [](const Config& c) { return c.nightlight.enabled; };
-      {
-        auto e = makeEntry(
-            SettingsSection::Location, "night-light", tr("settings.schema.services.force-night-light.label"),
-            tr("settings.schema.services.force-night-light.description"), {"nightlight", "force"},
-            ToggleSetting{cfg.nightlight.force}, "nightlight"
-        );
-        e.visibleWhen = nightLightOn;
-        entries.push_back(std::move(e));
-      }
+      auto nightLightRows =
+          generateSchemaEntries(noctalia::config::schema::nightlightSchema(), cfg.nightlight, {"nightlight"});
+      appendRow(entries, nightLightRows, "force");
+      entries.back().visibleWhen = nightLightOn;
       // Both sliders span the same range; the day > night invariant is enforced at commit time
       // via SliderSetting::linkedCommit, which pushes the other temperature when needed.
       const auto tempMin = static_cast<double>(NightLightConfig::kTemperatureMin);
@@ -687,7 +647,6 @@ namespace settings {
   void registry_detail::add_power_settings(RegistryContext& ctx) {
     using i18n::tr;
     const auto& cfg = ctx.cfg;
-    const auto& env = ctx.env;
     auto& entries = ctx.entries;
 
     // Power
