@@ -698,12 +698,11 @@ namespace andromeda {
       const GesturePhysics::StepRelease release = GesturePhysics::release(
           m_overviewTracker, kOverviewDistancePx, m_overviewBase, 0.0, 1.0
       );
-      // GNOME's SwipeTracker rule for two snap points: a slow release settles on the nearer state; a fast one
-      // goes the way the fingers move, whatever the travel.
-      constexpr double kFlickPxPerSec = 600.0;
+      // Rulebook 7.7: a slow release settles on the state nearest the projected end; a fast one goes the way the
+      // fingers move, whatever the travel.
+      constexpr double kFlickPxPerSec = 300.0;
       const double fingerVelocity = m_overviewTracker.velocity();
-      stop = std::abs(fingerVelocity) < kFlickPxPerSec ? static_cast<int>(std::lround(std::clamp(release.position, 0.0, 1.0)))
-                                                       : (fingerVelocity > 0.0 ? 1 : 0);
+      stop = std::abs(fingerVelocity) < kFlickPxPerSec ? release.target : (fingerVelocity > 0.0 ? 1 : 0);
       // Speed away from the target (after an overscroll) would first carry the zoom further out; the spring starts
       // from rest instead.
       velocity = (stop - release.position) * release.velocity > 0.0 ? release.velocity : 0.0;

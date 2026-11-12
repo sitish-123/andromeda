@@ -1,8 +1,5 @@
 #include "input/swipe_tracker.h"
 
-#include <cmath>
-#include <ranges>
-
 namespace andromeda {
 
   void SwipeTracker::push(double delta, uint32_t timeMsec) {
@@ -14,8 +11,8 @@ namespace andromeda {
       }
     }
 
-    m_history.push_back({delta, timeMsec});
     m_pos += delta;
+    m_history.push_back({m_pos, timeMsec});
 
     trimHistory(timeMsec);
   }
@@ -29,26 +26,30 @@ namespace andromeda {
     if (m_history.size() < 2) {
       return 0.0;
     }
-
-    const auto totalTimeMsec =
-        static_cast<double>(static_cast<int32_t>(m_history.back().timeMsec - m_history.front().timeMsec));
-    if (totalTimeMsec == 0.0) {
-      return 0.0;
+    // Least-squares slope of position over time, in px per ms.
+    const uint32_t origin = m_history.front().timeMsec;
+    double meanT = 0.0;
+    double meanP = 0.0;
+    for (const Event& event : m_history) {
+      meanT += static_cast<double>(static_cast<int32_t>(event.timeMsec - origin));
+      meanP += event.pos;
     }
-
-    // Each delta is the motion since the previous event, so the oldest one happened before the window starts and
-    // would inflate the estimate: over two samples it doubles it.
-    double totalDelta = 0.0;
-    for (const Event& event : m_history | std::views::drop(1)) {
-      totalDelta += event.delta;
+    const auto count = static_cast<double>(m_history.size());
+    meanT /= count;
+    meanP /= count;
+    double covariance = 0.0;
+    double variance = 0.0;
+    for (const Event& event : m_history) {
+      const double t = static_cast<double>(static_cast<int32_t>(event.timeMsec - origin)) - meanT;
+      covariance += t * (event.pos - meanP);
+      variance += t * t;
     }
     // Seconds, matching a px/s velocity.
-    return totalDelta / (totalTimeMsec / 1000.0);
+    return variance > 0.0 ? covariance / variance * 1000.0 : 0.0;
   }
 
   double SwipeTracker::projectedEndPos() const {
-    const double vel = velocity();
-    return m_pos - vel / (1000.0 * std::log(kDecelerationTouchpad));
+    return m_pos + velocity() * kDeceleration / (1.0 - kDeceleration) / 1000.0;
   }
 
   void SwipeTracker::trimHistory(uint32_t nowMsec) {

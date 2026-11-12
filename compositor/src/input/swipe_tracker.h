@@ -11,8 +11,9 @@ namespace andromeda {
   inline constexpr double kSwipeWorkspacePx = 300.0;
   inline constexpr double kSwipeViewportPx = 1200.0;
 
-  // Sliding-window swipe tracker. Accumulates deltas since the gesture start, estimates velocity over recent history
-  // only, and projects where the movement would coast to a stop under exponential deceleration.
+  // Sliding-window swipe tracker (rulebook 7.7). Accumulates deltas since the gesture start, fits the velocity to the
+  // last 100 ms of positions by least squares, and projects where the movement would coast to a stop under
+  // exponential deceleration.
   class SwipeTracker {
   public:
     // Pushes a new reading into the tracker.
@@ -25,12 +26,12 @@ namespace andromeda {
 
   private:
     struct Event {
-      double delta = 0;
+      double pos = 0; // position after this reading
       uint32_t timeMsec = 0;
     };
 
-    static constexpr int32_t kHistoryLimitMsec = 150;
-    static constexpr double kDecelerationTouchpad = 0.997;
+    static constexpr int32_t kHistoryLimitMsec = 100;
+    static constexpr double kDeceleration = 0.998; // per millisecond
 
     void trimHistory(uint32_t nowMsec);
 
