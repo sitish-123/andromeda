@@ -803,13 +803,15 @@ void NotificationManager::processExpired() {
 
 void NotificationManager::setKeepDismissedInHistory(bool keep) { m_keepDismissedInHistory = keep; }
 
-void NotificationManager::pauseExpiry(uint32_t id) {
+std::optional<int32_t> NotificationManager::pauseExpiry(uint32_t id) {
   const auto it = m_idToIndex.find(id);
-  if (it == m_idToIndex.end()) {
-    return;
+  if (it == m_idToIndex.end() || !m_notifications[it->second].expiryTime.has_value()) {
+    return std::nullopt;
   }
+  const auto left = std::chrono::ceil<std::chrono::milliseconds>(*m_notifications[it->second].expiryTime - Clock::now());
   m_notifications[it->second].expiryTime.reset();
   m_notifications[it->second].expiryWallClock.reset();
+  return static_cast<int32_t>(std::max<std::int64_t>(left.count(), 0));
 }
 
 void NotificationManager::setHistoryRetentionHours(int hours) {

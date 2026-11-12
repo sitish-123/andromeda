@@ -399,11 +399,7 @@ void LiveActivityIsland::apply(Queue::Step step) {
     m_osdTimer.stop();
   }
   if (step.banner == Queue::TimerCmd::Start) {
-    m_bannerTimer.start(kBannerTime, [this, alive = std::weak_ptr<bool>(m_alive)] {
-      if (!alive.expired()) {
-        endBanner();
-      }
-    });
+    startBannerTimer(kBannerTime);
   } else if (step.banner == Queue::TimerCmd::Stop) {
     m_bannerTimer.stop();
   }
@@ -414,6 +410,15 @@ void LiveActivityIsland::apply(Queue::Step step) {
   for (auto& inst : m_instances) {
     inst->surface->requestLayout();
   }
+}
+
+void LiveActivityIsland::startBannerTimer(std::chrono::milliseconds delay) {
+  m_bannerDeadline = std::chrono::steady_clock::now() + delay;
+  m_bannerTimer.start(delay, [this, alive = std::weak_ptr<bool>(m_alive)] {
+    if (!alive.expired()) {
+      endBanner();
+    }
+  });
 }
 
 void LiveActivityIsland::endBanner() { apply(m_queue.endBanner()); }
@@ -722,6 +727,10 @@ void LiveActivityIsland::setFullscreenOutputs(std::vector<wl_output*> outputs) {
     return;
   }
   m_fullscreenOutputs = std::move(outputs);
+  // No island can show them now, and hidden they would hold back a critical banner: they stay in the center only.
+  if (everyIslandFullscreen()) {
+    apply(m_queue.dropIf([](const BannerItem& b) { return !b.critical; }));
+  }
   updateAllFaces();
   for (auto& inst : m_instances) {
     applyLayer(*inst);
@@ -1621,6 +1630,7 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
   }));
   inst.bannerClose->setCustomPalette(livePalette(false));
   inst.bannerClose->setOnEnter([this, instPtr] { setBannerHover(*instPtr, true); });
+  inst.bannerClose->setOnLeave([this, instPtr] { setBannerHover(*instPtr, false); });
   inst.faceNode[static_cast<std::size_t>(Face::Banner)] = banner.get();
   tint->addChild(std::move(banner));
 
@@ -2451,8 +2461,8 @@ void LiveActivityIsland::bannerDragEnd(Instance& inst) {
   );
 }
 
-// A two-finger scroll over the banner drags it as a finger would: the content follows the fingers, so the travel is
-// the negated scroll. The drag releases when no scroll event came for kScrollEnd.
+// A two-finger scroll over the banner drags it as a finger would, whatever the natural scrolling setting: the travel
+// follows the fingers (axis_relative_direction). The drag releases when no scroll event came for kScrollEnd.
 bool LiveActivityIsland::bannerScroll(Instance& inst, const InputArea::PointerData& d) {
   if (d.axisSource != kAxisSourceFinger) {
     return false;
@@ -2463,7 +2473,8 @@ bool LiveActivityIsland::bannerScroll(Instance& inst, const InputArea::PointerDa
       return false;
     }
   }
-  (d.axis == kAxisHorizontal ? inst.dragTravelX : inst.dragTravelY) -= static_cast<float>(d.axisValue);
+  const float fingers = static_cast<float>(inst.axisInverted ? -d.axisValue : d.axisValue);
+  (d.axis == kAxisHorizontal ? inst.dragTravelX : inst.dragTravelY) += fingers;
   bannerDragTravel(inst, inst.dragTravelX, inst.dragTravelY);
   auto* instPtr = &inst;
   inst.scrollEnd.start(kScrollEnd, [this, instPtr] {
@@ -2474,7 +2485,7 @@ bool LiveActivityIsland::bannerScroll(Instance& inst, const InputArea::PointerDa
   return true;
 }
 
-// Hovering the banner shows its close button and pauses its timeout; leaving restarts the timeout in full.
+// Hovering the banner shows its close button and pauses its timeout; leaving resumes it with the time it had left.
 void LiveActivityIsland::setBannerHover(Instance& inst, bool hover) {
   inst.bannerHover = hover && inst.morph.shown() == Face::Banner;
   if (inst.bannerClose != nullptr && inst.bannerClose->visible() != inst.bannerHover) {
@@ -2486,16 +2497,19 @@ void LiveActivityIsland::setBannerHover(Instance& inst, bool hover) {
   // The notification's own expiry would close the banner too: it pauses with the island's timeout.
   if (anyHover && m_banner.has_value() && m_bannerTimer.active()) {
     m_bannerTimer.stop();
-    m_bannerPausedFor = m_banner->id;
-    if (m_notifications != nullptr) {
-      m_notifications->pauseExpiry(m_banner->id);
-    }
+    const auto left =
+        std::chrono::ceil<std::chrono::milliseconds>(m_bannerDeadline - std::chrono::steady_clock::now());
+    m_bannerPausedFor = BannerPause{
+        .id = m_banner->id,
+        .banner = std::max(left, std::chrono::milliseconds{0}),
+        .notificationMs = m_notifications != nullptr ? m_notifications->pauseExpiry(m_banner->id) : std::nullopt,
+    };
   } else if (!anyHover && m_bannerPausedFor.has_value()) {
-    if (m_banner.has_value() && m_banner->id == *m_bannerPausedFor) {
-      apply(Queue::Step{.banner = Queue::TimerCmd::Start});
+    if (m_banner.has_value() && m_banner->id == m_bannerPausedFor->id) {
+      startBannerTimer(m_bannerPausedFor->banner);
     }
-    if (m_notifications != nullptr) {
-      m_notifications->resumeExpiry(*m_bannerPausedFor, static_cast<std::int32_t>(kBannerTime.count()));
+    if (m_notifications != nullptr && m_bannerPausedFor->notificationMs.has_value()) {
+      m_notifications->resumeExpiry(m_bannerPausedFor->id, *m_bannerPausedFor->notificationMs);
     }
     m_bannerPausedFor.reset();
   }
@@ -2791,6 +2805,7 @@ bool LiveActivityIsland::onPointerEvent(const PointerEvent& event) {
       break;
     case PointerEvent::Type::Axis:
       if (inst->pointerInside) {
+        inst->axisInverted = event.axisInverted;
         consumed = inst->inputDispatcher.pointerAxis(
                        x, y, event.axis, event.axisSource, event.axisValue, event.axisDiscrete, event.axisValue120,
                        event.axisLines, event.axisGestureSerial

@@ -43,6 +43,8 @@ struct PointerEvent {
   std::int32_t axisValue120 = 0;
   float axisLines = 0.0F;
   std::uint32_t axisGestureSerial = 0;
+  // wl_pointer.axis_relative_direction: the physical motion is opposite to the axis value (natural scrolling).
+  bool axisInverted = false;
   bool touch = false;
 };
 
@@ -137,6 +139,7 @@ public:
   static void handlePointerAxisStop(void* data, wl_pointer* pointer, std::uint32_t time, std::uint32_t axis);
   static void handlePointerAxisDiscrete(void* data, wl_pointer* pointer, std::uint32_t axis, std::int32_t discrete);
   static void handlePointerAxisValue120(void* data, wl_pointer* pointer, std::uint32_t axis, std::int32_t value120);
+  static void handlePointerAxisRelativeDirection(void* data, wl_pointer* pointer, std::uint32_t axis, std::uint32_t direction);
   static void handlePointerFrame(void* data, wl_pointer* pointer);
 
   // Touch listener entrypoints
@@ -209,6 +212,7 @@ private:
   };
   // Indexed by wl_pointer axis (vertical, horizontal).
   std::array<AxisDetent, 2> m_pendingAxisDetents{};
+  std::array<bool, 2> m_pendingAxisInverted{};
   std::array<std::uint32_t, 2> m_axisGestureSerial{};
   wl_surface* m_lastPointerSurface = nullptr;
   std::uint32_t m_pointerEnterSerial = 0;

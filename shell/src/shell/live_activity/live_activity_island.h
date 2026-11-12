@@ -250,6 +250,7 @@ private:
     float dragStartY = 0.0F;
     float dragTravelX = 0.0F; // scroll travel since the first scroll event
     float dragTravelY = 0.0F;
+    bool axisInverted = false; // of the axis event being dispatched (PointerEvent::axisInverted)
     float dragLastTravel = 0.0F; // along dragAxis, at dragLastAt
     float dragVelocity = 0.0F;   // px/ms along dragAxis
     Timer scrollEnd;             // the scroll drag releases when its events stop
@@ -376,6 +377,7 @@ private:
   void syncHoverProgress(Instance& inst);
   using Queue = IslandQueue<BannerItem, OsdContent>;
   void apply(Queue::Step step);
+  void startBannerTimer(std::chrono::milliseconds delay);
   void endBanner();
   void syncVisibility();
   [[nodiscard]] bool coversAllOutputs() const;
@@ -404,8 +406,14 @@ private:
   float m_barsPhase = 0.0F;
   Timer m_osdTimer;
   Timer m_bannerTimer;
-  // The banner whose timeout a hover paused; it restarts in full when the pointer leaves.
-  std::optional<std::uint32_t> m_bannerPausedFor;
+  std::chrono::steady_clock::time_point m_bannerDeadline;
+  // A banner whose timeout a hover paused, with the time each timer had left; they resume with it on leave.
+  struct BannerPause {
+    std::uint32_t id = 0;
+    std::chrono::milliseconds banner{0};
+    std::optional<std::int32_t> notificationMs; // nullopt: the notification never expires
+  };
+  std::optional<BannerPause> m_bannerPausedFor;
   Queue m_queue;
   // Read-only views: only m_queue changes the OSD and the banners.
   const std::optional<OsdContent>& m_osd = m_queue.osd();

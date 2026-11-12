@@ -42,7 +42,7 @@ namespace {
       .axis_stop = &WaylandSeat::handlePointerAxisStop,
       .axis_discrete = &WaylandSeat::handlePointerAxisDiscrete,
       .axis_value120 = &WaylandSeat::handlePointerAxisValue120,
-      .axis_relative_direction = [](void*, wl_pointer*, std::uint32_t, std::uint32_t) {},
+      .axis_relative_direction = &WaylandSeat::handlePointerAxisRelativeDirection,
   };
 
   const wl_touch_listener kTouchListener = {
@@ -419,6 +419,7 @@ void WaylandSeat::handlePointerAxis(
       .axisSource = self->m_pendingAxisSource,
       .axisValue = wl_fixed_to_double(value),
       .axisGestureSerial = axis < self->m_axisGestureSerial.size() ? self->m_axisGestureSerial[axis] : 0,
+      .axisInverted = axis < self->m_pendingAxisInverted.size() && self->m_pendingAxisInverted[axis],
   };
 
   // axis_discrete/axis_value120 arrive before the axis event they describe, and
@@ -479,6 +480,15 @@ void WaylandSeat::handlePointerAxisValue120(
   detent.lines = static_cast<float>(value120) / kAxisValue120PerStep;
 }
 
+void WaylandSeat::handlePointerAxisRelativeDirection(
+    void* data, wl_pointer* /*pointer*/, std::uint32_t axis, std::uint32_t direction
+) {
+  auto* self = static_cast<WaylandSeat*>(data);
+  if (axis < self->m_pendingAxisInverted.size()) {
+    self->m_pendingAxisInverted[axis] = direction == WL_POINTER_AXIS_RELATIVE_DIRECTION_INVERTED;
+  }
+}
+
 void WaylandSeat::handlePointerFrame(void* data, wl_pointer* /*pointer*/) {
   auto* self = static_cast<WaylandSeat*>(data);
   std::vector<PointerEvent> events = std::move(self->m_pendingPointerEvents);
@@ -486,6 +496,7 @@ void WaylandSeat::handlePointerFrame(void* data, wl_pointer* /*pointer*/) {
   self->m_pendingAxisSource = 0;
   // Detents never carry across a frame; drop any the compositor left uncoupled.
   self->m_pendingAxisDetents.fill({});
+  self->m_pendingAxisInverted.fill(false);
 
   if (!self->m_pointerEventCallback) {
     return;

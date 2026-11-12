@@ -47,7 +47,8 @@
 namespace {
 
   constexpr std::uint32_t kCompositorVersion = 4;
-  constexpr std::uint32_t kSeatVersion = 8;
+  // 9: wl_pointer.axis_relative_direction.
+  constexpr std::uint32_t kSeatVersion = 9;
   constexpr std::uint32_t kShmVersion = 1;
   constexpr std::uint32_t kSubcompositorVersion = 1;
   constexpr std::uint32_t kLayerShellVersion = 4;
