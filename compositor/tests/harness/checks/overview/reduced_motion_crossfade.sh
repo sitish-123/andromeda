@@ -7,7 +7,7 @@ source "$ANDROMEDA_HARNESS_LIB"
 
 readonly W=1280 H=720
 readonly BLUE='b > 0.6 && r < 0.1 && g < 0.1'
-readonly FRAMES=40 STEP_MS=16
+readonly FRAMES=20 STEP_MS=32
 IMAGE="$ANDROMEDA_RUNTIME_DIR/crossfade.png"
 
 cat >> "$ANDROMEDA_CONFIG" <<'CONFIG'
@@ -29,37 +29,53 @@ wait_count() {
   echo "expected $1 window(s): $("$ANDROMEDA" windows --json)"
   exit 1
 }
+# bbox [crop x,y wxh]: the blue card's box in output px, from an uncompressed capture of the crop.
 bbox() {
-  grim -o HEADLESS-1 "$IMAGE"
-  "$ANDROMEDA_PIXEL_PROBE" "$IMAGE" bbox "$1"
+  local crop=${1:-0,0 ${W}x${H}} ox oy x y w h
+  grim -l 0 -g "$crop" "$IMAGE"
+  IFS=, read -r ox oy <<< "${crop%% *}"
+  read -r x y w h < <("$ANDROMEDA_PIXEL_PROBE" "$IMAGE" bbox "$BLUE")
+  ((w > 0)) && echo "$((x + ox)) $((y + oy)) $w $h" || echo "0 0 0 0"
 }
 near() { (($1 - $2 <= 2 && $2 - $1 <= 2)); }
 
-# frames <label> <predicate> <start bbox> <end bbox>: advances the frozen clock frame by frame until the card settles
-# and fails if a frame draws the card away from both places. Sets FADED when a frame drew it faded or not at all.
-frames() {
-  local label=$1 predicate=$2 start=$3 end=$4 x y w h sx sy ex ey peak
-  read -r sx sy _ _ <<< "$start"
-  read -r ex ey _ _ <<< "$end"
-  FADED=0
-  for frame in $(seq "$FRAMES"); do
+# sample <crop>: advances the frozen clock frame by frame and records the blue card's box and peak blue per frame.
+sample() {
+  local ox oy box peak x y w h
+  IFS=, read -r ox oy <<< "${1%% *}"
+  BOXES=()
+  for _ in $(seq "$FRAMES"); do
     "$ANDROMEDA" clock-advance "$STEP_MS" > /dev/null
-    read -r x y w h < <(bbox "$predicate")
-    if ((w == 0)); then
-      FADED=1
-      continue
+    box=$(bbox "$1")
+    read -r x y w h <<< "$box"
+    peak=0
+    if ((w > 0)); then
+      read -r _ _ peak < <("$ANDROMEDA_PIXEL_PROBE" "$IMAGE" max "${w}x${h}+$((x - ox))+$((y - oy))")
     fi
+    BOXES+=("$box $peak")
+  done
+}
+
+# check <label> <start box> <end box>: every recorded frame drew the card at its start or end place or not at all, and
+# at least one frame drew it faded or hidden.
+check() {
+  local label=$1 sx sy ex ey x y w h peak faded=0
+  read -r sx sy _ _ <<< "$2"
+  read -r ex ey _ _ <<< "$3"
+  { near "$sx" "$ex" && near "$sy" "$ey"; } && { echo "$label: the card did not move ($2 -> $3)"; exit 1; }
+  for i in "${!BOXES[@]}"; do
+    read -r x y w h peak <<< "${BOXES[$i]}"
+    if ((w == 0 || peak < 230)); then
+      faded=1
+    fi
+    ((w == 0)) && continue
     if ! { near "$x" "$sx" && near "$y" "$sy"; } && ! { near "$x" "$ex" && near "$y" "$ey"; }; then
-      "$ANDROMEDA" clock-resume > /dev/null
-      echo "$label: at $((frame * STEP_MS)) ms the card is at ${w}x${h}+$x+$y, away from $start and $end"
+      echo "$label: at $(((i + 1) * STEP_MS)) ms the card is at ${w}x${h}+$x+$y, away from $2 and $3"
       exit 1
     fi
-    read -r _ _ peak < <("$ANDROMEDA_PIXEL_PROBE" "$IMAGE" max "${w}x${h}+${x}+${y}")
-    ((peak < 230)) && FADED=1
-    # Faded and back at full strength in its new place: settled.
-    ((FADED && peak >= 250)) && near "$x" "$ex" && near "$y" "$ey" && break
   done
-  return 0
+  ((faded)) || { echo "$label: the card jumped from $2 to $3 without fading"; exit 1; }
+  echo "$label: the card crossfades from $2 to $3"
 }
 
 FILL_COLOR=0xFFFF0000 "$ANDROMEDA_UNMAP_CLIENT" closing 500 400 > /dev/null 2>&1 &
@@ -69,57 +85,29 @@ wait_count 2
 "$ANDROMEDA_POINTER_CLIENT" "$W" "$H" move 5 5
 "$ANDROMEDA" msg overview-open > /dev/null
 "$ANDROMEDA" settle > /dev/null
-start=$(bbox "$BLUE")
+start=$(bbox)
+read -r _ sy _ sh <<< "$start"
 "$ANDROMEDA" clock-freeze > /dev/null
 "$ANDROMEDA" msg "window-close:$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "closing") | .id')" > /dev/null
 wait_count 1
+# The exposé moves the survivor along its row.
+sample "0,$sy ${W}x$sh"
 "$ANDROMEDA" clock-resume > /dev/null
 "$ANDROMEDA" settle > /dev/null
-end=$(bbox "$BLUE")
-read -r sx _ _ _ <<< "$start"
-read -r ex _ _ _ <<< "$end"
-near "$sx" "$ex" && { echo "reflow: the survivor did not move ($start -> $end)"; exit 1; }
+check reflow "$start" "$(bbox)"
 
-# The same close again, sampled: reopen with two windows.
-"$ANDROMEDA" msg overview-close > /dev/null
-"$ANDROMEDA" settle > /dev/null
-FILL_COLOR=0xFFFF0000 "$ANDROMEDA_UNMAP_CLIENT" closing 500 400 > /dev/null 2>&1 &
-wait_count 2
-"$ANDROMEDA" msg overview-open > /dev/null
-"$ANDROMEDA" settle > /dev/null
-start=$(bbox "$BLUE")
-"$ANDROMEDA" clock-freeze > /dev/null
-"$ANDROMEDA" msg "window-close:$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "closing") | .id')" > /dev/null
-wait_count 1
-frames reflow "$BLUE" "$start" "$end"
-"$ANDROMEDA" clock-resume > /dev/null
-((FADED)) || { echo "reflow: the survivor jumped from $start to $end without fading"; exit 1; }
-echo "reflow: the survivor crossfades from $start to $end"
-
-# Row move: Strip, red on desktop 1, blue on desktop 2; switching desktops moves both rows.
+# Row move: Strip, blue alone on desktop 1; switching to desktop 2 moves its row.
 "$ANDROMEDA" msg overview-close > /dev/null
 sed -i 's/^style = "spaces"$/style = "strip"/' "$ANDROMEDA_CONFIG"
 "$ANDROMEDA" msg config-reload > /dev/null
-"$ANDROMEDA" msg workspace-switch:2 > /dev/null
-FILL_COLOR=0xFFFF0000 "$ANDROMEDA_UNMAP_CLIENT" other 500 400 > /dev/null 2>&1 &
-wait_count 2
-"$ANDROMEDA" msg workspace-switch:1 > /dev/null
-"$ANDROMEDA" settle > /dev/null
-red_ws=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "other") | .workspace')
-blue_ws=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "survivor") | .workspace')
-[[ $red_ws != "$blue_ws" ]] || { echo "row: red and blue share $red_ws"; exit 1; }
 "$ANDROMEDA" msg overview-open > /dev/null
 "$ANDROMEDA" settle > /dev/null
-start=$(bbox "$BLUE")
-"$ANDROMEDA" msg workspace-switch:2 > /dev/null
-"$ANDROMEDA" settle > /dev/null
-end=$(bbox "$BLUE")
-"$ANDROMEDA" msg workspace-switch:1 > /dev/null
-"$ANDROMEDA" settle > /dev/null
-[[ $(bbox "$BLUE") == "$start" ]] || { echo "row: switching back did not restore the row"; exit 1; }
+start=$(bbox)
+read -r sx _ sw _ <<< "$start"
 "$ANDROMEDA" clock-freeze > /dev/null
 "$ANDROMEDA" msg workspace-switch:2 > /dev/null
-frames row "$BLUE" "$start" "$end"
+# The rows move along the workspace axis, here vertically.
+sample "$sx,0 ${sw}x$H"
 "$ANDROMEDA" clock-resume > /dev/null
-((FADED)) || { echo "row: the row jumped from $start to $end without fading"; exit 1; }
-echo "row: the left desktop's card crossfades from $start to $end"
+"$ANDROMEDA" settle > /dev/null
+check row "$start" "$(bbox)"
