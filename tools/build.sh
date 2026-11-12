@@ -8,7 +8,8 @@
 # --close keeps the locks off child processes, so an orphaned test helper cannot hold them.
 # A nested call (tools/f7.sh inside this script) runs at once: the outer call holds the locks.
 set -uo pipefail
-if [ -n "${DESKTOP_BUILD_LOCKED:-}" ]; then
+# CI has no user systemd bus for the scopes, and no other sessions to share slots with.
+if [ -n "${DESKTOP_BUILD_LOCKED:-}" ] || [ -n "${CI:-}" ]; then
   exec "$@"
 fi
 # Eight cc1plus jobs fill MemoryHigh=6G with anon memory and the slot re-reads its evicted page cache: cap ninja at 4.
