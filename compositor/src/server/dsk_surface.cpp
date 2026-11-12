@@ -76,7 +76,7 @@ namespace andromeda {
       wl_list_remove(&tail->commit.link);
       wl_list_remove(&tail->destroy.link);
     }
-    for (const auto& entry : m_secureCopies) {
+    for (const auto& [buffer, entry] : m_secureCopies) {
       wl_list_remove(&entry->destroy.link);
       if (entry->kind == SecureCopy::Kind::Mirror) {
         wl_list_remove(&entry->sourceDestroy.link);
@@ -169,6 +169,9 @@ namespace andromeda {
 
   void DskSurfaceManager::addCopy(wlr_scene_buffer* copy, wlr_surface* source) {
     using Kind = SecureCopy::Kind;
+    if (m_secureCopies.contains(copy)) {
+      return;
+    }
     auto entry = std::make_unique<SecureCopy>(SecureCopy{
         .manager = this,
         .buffer = copy,
@@ -185,7 +188,7 @@ namespace andromeda {
       } else {
         --self->manager->m_fixedCopies;
       }
-      std::erase_if(self->manager->m_secureCopies, [self](const auto& entry) { return entry.get() == self; });
+      self->manager->m_secureCopies.erase(self->buffer);
     };
     wl_signal_add(&copy->node.events.destroy, &entry->destroy);
     if (source != nullptr) {
@@ -201,18 +204,18 @@ namespace andromeda {
           return;
         }
         wl_list_remove(&self->destroy.link);
-        std::erase_if(manager->m_secureCopies, [self](const auto& entry) { return entry.get() == self; });
+        manager->m_secureCopies.erase(self->buffer);
       };
       wl_signal_add(&source->events.destroy, &entry->sourceDestroy);
     } else {
       ++m_fixedCopies;
     }
-    m_secureCopies.push_back(std::move(entry));
+    m_secureCopies.emplace(copy, std::move(entry));
   }
 
   bool DskSurfaceManager::secureCopy(const wlr_scene_buffer* buffer) const {
-    const auto it = std::ranges::find_if(m_secureCopies, [buffer](const auto& entry) { return entry->buffer == buffer; });
-    return it != m_secureCopies.end() && ((*it)->kind == SecureCopy::Kind::Fixed || secureTree((*it)->source));
+    const auto it = m_secureCopies.find(buffer);
+    return it != m_secureCopies.end() && (it->second->kind == SecureCopy::Kind::Fixed || secureTree(it->second->source));
   }
 
   bool DskSurfaceManager::tracks(const Tracker& tracker, wlr_surface* surface) {

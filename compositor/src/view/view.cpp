@@ -402,6 +402,10 @@ namespace andromeda {
       }
       return;
     }
+    sizeCaptureBlank();
+  }
+
+  void View::sizeCaptureBlank() {
     // A capture of an empty scene has no size, so the client gets no frame; the blank keeps a black one.
     int width = 0;
     int height = 0;

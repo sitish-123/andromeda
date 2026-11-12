@@ -179,8 +179,8 @@ namespace andromeda {
     View* self = wl_container_of(listener, self, m_commit);
     self->handleCommit();
     if (self->m_captureBlank != nullptr && self->m_captureBlank->node.enabled) {
-      // The blank follows the window's size.
-      self->refreshCaptureHidden();
+      // The blank follows the window's size; map, unmap and the secure handler change what it hides.
+      self->sizeCaptureBlank();
     }
     self->transitionConfigure(ConfigureEvent::Commit);
     if (Ipc* ipc = self->m_server->ipc()) {

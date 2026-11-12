@@ -1002,6 +1002,7 @@ namespace andromeda {
     wlr_scene* m_captureScene = nullptr;
     // In m_captureScene; enabled while refreshCaptureHidden hides the window's surfaces.
     wlr_scene_rect* m_captureBlank = nullptr;
+    void sizeCaptureBlank();
     ViewDecoration m_decoration;
     std::unique_ptr<ViewChromeAttachment> m_chromeAttachment;
     std::unique_ptr<SsdFrame> m_ssdFrame;

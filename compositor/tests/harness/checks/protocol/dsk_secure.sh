@@ -134,9 +134,9 @@ if ! timeout 10 grim -T "$window_id" "$WINDOW_SHOT" 2> "$WINDOW_LOG.grim"; then
   echo "grim cannot capture the window with a secure subsurface: $(tail -1 "$WINDOW_LOG.grim")"
   exit 1
 fi
-read -r window_blue < <("$ANDROMEDA_PIXEL_PROBE" "$WINDOW_SHOT" count "$BLUE")
-if ((window_blue != 0)); then
-  echo "a window capture shows a secure subsurface: $window_blue blue pixels"
+read -r window_blue window_black < <("$ANDROMEDA_PIXEL_PROBE" "$WINDOW_SHOT" count "$BLUE" "$BLACK")
+if ((window_blue != 0 || window_black < 10000)); then
+  echo "a window capture is not the black frame of a secure subsurface: $window_blue blue, $window_black black pixels"
   exit 1
 fi
 
@@ -180,6 +180,14 @@ if ((late_blue != 0)); then
   echo "a running window capture shows a secure subsurface mapped after it started: $late_blue blue frames"
   exit 1
 fi
+# Destroying the secure child shows the red parent again.
+late_red=$(grep -c '^pixels .* color=ffff0000' "$LATE_CAPTURE_LOG" || true)
+printf x >&"$late_fd"
+await_lines "$LATE_LOG" child-destroyed 1
+if ! await_lines "$LATE_CAPTURE_LOG" 'pixels .* color=ffff0000' $((late_red + 1)) > /dev/null; then
+  echo "a window capture stays black after its secure subsurface is destroyed: $(grep '^pixels' "$LATE_CAPTURE_LOG" | tail -3 | tr '\n' '|')"
+  exit 1
+fi
 
 # The same for a new secure subsurface of a popup: the window has no secure surface until it maps.
 POPUP_LOG="$ANDROMEDA_RUNTIME_DIR/dsk-secure-popup.log"
@@ -207,5 +215,5 @@ if ! await_lines "$POPUP_CAPTURE_LOG" 'pixels .* uniform=1 color=ff000000' 1 > /
   exit 1
 fi
 echo "plain $blue blue/$black black; secure $hidden_blue/$hidden_black; cleared $shown_blue/$shown_black;" \
-  "zoomed $zoomed_blue/$zoomed_black; popup $popup_blue/$popup_black; window capture $window_blue blue;" \
+  "zoomed $zoomed_blue/$zoomed_black; popup $popup_blue/$popup_black; window capture $window_blue/$window_black;" \
   "overview $overview_blue/$overview_black; late child $late_blue blue frames"

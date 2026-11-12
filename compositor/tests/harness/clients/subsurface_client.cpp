@@ -11,8 +11,9 @@
 // hints Wine gives an X11 game window. CHILD_ON_STDIN reads commands: `h` attaches a null buffer to the child, `d` also
 // destroys its subsurface role while the surface lives on, and `s` maps it again, as a subsurface of the parent once
 // more after `d`. `p` maps an empty green popup of the window, and after `d`, `m` makes the child a subsurface of that
-// popup instead; `n` maps a new secure blue surface as a subsurface of the popup. Each prints child-hidden,
-// child-detached, child-shown, popup-mapped, child-moved or popup-child-mapped once applied.
+// popup instead; `n` maps a new secure blue surface as a subsurface of the popup; `x` destroys the child's wl_surface.
+// Each prints child-hidden, child-detached, child-shown, popup-mapped, child-moved, popup-child-mapped or
+// child-destroyed once applied.
 // SECURE=child|parent makes that surface secure (dsk_surface_v1.set_secure) from its first commit.
 // Usage: subsurface-client [title [width height [animate]]]. The dimensions are a fallback: a configure adopts it.
 
@@ -478,6 +479,14 @@ int main(int argc, char** argv) {
         wl_surface_commit(state.surface);
       }
       reply = "child-shown";
+    } else if (command == 'x' && state.child != nullptr && state.childFrame == nullptr) {
+      if (state.subsurface != nullptr) {
+        wl_subsurface_destroy(state.subsurface);
+        state.subsurface = nullptr;
+      }
+      wl_surface_destroy(state.child);
+      state.child = nullptr;
+      reply = "child-destroyed";
     } else if (command == 'p' && state.popup == nullptr) {
       mapPopup(state);
       reply = "popup-mapped";

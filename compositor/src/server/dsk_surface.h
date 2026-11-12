@@ -9,6 +9,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 #include <wayland-server-core.h>
@@ -293,7 +294,7 @@ namespace andromeda {
     void addSecureTail(wlr_surface* surface);
     void endSecureTail(SecureTail* tail, bool surfaceAlive);
     std::vector<std::unique_ptr<SecureTail>> m_secureTails;
-    std::vector<std::unique_ptr<SecureCopy>> m_secureCopies;
+    std::unordered_map<const wlr_scene_buffer*, std::unique_ptr<SecureCopy>> m_secureCopies;
     size_t m_fixedCopies = 0;
   };
 
