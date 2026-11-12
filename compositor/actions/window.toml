@@ -1,0 +1,58 @@
+[[type]]
+name = "Window"
+fields = [
+  { name = "id", type = "id", description = "short window id, as w3" },
+  { name = "app_id", type = "string" },
+  { name = "title", type = "string" },
+  { name = "workspace", type = "optional<id>", description = "null for a scratchpad window" },
+  { name = "output", type = "optional<id>" },
+  { name = "focused", type = "bool", description = "holds the seat's keyboard focus" },
+  { name = "floating", type = "bool" },
+  { name = "fullscreen", type = "bool" },
+  { name = "minimized", type = "bool" },
+]
+
+[[action]]
+name = "window.list"
+description = "List the mapped windows."
+result = "list<Window>"
+permission = "read"
+reversible = true
+sensitive = false
+binds = "windows"
+
+[[action]]
+name = "window.focus"
+description = "Focus a window; a hidden scratchpad window is revealed first."
+args = [{ name = "id", type = "id", description = "window id", example = "w1" }]
+result = "Window"
+events = ["window.changed", "workspace.changed"]
+permission = "windows"
+reversible = true
+sensitive = false
+binds = "window-focus"
+
+[[action]]
+name = "window.close"
+description = "Ask a window to close. The app can refuse or ask the user first."
+args = [{ name = "id", type = "id", description = "window id", example = "w1" }]
+result = "Window"
+events = ["window.changed"]
+permission = "windows"
+reversible = false
+sensitive = false
+binds = "window-close"
+
+[[action]]
+name = "window.move_to_workspace"
+description = "Move a window to workspace N of its output and show that workspace."
+args = [
+  { name = "index", type = "u32", description = "1-based workspace position", example = "2" },
+  { name = "id", type = "optional<id>", description = "window id; the focused window when absent", example = "w1" },
+]
+result = "Window"
+events = ["window.changed", "workspace.changed"]
+permission = "windows"
+reversible = true
+sensitive = false
+binds = "window-move-to-workspace"

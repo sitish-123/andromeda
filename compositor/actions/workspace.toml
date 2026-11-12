@@ -1,0 +1,31 @@
+[[type]]
+name = "Workspace"
+fields = [
+  { name = "id", type = "id", description = "short workspace id, as ws2" },
+  { name = "index", type = "u32", description = "1-based position on its output" },
+  { name = "name", type = "string" },
+  { name = "output", type = "id" },
+  { name = "active", type = "bool", description = "shown on its output" },
+  { name = "focused", type = "bool", description = "active on the focused output" },
+  { name = "window_count", type = "u32" },
+]
+
+[[action]]
+name = "workspace.list"
+description = "List the workspaces of every output."
+result = "list<Workspace>"
+permission = "read"
+reversible = true
+sensitive = false
+binds = "workspaces"
+
+[[action]]
+name = "workspace.switch"
+description = "Show workspace N on the focused output."
+args = [{ name = "index", type = "u32", description = "1-based position", example = "2" }]
+result = "Workspace"
+events = ["workspace.changed", "output.changed"]
+permission = "windows"
+reversible = true
+sensitive = false
+binds = "workspace-switch"

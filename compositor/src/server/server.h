@@ -185,6 +185,7 @@ namespace andromeda {
   class TitleBarMotion;
   class SnapAssist;
   class Ipc;
+  class Provider;
 
   class Server {
   public:
@@ -1261,6 +1262,7 @@ namespace andromeda {
     TeardownStep m_stepCloseSnapshots{this, &Server::clearCloseSnapshots};
     std::unique_ptr<HintRect> m_insertHint;
     std::unique_ptr<Ipc> m_ipc;
+    std::unique_ptr<Provider> m_provider;
     std::unique_ptr<ConfigWatcher> m_configWatcher;
     // Destroyed first: ~Overview runs teardown(), which notifies m_ipc.
     std::unique_ptr<Overview> m_overview;

@@ -55,6 +55,7 @@
 #include "server/fifo.h"
 #include "server/xdg_session.h"
 #include "server/ipc.h"
+#include "provider/provider.h"
 #include "server/syncobj_acquire_barrier.h"
 #include "server/syncobj_superseded_release.h"
 #include "server/syncobj_unmap_release.h"
@@ -1670,6 +1671,7 @@ namespace andromeda {
     // The login screen exposes no control socket.
     if (!greeterMode()) {
       m_ipc = std::make_unique<Ipc>(*this, m_socketName);
+      m_provider = std::make_unique<Provider>(*this, m_socketName);
     }
     setenv("XDG_CURRENT_DESKTOP", "andromeda", 1);
     setenv("XDG_SESSION_DESKTOP", "andromeda", 1);

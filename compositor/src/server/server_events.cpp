@@ -33,6 +33,7 @@
 #include "server/desktop_settings_manager.h"
 #include "server/desktop_shell.h"
 #include "server/ipc.h"
+#include "provider/provider.h"
 #include "server/ipc_commands.h"
 
 #include <nlohmann/json.hpp>
@@ -962,6 +963,9 @@ namespace andromeda {
     if (server->m_ipc != nullptr) {
       server->m_ipc->notifyWindowsChanged();
     }
+    if (server->m_provider != nullptr) {
+      server->m_provider->notifyChanged(Provider::Family::Windows);
+    }
   }
 
   void Server::scheduleIpcWorkspacesEvent() {
@@ -981,6 +985,9 @@ namespace andromeda {
     server->m_ipcWorkspacesIdle = nullptr;
     if (server->m_ipc != nullptr) {
       server->m_ipc->notifyWorkspacesChanged();
+    }
+    if (server->m_provider != nullptr) {
+      server->m_provider->notifyChanged(Provider::Family::Workspaces);
     }
   }
 
@@ -1017,6 +1024,9 @@ namespace andromeda {
     server->m_ipcOutputsIdle = nullptr;
     if (server->m_ipc != nullptr) {
       server->m_ipc->notifyOutputsChanged();
+    }
+    if (server->m_provider != nullptr) {
+      server->m_provider->notifyChanged(Provider::Family::Outputs);
     }
   }
 

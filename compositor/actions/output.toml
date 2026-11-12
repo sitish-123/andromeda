@@ -1,0 +1,23 @@
+[[type]]
+name = "Output"
+fields = [
+  { name = "id", type = "id", description = "out:<connector>" },
+  { name = "name", type = "string" },
+  { name = "x", type = "i64", description = "layout position, logical pixels" },
+  { name = "y", type = "i64" },
+  { name = "width", type = "u32", description = "logical pixels" },
+  { name = "height", type = "u32" },
+  { name = "scale", type = "f64" },
+  { name = "enabled", type = "bool" },
+  { name = "focused", type = "bool" },
+  { name = "active_workspace", type = "optional<id>" },
+]
+
+[[action]]
+name = "output.list"
+description = "List the outputs."
+result = "list<Output>"
+permission = "read"
+reversible = true
+sensitive = false
+binds = "outputs"

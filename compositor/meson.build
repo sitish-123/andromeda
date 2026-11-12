@@ -205,6 +205,17 @@ output_power_protocol_h = custom_target(
   command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'],
 )
 
+# The action IDL (actions/*.toml). The header declares one handler per action; src/provider/handlers.cpp defines
+# them, so an IDL entry without a handler fails the link and a handler without an entry fails to compile.
+compositor_actions = custom_target(
+  'compositor-actions',
+  input: files('../tools/idl/gen.py', 'actions/output.toml', 'actions/window.toml', 'actions/workspace.toml'),
+  output: ['compositor_actions.h', 'compositor_actions.rs', 'compositor_help.json'],
+  command: [find_program('python3'), '@INPUT0@', '--module', 'compositor', '--cpp-namespace', 'andromeda::idl',
+            '--cpp-context', 'andromeda::ProviderContext', '--cpp', '@OUTPUT0@', '--rust', '@OUTPUT1@',
+            '--help-json', '@OUTPUT2@', '@INPUT1@', '@INPUT2@', '@INPUT3@'],
+)
+
 design_tokens_h = custom_target(
   'design_tokens.h',
   input: ['protocols/gen-design-tokens.py', 'protocols/design-tokens.toml'],
@@ -1103,6 +1114,8 @@ core_sources = files(
   'src/cli/debug.cpp',
   'src/server/ipc.cpp',
   'src/server/ipc_commands.cpp',
+  'src/provider/provider.cpp',
+  'src/provider/handlers.cpp',
 )
 
 andromeda_core_deps = [
@@ -1155,6 +1168,7 @@ andromeda_core = static_library(
     gtk_shell_server_c,
     xdg_output_server_h,
     xdg_output_server_c,
+    compositor_actions[0],
   ] + staging_server_sources,
   include_directories: include_directories('src'),
   link_with: andromeda_pure,
