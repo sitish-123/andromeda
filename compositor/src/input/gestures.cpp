@@ -691,18 +691,15 @@ namespace andromeda {
       return;
     }
     m_overviewCaught = false;
-    int stop = static_cast<int>(std::lround(m_overviewBase));
+    // Rulebook 7.7: a cancel settles on the state nearest the drawn position.
+    int stop = static_cast<int>(std::lround(std::clamp(overviewGestureProgress(), 0.0, 1.0)));
     double velocity = 0.0;
     if (!cancelled) {
       m_overviewTracker.push(0.0, timeMsec);
       const GesturePhysics::StepRelease release = GesturePhysics::release(
           m_overviewTracker, kOverviewDistancePx, m_overviewBase, 0.0, 1.0
       );
-      // Rulebook 7.7: a slow release settles on the state nearest the projected end; a fast one goes the way the
-      // fingers move, whatever the travel.
-      constexpr double kFlickPxPerSec = 300.0;
-      const double fingerVelocity = m_overviewTracker.velocity();
-      stop = std::abs(fingerVelocity) < kFlickPxPerSec ? release.target : (fingerVelocity > 0.0 ? 1 : 0);
+      stop = GesturePhysics::overviewStop(release, m_overviewTracker.velocity());
       // Speed away from the target (after an overscroll) would first carry the zoom further out; the spring starts
       // from rest instead.
       velocity = (stop - release.position) * release.velocity > 0.0 ? release.velocity : 0.0;

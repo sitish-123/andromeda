@@ -130,4 +130,34 @@ ANDROMEDA_TEST(theOverviewSettlesOnTheSideTheProjectionPointsTo) {
   CHECK_EQ(pastEnd.target, 1);
 }
 
+ANDROMEDA_TEST(oneBunchedReadingBarelyMovesTheReleaseSpeed) {
+  // 1 px/ms for 100 ms, then one reading that carries a late 10 px: the fit over the window stays near 1000 px/s,
+  // where the first-to-last slope would read 1100 px/s.
+  SwipeTracker tracker;
+  for (uint32_t t = 10; t <= 100; t += 10) {
+    tracker.push(10.0, t);
+  }
+  tracker.push(20.0, 110);
+  CHECK(tracker.velocity() > 1000.0);
+  CHECK(tracker.velocity() < 1060.0);
+}
+
+ANDROMEDA_TEST(theReleaseCoastsByTheRulebookDeceleration) {
+  // Rulebook 7.7: end = position + v x 0.998 / (1 - 0.998) / 1000, so 1000 px/s coasts 499 px.
+  SwipeTracker tracker;
+  for (uint32_t t = 10; t <= 100; t += 10) {
+    tracker.push(10.0, t);
+  }
+  CHECK(std::abs(tracker.projectedEndPos() - tracker.pos() - 499.0) < 1.0);
+}
+
+ANDROMEDA_TEST(anOverviewFlickPast300PxPerSecondGoesTheFingersWay) {
+  const GesturePhysics::StepRelease staysClosed{.target = 0, .position = 0.1, .velocity = 0.0};
+  CHECK_EQ(GesturePhysics::overviewStop(staysClosed, 250.0), 0);
+  CHECK_EQ(GesturePhysics::overviewStop(staysClosed, 350.0), 1);
+  const GesturePhysics::StepRelease staysOpen{.target = 1, .position = 0.9, .velocity = 0.0};
+  CHECK_EQ(GesturePhysics::overviewStop(staysOpen, -250.0), 1);
+  CHECK_EQ(GesturePhysics::overviewStop(staysOpen, -350.0), 0);
+}
+
 int main() { return RUN_TESTS(); }

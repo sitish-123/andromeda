@@ -77,6 +77,18 @@ namespace andromeda {
       };
     }
 
+    // Finger speed past which an overview release goes the way the fingers move (rulebook 7.7).
+    static constexpr double kFlickPxPerSec = 300.0;
+
+    // The overview state (0 closed, 1 open) a release settles on: a slow one lands where the projection says, a flick
+    // goes the way the fingers move, whatever the travel. `fingerPxPerSec` is positive toward open.
+    [[nodiscard]] static int overviewStop(const StepRelease& release, double fingerPxPerSec) {
+      if (std::abs(fingerPxPerSec) < kFlickPxPerSec) {
+        return release.target;
+      }
+      return fingerPxPerSec > 0.0 ? 1 : 0;
+    }
+
   private:
     // Extra steps a position ends up outside its range, for `excess` steps of finger travel past the end.
     [[nodiscard]] static double overscroll(double excess, double limit) {
