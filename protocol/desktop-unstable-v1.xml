@@ -74,7 +74,7 @@
         configuration change, followed by done. The read-only key
         "refresh_cap" is the cap in Hz and a reason, separated by a space,
         while a refresh cap holds the output below its fastest mode (reason
-        "power_saver_on_battery"), else empty; it is also sent when the cap
+        "power_saver"), else empty; it is also sent when the cap
         changes.
       </description>
       <arg name="target" type="string"/>
