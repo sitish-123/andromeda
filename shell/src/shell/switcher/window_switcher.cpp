@@ -16,6 +16,7 @@
 #include "ipc/ipc_arg_parse.h"
 #include "ipc/ipc_service.h"
 #include "render/animation/animation_manager.h"
+#include "render/animation/motion_service.h"
 #include "render/core/renderer.h"
 #include "render/render_context.h"
 #include "render/scene/input_area.h"
@@ -602,6 +603,10 @@ struct WindowSwitcher::Instance {
   bool contentSyncPending = false;
   bool pointerInside = false;
   bool revealStarted = false;
+  float shownOpacity = 0.0F;
+  float shownScale = Style::windowSwitcherRevealScale;
+  AnimationManager::Id shownOpacityAnim = 0;
+  AnimationManager::Id shownScaleAnim = 0;
   ShellConfig::WindowSwitcherStyle style = ShellConfig::WindowSwitcherStyle::Carousel;
   bool showCaption = true;
   bool showCount = true;
@@ -643,7 +648,7 @@ void WindowSwitcher::registerIpc(IpcService& ipc) {
 
     if (action == "close" || action == "hide") {
       if (isActive()) {
-        hide();
+        beginClose();
       }
       return "ok\n";
     }
@@ -681,9 +686,9 @@ void WindowSwitcher::onConfigReload() {
 
 void WindowSwitcher::onOutputChange() {
   if (!isActive()) {
+    hide();
     m_windows.clear();
     m_selectedIndex = 0;
-    destroySurface();
     return;
   }
   if (m_instance != nullptr && m_output != nullptr) {
@@ -786,6 +791,11 @@ void WindowSwitcher::showWithDirection(wl_output* output, int direction) {
     hide();
     return;
   }
+  if (!wasActive && m_instance->revealStarted) {
+    m_instance->surface->setKeyboardInteractivity(LayerShellKeyboard::Exclusive);
+    m_instance->surface->setClickThrough(false);
+    driveShown(true);
+  }
   requestSceneUpdate();
   if (!wasActive || outputChanged) {
     startThumbnailCaptures();
@@ -795,13 +805,87 @@ void WindowSwitcher::showWithDirection(wl_output* output, int direction) {
 }
 
 bool WindowSwitcher::setMode(Mode next) {
-  const bool valid = next == Mode::Hidden
-      || (m_mode == Mode::Hidden && next == Mode::Pointer)
-      || (m_mode != Mode::Hidden && next == Mode::Shortcut);
+  const bool valid = windowSwitcherModeAllowed(m_mode, next);
   if (valid) {
     m_mode = next;
   }
   return valid;
+}
+
+// Return (P10): the chosen window is already activated; the surface takes no input and goes when the fade settles.
+void WindowSwitcher::beginClose() {
+  if (m_instance == nullptr || m_instance->surface == nullptr || !m_instance->revealStarted
+      || !MotionService::instance().enabled()) {
+    hide();
+    return;
+  }
+  if (!setMode(Mode::Closing)) {
+    return;
+  }
+  m_scopeOverride = WindowSwitcherScope::None;
+  cancelShortcutModifierReleaseCheck();
+  m_shortcutState.reset();
+  ++m_shortcutSessionGeneration;
+  cancelThumbnailCaptures();
+  m_instance->pointerInside = false;
+  m_instance->inputDispatcher.pointerLeave();
+  m_instance->surface->setKeyboardInteractivity(LayerShellKeyboard::None);
+  m_instance->surface->setClickThrough(true);
+  driveShown(false);
+}
+
+// The compositor fades the whole surface, blur included; without it, the nodes fade and the blur stays.
+void WindowSwitcher::applyShown(Instance& inst) {
+  const float nodeOpacity = inst.glass.setOpacity(inst.shownOpacity) ? 1.0F : inst.shownOpacity;
+  if (inst.panel != nullptr) {
+    inst.panel->setOpacity(nodeOpacity);
+    inst.panel->setScale(inst.shownScale);
+  }
+  if (inst.dimmer != nullptr) {
+    inst.dimmer->setOpacity(Style::windowSwitcherDimOpacity * nodeOpacity);
+  }
+  if (inst.surface != nullptr) {
+    inst.surface->requestRedraw();
+  }
+}
+
+// Open: opacity and scale 0.95 -> 1 on fade. Return: opacity on fade_out, scale -> 0.96 on close; reduced motion keeps
+// the scale. A reopen during the Return retargets both springs.
+void WindowSwitcher::driveShown(bool shown) {
+  Instance* inst = m_instance;
+  if (inst == nullptr) {
+    return;
+  }
+  auto apply = [inst] { applyShown(*inst); };
+  if (shown || !MotionService::instance().reduced()) {
+    inst->shownScaleAnim = inst->animations.drive(
+        inst->shownScaleAnim, inst->shownScale, shown ? 1.0F : 0.96F,
+        Style::spring(shown ? Tokens::springFade : Tokens::springClose),
+        [inst, apply](float v) {
+          inst->shownScale = v;
+          apply();
+        },
+        [inst] { inst->shownScaleAnim = 0; }, nullptr, 0.0F, Unit::Scale, !shown
+    );
+  }
+  inst->shownOpacityAnim = inst->animations.drive(
+      inst->shownOpacityAnim, inst->shownOpacity, shown ? 1.0F : 0.0F,
+      Style::spring(shown ? Tokens::springFade : Tokens::springFadeOut),
+      [inst, apply](float v) {
+        inst->shownOpacity = v;
+        apply();
+      },
+      [this, inst] {
+        inst->shownOpacityAnim = 0;
+        // Never from inside the surface's own frame tick.
+        DeferredCall::callLater([this, inst] {
+          if (m_mode == Mode::Closing && m_instance == inst) {
+            hide();
+          }
+        });
+      }
+  );
+  apply();
 }
 
 void WindowSwitcher::captureShortcutModifiers(std::uint32_t modifiers) { m_shortcutState.capture(modifiers); }
@@ -1049,9 +1133,9 @@ void WindowSwitcher::activateSelected() {
   }
   // Hyprland ignores zwlr_foreign_toplevel_handle_v1.activate while an exclusive
   // keyboard layer-shell surface is mapped (hyprwm/Hyprland#4829). Snapshot the
-  // selection, tear the overlay down, then activate on the next loop tick.
+  // selection, drop the overlay's keyboard (Return), then activate on the next loop tick.
   CompositorPlatform* platform = m_platform;
-  hide();
+  beginClose();
   DeferredCall::callLater([platform, entry] { activateWindowSwitcherEntry(*platform, entry); });
 }
 
@@ -1086,7 +1170,7 @@ void WindowSwitcher::closeWindowAt(std::size_t index) {
   const std::size_t previousCount = m_windows.size();
   refreshWindows();
   if (m_windows.empty()) {
-    hide();
+    beginClose();
     return;
   }
   if (m_selectedIndex >= m_windows.size()) {
@@ -1388,7 +1472,7 @@ void WindowSwitcher::completeShortcutModifierReleaseCheck() {
     return;
   }
   activateSelected();
-  hide();
+  beginClose();
 }
 
 void WindowSwitcher::cancelShortcutModifierReleaseCheck() {
@@ -1462,7 +1546,7 @@ bool WindowSwitcher::onKeyboardEvent(const KeyboardEvent& event) {
   };
 
   if (matchesAction(KeybindAction::Cancel)) {
-    hide();
+    beginClose();
     return true;
   }
 
@@ -1478,7 +1562,7 @@ bool WindowSwitcher::onKeyboardEvent(const KeyboardEvent& event) {
 
   if (matchesAction(KeybindAction::Validate)) {
     activateSelected();
-    hide();
+    beginClose();
     return true;
   }
 
@@ -1540,7 +1624,7 @@ bool WindowSwitcher::onPointerEvent(const PointerEvent& event) {
     }
     if (!onTarget && !target->pointerInside) {
       if (pressed) {
-        hide();
+        beginClose();
         return true;
       }
       return false;
@@ -1549,7 +1633,7 @@ bool WindowSwitcher::onPointerEvent(const PointerEvent& event) {
         && onTarget
         && (target->inputDispatcher.hoveredArea() == nullptr
             || target->inputDispatcher.hoveredArea() == target->input)) {
-      hide();
+      beginClose();
       return true;
     }
     return target->inputDispatcher.pointerButton(
@@ -1968,19 +2052,12 @@ void WindowSwitcher::buildScene(Instance& instance, std::uint32_t width, std::ui
     instance.inputDispatcher.setFocus(instance.input);
   }
 
-  if (!instance.revealStarted && instance.panel != nullptr && instance.dimmer != nullptr) {
-    instance.revealStarted = true;
-    instance.panel->setOpacity(0.0F);
-    instance.panel->setScale(Style::windowSwitcherRevealScale);
-    instance.dimmer->setOpacity(0.0F);
-    instance.animations.animateSpring(
-        0.0F, 1.0F, Style::spring(Tokens::springFade),
-        [panelNode = instance.panel, dimmer = instance.dimmer](float value) {
-          panelNode->setOpacity(value);
-          panelNode->setScale(Style::windowSwitcherRevealScale + (1.0F - Style::windowSwitcherRevealScale) * value);
-          dimmer->setOpacity(Style::windowSwitcherDimOpacity * value);
-        },
-        {}, instance.panel
-    );
+  if (instance.panel != nullptr && instance.dimmer != nullptr) {
+    if (!instance.revealStarted) {
+      instance.revealStarted = true;
+      driveShown(true);
+    } else {
+      applyShown(instance);
+    }
   }
 }

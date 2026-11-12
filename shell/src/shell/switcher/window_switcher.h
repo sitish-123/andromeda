@@ -1,5 +1,6 @@
 #pragma once
 
+#include "shell/switcher/window_switcher_mode.h"
 #include "shell/switcher/window_switcher_shortcut_state.h"
 #include "shell/switcher/window_switcher_tile.h"
 #include "system/icon_resolver.h"
@@ -47,7 +48,8 @@ public:
   void onToplevelChange();
   void show(wl_output* output);
 
-  [[nodiscard]] bool isActive() const noexcept { return m_mode != Mode::Hidden; }
+  // Open and taking input; false while the Return runs.
+  [[nodiscard]] bool isActive() const noexcept { return m_mode == Mode::Pointer || m_mode == Mode::Shortcut; }
   [[nodiscard]] bool onPointerEvent(const PointerEvent& event);
   [[nodiscard]] bool onKeyboardEvent(const KeyboardEvent& event);
   void onKeyboardModifiers(std::uint32_t modifiers);
@@ -55,6 +57,12 @@ public:
 private:
   struct Instance;
 
+  // Commit or cancel: the Return runs, then hide().
+  void beginClose();
+  // Opacity and scale of the panel and dimmer: open (reveal or reverse of a running Return) or Return.
+  void driveShown(bool shown);
+  static void applyShown(Instance& inst);
+  // Destroys the surface at once.
   void hide();
   void refreshWindows();
   void setSelectedIndex(std::size_t index);
@@ -110,9 +118,8 @@ private:
   WindowSwitcherShortcutState m_shortcutState;
   std::uint64_t m_shortcutSessionGeneration = 0;
   WindowSwitcherScope m_scopeOverride = WindowSwitcherScope::None;
-  // Pointer: opened without a held shortcut. Shortcut: releasing the shortcut modifier confirms the selection.
-  enum class Mode : std::uint8_t { Hidden, Pointer, Shortcut };
-  // Hidden opens as Pointer, a shortcut turns Pointer into Shortcut, and every mode can hide.
+  using Mode = WindowSwitcherMode;
+  // Rejects what windowSwitcherModeAllowed rejects.
   bool setMode(Mode next);
   Mode m_mode = Mode::Hidden;
 };

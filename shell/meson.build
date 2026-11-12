@@ -1310,6 +1310,7 @@ if build_tests
     'widget_settings_schema',
     'window_minimize_state',
     'window_switcher_membership',
+    'window_switcher_mode',
     'window_switcher_shortcut_state',
     'workspace_alert_service',
     'workspaces_widget',

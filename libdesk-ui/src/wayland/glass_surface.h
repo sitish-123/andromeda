@@ -45,6 +45,15 @@ public:
     send();
   }
 
+  // Whole-surface opacity, blur included. False before apply() bound a surface.
+  bool setOpacity(double opacity) {
+    if (m_dsk == nullptr) {
+      return false;
+    }
+    m_dsk->set(DskSurfaceClient::Property::Opacity, {opacity, 0.0, 0.0, 0.0});
+    return true;
+  }
+
   void reset() {
     m_paletteConn = {};
     m_dsk.reset();
