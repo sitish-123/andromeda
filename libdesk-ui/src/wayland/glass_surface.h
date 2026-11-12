@@ -53,6 +53,14 @@ public:
     m_dsk->set(DskSurfaceClient::Property::Opacity, {opacity, 0.0, 0.0, 0.0});
     return true;
   }
+  // The compositor runs the whole-surface opacity to `opacity` on `curve`; a set or animate replaces it.
+  bool animateOpacity(double opacity, DskSurfaceClient::Curve curve) {
+    if (m_dsk == nullptr) {
+      return false;
+    }
+    m_dsk->animate(DskSurfaceClient::Property::Opacity, curve, {opacity, 0.0, 0.0, 0.0});
+    return true;
+  }
 
   void reset() {
     m_paletteConn = {};

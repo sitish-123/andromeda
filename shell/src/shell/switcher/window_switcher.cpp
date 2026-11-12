@@ -607,6 +607,9 @@ struct WindowSwitcher::Instance {
   float shownScale = Style::windowSwitcherRevealScale;
   AnimationManager::Id shownOpacityAnim = 0;
   AnimationManager::Id shownScaleAnim = 0;
+  // Who moves the whole-surface opacity: the shell each frame, or one compositor animate (the Return).
+  enum class OpacityDriver : std::uint8_t { Frames, Compositor };
+  OpacityDriver opacityDriver = OpacityDriver::Frames;
   ShellConfig::WindowSwitcherStyle style = ShellConfig::WindowSwitcherStyle::Carousel;
   bool showCaption = true;
   bool showCount = true;
@@ -836,7 +839,9 @@ void WindowSwitcher::beginClose() {
 
 // The compositor fades the whole surface, blur included; without it, the nodes fade and the blur stays.
 void WindowSwitcher::applyShown(Instance& inst) {
-  const float nodeOpacity = inst.glass.setOpacity(inst.shownOpacity) ? 1.0F : inst.shownOpacity;
+  const bool compositorFades = inst.opacityDriver == Instance::OpacityDriver::Compositor
+                               || inst.glass.setOpacity(inst.shownOpacity);
+  const float nodeOpacity = compositorFades ? 1.0F : inst.shownOpacity;
   if (inst.panel != nullptr) {
     inst.panel->setOpacity(nodeOpacity);
     inst.panel->setScale(inst.shownScale);
@@ -856,6 +861,11 @@ void WindowSwitcher::driveShown(bool shown) {
   if (inst == nullptr) {
     return;
   }
+  // The Return fades in the compositor, so its blur fades with the content (layer_surface blur fade-out).
+  inst->opacityDriver =
+      !shown && inst->glass.animateOpacity(0.0, DskSurfaceClient::Curve::SpringEffectsFast)
+          ? Instance::OpacityDriver::Compositor
+          : Instance::OpacityDriver::Frames;
   auto apply = [inst] { applyShown(*inst); };
   if (shown || !MotionService::instance().reduced()) {
     inst->shownScaleAnim = inst->animations.drive(
@@ -1701,8 +1711,9 @@ void WindowSwitcher::ensureSurface() {
     }
     prepareFrame(*instPtr, needsUpdate, needsLayout);
   });
+  // Also while Closing: the blur region follows the Return's scale.
   inst->surface->setFrameTickCallback([this, instPtr](float /*deltaMs*/) {
-    if (!isActive() || m_instance != instPtr || instPtr->surface == nullptr) {
+    if (m_mode == Mode::Hidden || m_instance != instPtr || instPtr->surface == nullptr) {
       return;
     }
     positionPanel(
