@@ -56,7 +56,8 @@ build() {
   local stamp
   stamp=$(git -C desktop ls-files -s -- ':(glob)**/meson.build' ':(glob)**/meson.options' ':(glob)**/meson_options.txt' \
     ':(glob)**/*.wrap' ':(glob)**/packagefiles/**' | sha256sum)
-  [[ ! -f meson.stamp || $(<meson.stamp) == "$stamp" ]] || rm -rf build-*
+  # Meson applies a wrap's diff_files only on download: drop the patched checkouts too, so new patches apply.
+  [[ ! -f meson.stamp || $(<meson.stamp) == "$stamp" ]] || rm -rf build-* desktop/compositor/subprojects/{wlroots,libliftoff}
   arch-meson() { if [[ -f $2/build.ninja ]]; then command arch-meson "$@" --reconfigure; else command arch-meson "$@"; fi; }
   # The wlroots and libliftoff wraps carry our patches (compositor/subprojects/packagefiles). libliftoff is shared so
   # libwlroots' calls reach the andromeda executable's overrides (src/server/liftoff_deadline.cpp).
