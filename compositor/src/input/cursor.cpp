@@ -1164,10 +1164,11 @@ namespace andromeda {
       LayerSurface* layer = nullptr;
       m_server->viewAt(m_cursor->x, m_cursor->y, &surface, &sx, &sy, &layer);
       wlr_seat* seat = m_server->seat()->wlr();
-      // The release of a press the overview took ends that hold, over a panel too.
-      if (overviewPassthroughLayer(layer)
-          && !overview->dragging()
-          && (pressed || button != BTN_LEFT || !overview->held(ov::HoldSource::pointer()))) {
+      if (overviewPassthroughLayer(layer) && !overview->dragging()) {
+        // A press the overview took and released over a panel does nothing there: it ends the overview's hold.
+        if (!pressed && button == BTN_LEFT) {
+          overview->cancelDrag(ov::HoldSource::pointer());
+        }
         if (surface != nullptr) {
           setPointerFocus(surface, sx, sy, timeMsec);
         }

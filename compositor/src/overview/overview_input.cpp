@@ -208,14 +208,11 @@ namespace andromeda {
       if (button != BTN_LEFT) {
         return true;
       }
-      if (m_closePress != nullptr) {
+      if (Card* closing = m_pointer.closePressed()) {
         m_pointer.release();
-        const View* pressed = std::exchange(m_closePress, nullptr);
         // Sliding off the button before letting go cancels, like any button.
-        if (closeButtonAt(lx, ly) == pressed) {
-          if (Card* closing = findCard(pressed); closing != nullptr && closing->view != nullptr) {
-            closing->view->requestClose();
-          }
+        if (closing->view != nullptr && closeButtonAt(lx, ly) == closing->view) {
+          closing->view->requestClose();
         }
         return true;
       }
@@ -236,7 +233,7 @@ namespace andromeda {
       if (thumbGroup != nullptr && thumbGroup->active() != workspace && thumbGroup->output() != nullptr) {
         thumbGroup->select(workspace);
         if (OutputState* state = stateFor(thumbGroup->output())) {
-          animateRow(*state, static_cast<double>(workspace->index()), 0.0);
+          animateRow(*state, static_cast<double>(workspace->index()));
         }
         return true;
       }
@@ -325,8 +322,7 @@ namespace andromeda {
       return true;
     }
     if (const View* close = closeButtonAt(lx, ly)) {
-      m_closePress = close;
-      m_pointer.press(from, nullptr);
+      m_pointer.press(from, findCard(close), ov::PressTarget::CloseButton);
       m_pressWorkspace = nullptr;
       return true;
     }

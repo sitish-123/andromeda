@@ -194,13 +194,11 @@ namespace andromeda {
 
   void Cursor::handleTouchCancel(void* data) {
     auto* event = static_cast<wlr_touch_cancel_event*>(data);
-    (void)event;
     m_server->notifyIdleActivity();
-    if (m_overviewTouch) {
-      const int32_t touchId = m_overviewTouch->touchId;
+    if (m_overviewTouch && m_overviewTouch->touchId == event->touch_id) {
       m_overviewTouch.reset();
       if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
-        overview->cancelDrag(ov::HoldSource::touch(touchId));
+        overview->cancelDrag(ov::HoldSource::touch(event->touch_id));
       }
     }
     if (m_trackerTouch && m_trackerTouch->drag.claimed) {

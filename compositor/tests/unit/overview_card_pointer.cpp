@@ -15,11 +15,13 @@ namespace {
     int id = 0;
   };
 
-  // The expected hold, by card id (-1: none): 0 idle, 1 pressed, 2 dragging; `owner` holds it unless idle.
+  // The expected hold, by card id (-1: none): 0 idle, 1 pressed, 2 dragging; `owner` holds it unless idle, and a
+  // press is on the card's body or its close button.
   struct Model {
     int mode = 0;
     int card = -1;
     ov::HoldSource owner;
+    ov::PressTarget target = ov::PressTarget::Card;
   };
 
   constexpr std::array kSources{ov::HoldSource::pointer(), ov::HoldSource::touch(1), ov::HoldSource::touch(2)};
@@ -63,17 +65,19 @@ ANDROMEDA_TEST(randomEventsNeverLeaveAHoldOnADestroyedCard) {
         case 2: {
           FakeCard* card = pick();
           const ov::HoldSource from = kSources[rng() % kSources.size()];
+          const ov::PressTarget target = rng() % 3 == 0 ? ov::PressTarget::CloseButton : ov::PressTarget::Card;
           const bool accepted = model.mode == 0 || (model.mode == 1 && model.owner == from);
-          CHECK_EQ(pointer.press(from, card), accepted);
+          CHECK_EQ(pointer.press(from, card, target), accepted);
           if (accepted) {
-            model = Model{1, card != nullptr ? card->id : -1, from};
+            model = Model{1, card != nullptr ? card->id : -1, from, target};
           }
           break;
         }
         case 3: {
           FakeCard* dragged = pointer.beginDrag();
-          CHECK_EQ(dragged != nullptr, model.mode == 1 && model.card >= 0);
-          if (model.mode == 1 && model.card >= 0) {
+          const bool drags = model.mode == 1 && model.card >= 0 && model.target == ov::PressTarget::Card;
+          CHECK_EQ(dragged != nullptr, drags);
+          if (drags) {
             model.mode = 2;
           }
           break;
@@ -83,9 +87,12 @@ ANDROMEDA_TEST(randomEventsNeverLeaveAHoldOnADestroyedCard) {
           model = {};
           break;
       }
-      const FakeCard* held = pointer.pressed() != nullptr ? pointer.pressed() : pointer.dragged();
-      CHECK(pointer.pressed() == nullptr || pointer.dragged() == nullptr);
-      CHECK_EQ(pointer.pressed() != nullptr, model.mode == 1 && model.card >= 0);
+      const FakeCard* held = pointer.pressed() != nullptr ? pointer.pressed()
+          : pointer.closePressed() != nullptr             ? pointer.closePressed()
+                                                          : pointer.dragged();
+      const bool onCard = model.mode == 1 && model.card >= 0;
+      CHECK_EQ(pointer.pressed() != nullptr, onCard && model.target == ov::PressTarget::Card);
+      CHECK_EQ(pointer.closePressed() != nullptr, onCard && model.target == ov::PressTarget::CloseButton);
       CHECK(pointer.owner() == (model.mode != 0 ? std::optional(model.owner) : std::nullopt));
       for (const ov::HoldSource& from : kSources) {
         CHECK_EQ(pointer.admits(from), model.mode == 0 || model.owner == from);
@@ -112,6 +119,25 @@ ANDROMEDA_TEST(aDragBelongsToTheDeviceThatPressed) {
   CHECK(pointer.press(ov::HoldSource::pointer(), nullptr));
   CHECK(!pointer.press(ov::HoldSource::touch(4), &held));
   CHECK(pointer.pressed() == nullptr);
+}
+
+// A touch on a close button cancelled, then a pointer drag of another card: the cancel ended the close press, so the
+// drag's release finds the drag and no stale close press.
+ANDROMEDA_TEST(aCancelledClosePressLeavesNoHold) {
+  FakeCard closing;
+  FakeCard dragged;
+  ov::CardPointer<FakeCard> pointer;
+  CHECK(pointer.press(ov::HoldSource::touch(0), &closing, ov::PressTarget::CloseButton));
+  CHECK(pointer.closePressed() == &closing);
+  CHECK(pointer.pressed() == nullptr);
+  CHECK(pointer.beginDrag() == nullptr);
+  CHECK(!pointer.press(ov::HoldSource::pointer(), &dragged));
+  pointer.release();
+  CHECK(pointer.closePressed() == nullptr);
+  CHECK(pointer.press(ov::HoldSource::pointer(), &dragged));
+  CHECK(pointer.beginDrag() == &dragged);
+  CHECK(pointer.closePressed() == nullptr);
+  CHECK(pointer.dragged() == &dragged);
 }
 
 int main() { return RUN_TESTS(); }

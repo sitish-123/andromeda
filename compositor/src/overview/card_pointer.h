@@ -18,7 +18,11 @@ namespace andromeda::ov {
     bool operator==(const HoldSource&) const = default;
   };
 
-  // The left button's hold in the overview: idle, pressed (on a card or on none), or dragging a card. One device owns
+  // What a press landed on: a card's body (it can drag) or a card's close button (a release on it closes the window).
+  enum class PressTarget : uint8_t { Card, CloseButton };
+
+  // The left button's hold in the overview: idle, pressed (on a card, its close button or nothing), or dragging a card.
+  // One device owns
   // a hold from press to release; the other devices' presses are rejected until then. Card must derive from
   // Trackable. The owner calls forget() before it destroys a card, so the hold ends with the card and the owner can
   // undo what the drag set up.
@@ -26,7 +30,12 @@ namespace andromeda::ov {
   public:
     [[nodiscard]] Card* pressed() const {
       const auto* state = std::get_if<Pressed>(&m_state);
-      return state != nullptr ? state->card.get() : nullptr;
+      return state != nullptr && state->target == PressTarget::Card ? state->card.get() : nullptr;
+    }
+    // The card whose close button is held, null for any other hold.
+    [[nodiscard]] Card* closePressed() const {
+      const auto* state = std::get_if<Pressed>(&m_state);
+      return state != nullptr && state->target == PressTarget::CloseButton ? state->card.get() : nullptr;
     }
     [[nodiscard]] Card* dragged() const {
       const auto* state = std::get_if<Dragging>(&m_state);
@@ -47,20 +56,20 @@ namespace andromeda::ov {
       return !holder.has_value() || *holder == from;
     }
 
-    // Idle or Pressed by `from` -> Pressed by `from` on `card` (null: on no card). Rejected while dragging and while
-    // another device holds.
-    bool press(HoldSource from, Card* card) {
+    // Idle or Pressed by `from` -> Pressed by `from` on `card`'s `target` (null card: on nothing). Rejected while
+    // dragging and while another device holds.
+    bool press(HoldSource from, Card* card, PressTarget target = PressTarget::Card) {
       if (std::holds_alternative<Dragging>(m_state) || !admits(from)) {
         return false;
       }
-      m_state = Pressed{.owner = from, .card = card};
+      m_state = Pressed{.owner = from, .card = card, .target = target};
       return true;
     }
 
-    // Pressed on a card -> Dragging it, same owner. Returns the dragged card, or null (and no change) otherwise.
+    // Pressed on a card's body -> Dragging it, same owner. Returns the dragged card, or null (and no change) otherwise.
     Card* beginDrag() {
       auto* state = std::get_if<Pressed>(&m_state);
-      Card* card = state != nullptr ? state->card.get() : nullptr;
+      Card* card = pressed();
       if (card != nullptr) {
         m_state = Dragging{.owner = state->owner, .card = card};
       }
@@ -72,7 +81,7 @@ namespace andromeda::ov {
     // Ends any hold on `card`. Returns true when that ended a drag.
     bool forget(const Card& card) {
       const bool wasDragging = dragged() == &card;
-      if (wasDragging || pressed() == &card) {
+      if (wasDragging || pressed() == &card || closePressed() == &card) {
         m_state = Idle{};
       }
       return wasDragging;
@@ -83,6 +92,7 @@ namespace andromeda::ov {
     struct Pressed {
       HoldSource owner;
       Ref<Card> card;
+      PressTarget target = PressTarget::Card;
     };
     struct Dragging {
       HoldSource owner;
