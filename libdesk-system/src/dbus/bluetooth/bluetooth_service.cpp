@@ -676,9 +676,13 @@ bool BluetoothService::dispatchConnect(const std::string& devicePath, std::funct
         .onInterface(kDeviceInterface)
         .uponReplyInvoke([this, devicePath, onReply = std::move(onReply)](std::optional<sdbus::Error> err) {
           if (err.has_value()) {
-            kLog.warn("Device.Connect failed {}: {}", devicePath, err->what());
             // Only a connect the user asked for reports failure; connect-pass misses are routine.
             const bool local = m_localDeviceRequests.erase(devicePath) > 0;
+            if (local) {
+              kLog.warn("Device.Connect failed {}: {}", devicePath, err->what());
+            } else {
+              kLog.debug("connect pass: {} not reachable: {}", devicePath, err->what());
+            }
             if (auto* dev = findDevice(devicePath)) {
               dev->connecting = false;
               if (local && m_connectionNotifications) {
