@@ -5520,6 +5520,24 @@ static void scene_output_update_hdr_white_point_cursor(
   scene_output->hdr_white_point_cursor_locked = lock;
 }
 
+// The one place the video layer block changes. A timed block never replaces a block for the output's life: that one
+// ends only with ALLOWED, when the output turns off or changes mode.
+static bool scene_output_set_video_block(
+    struct wlr_scene_output* scene_output, enum wlr_scene_overlay_video_block mode, uint32_t format, uint64_t modifier
+) {
+  if (mode == WLR_SCENE_OVERLAY_VIDEO_BLOCKED_ATTEMPTS
+      && scene_output->overlay_video_block_mode == WLR_SCENE_OVERLAY_VIDEO_BLOCKED_OUTPUT) {
+    return false;
+  }
+  scene_output->overlay_video_block_mode = mode;
+  scene_output->overlay_video_block = mode == WLR_SCENE_OVERLAY_VIDEO_BLOCKED_ATTEMPTS ? 600 : 0;
+  if (mode != WLR_SCENE_OVERLAY_VIDEO_ALLOWED) {
+    scene_output->overlay_video_rejected_format = format;
+    scene_output->overlay_video_rejected_modifier = modifier;
+  }
+  return true;
+}
+
 static void scene_output_handle_commit(struct wl_listener* listener, void* data) {
   struct wlr_scene_output* scene_output = wl_container_of(listener, scene_output, output_commit);
   struct wlr_output_event_commit* event = data;
@@ -5541,6 +5559,9 @@ static void scene_output_handle_commit(struct wl_listener* listener, void* data)
     wlr_buffer_unlock(scene_output->overlay_shown_buffer);
     scene_output->overlay_shown_buffer = NULL;
   }
+  if (state->committed & (WLR_OUTPUT_STATE_ENABLED | WLR_OUTPUT_STATE_MODE)) {
+    scene_output_set_video_block(scene_output, WLR_SCENE_OVERLAY_VIDEO_ALLOWED, 0, 0);
+  }
   if ((state->committed & WLR_OUTPUT_STATE_LAYERS)
       && state->layers_len > 0
       && state->layers[state->layers_len - 1].layer == scene_output->overlay_layer) {
@@ -5556,9 +5577,10 @@ static void scene_output_handle_commit(struct wl_listener* listener, void* data)
         if (state->layers[i].buffer != NULL && !state->layers[i].accepted) {
           wlr_buffer_get_dmabuf(state->layers[i].buffer, &dmabuf);
           if (state->layers[i].layer == scene_output->overlay_video_layer) {
-            scene_output->overlay_video_rejected_format = dmabuf.format;
-            scene_output->overlay_video_rejected_modifier = dmabuf.modifier;
-            scene_output->overlay_video_block = 600;
+            // The test passed and the real commit still dropped the layer: a retry would lose one frame again.
+            scene_output_set_video_block(
+                scene_output, WLR_SCENE_OVERLAY_VIDEO_BLOCKED_OUTPUT, dmabuf.format, dmabuf.modifier
+            );
           }
           wlr_log(WLR_INFO, "overlay plane: the commit left layer %zu of %zu to composition (%dx%d format 0x%08x modifier 0x%016llx)",
                   i, state->layers_len, state->layers[i].buffer->width, state->layers[i].buffer->height, dmabuf.format,
@@ -6589,12 +6611,13 @@ static bool scene_output_try_overlay(
   if (video >= 0) {
     struct wlr_scene_buffer* video_buffer = wlr_scene_buffer_from_node(list[video].node);
     struct wlr_buffer* source = video_buffer->buffer != NULL ? scene_buffer_scanout_buffer(video_buffer) : NULL;
-    if (scene_output->overlay_video_block > 0) {
-      scene_output->overlay_video_block--;
+    if (scene_output->overlay_video_block_mode == WLR_SCENE_OVERLAY_VIDEO_BLOCKED_ATTEMPTS
+        && --scene_output->overlay_video_block == 0) {
+      scene_output_set_video_block(scene_output, WLR_SCENE_OVERLAY_VIDEO_ALLOWED, 0, 0);
     }
     if (source == NULL
         || !wlr_buffer_get_dmabuf(source, &video_dmabuf)
-        || (scene_output->overlay_video_block > 0
+        || (scene_output->overlay_video_block_mode != WLR_SCENE_OVERLAY_VIDEO_ALLOWED
             && video_dmabuf.format == scene_output->overlay_video_rejected_format
             && video_dmabuf.modifier == scene_output->overlay_video_rejected_modifier)) {
       video = -1;
@@ -6785,12 +6808,12 @@ static bool scene_output_try_overlay(
     wlr_buffer_unlock(buffer);
     scene_output->overlay_layer_states[1].buffer = NULL;
     scene_output->overlay_layer_states[0].buffer = NULL;
-    if (status == WLR_SCENE_DIRECT_SCANOUT_REJECTED && video >= 0) {
+    if (status == WLR_SCENE_DIRECT_SCANOUT_REJECTED && video >= 0
+        && scene_output_set_video_block(
+            scene_output, WLR_SCENE_OVERLAY_VIDEO_BLOCKED_ATTEMPTS, video_dmabuf.format, video_dmabuf.modifier
+        )) {
       // Often the planes take no such buffer (Skylake sprites lack 10-bit formats with alpha); the cause may also
       // pass, so the video retries the layer after about 10 s of overlay attempts.
-      scene_output->overlay_video_rejected_format = video_dmabuf.format;
-      scene_output->overlay_video_rejected_modifier = video_dmabuf.modifier;
-      scene_output->overlay_video_block = 600;
     } else if (status == WLR_SCENE_DIRECT_SCANOUT_REJECTED) {
       // A rejected test costs an atomic test commit: retry about once a second.
       scene_output->overlay_backoff = 60;

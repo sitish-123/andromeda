@@ -96,6 +96,15 @@ enum wlr_scene_debug_damage_option {
   WLR_SCENE_DEBUG_DAMAGE_HIGHLIGHT
 };
 
+/** Whether a video of the rejected format and modifier may take an output's video layer. */
+enum wlr_scene_overlay_video_block {
+  WLR_SCENE_OVERLAY_VIDEO_ALLOWED,
+  /** A test rejected it: blocked for a number of overlay attempts. */
+  WLR_SCENE_OVERLAY_VIDEO_BLOCKED_ATTEMPTS,
+  /** A real commit left it to composition: blocked until the output turns off or changes mode. */
+  WLR_SCENE_OVERLAY_VIDEO_BLOCKED_OUTPUT,
+};
+
 /** Whether a frame scanned a client buffer out directly, and if not, the first reason it could not. */
 enum wlr_scene_direct_scanout_status {
   WLR_SCENE_DIRECT_SCANOUT_ACTIVE,
@@ -479,10 +488,11 @@ struct wlr_scene_output {
     const void* overlay_tested_video;
     uint32_t overlay_tested_video_format;
     uint64_t overlay_tested_video_modifier;
-    // The video buffer format and modifier of the last rejected video layer layout, and the overlay attempts left
-    // before such a video gets the video layer again.
+    // The video buffer format and modifier of the last rejected video layer layout, whether such a video may take the
+    // video layer, and the overlay attempts left of a timed block.
     uint32_t overlay_video_rejected_format;
     uint64_t overlay_video_rejected_modifier;
+    enum wlr_scene_overlay_video_block overlay_video_block_mode;
     uint16_t overlay_video_block;
     uint32_t overlay_tested_format;
     uint64_t overlay_tested_modifier;
