@@ -1203,6 +1203,10 @@ namespace andromeda {
       retargetDrop(m_dragX, m_dragY);
     }
     m_cardPresentationDirty = false;
+    if (m_overviewEventPending) {
+      m_overviewEventPending = false;
+      m_server->notifyOverviewChanged();
+    }
     // Card layout runs only while the overview moves; effects sync every tick and their time moves only on the card
     // output's effect frames.
     if (m_active && effectRegistry().active()) {
@@ -1393,7 +1397,7 @@ namespace andromeda {
     }
     m_closing = false;
     m_fingerProgress = std::clamp(progress, 0.0, 1.0);
-    m_server->notifyOverviewChanged();
+    m_overviewEventPending = true;
     // Already rubber-banded past either end by Gestures::overviewGestureProgress; a second band here made the
     // overscroll stiffer than the fingers.
     const double target = progress;

@@ -538,6 +538,8 @@ namespace andromeda {
     ov::Rect reflowRect(const void* key, const ov::Rect& target, bool began);
     Ref<View> m_pendingFocus;
     bool m_cardPresentationDirty = false;
+    // Touchpads report faster than the display: the gesture's IPC overview event goes out once per frame.
+    bool m_overviewEventPending = false;
     bool m_gestureOpenedHere = false;
     std::optional<double> m_fingerProgress;
     // Logs every frame of a swipe and its release at debug level.
