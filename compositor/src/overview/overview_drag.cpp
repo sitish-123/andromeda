@@ -108,12 +108,19 @@ namespace andromeda {
     if (thumbScale <= 0.0) {
       return lifted;
     }
-    // The strip's near edge, above or below where the drag began.
-    const double edge = m_dragClaimY > bottom ? bottom : top;
-    const bool inBand = ly >= top && ly <= bottom;
-    const double span = m_dragClaimY - edge;
-    const double p = inBand || std::abs(span) < 1.0 ? 1.0 : (m_dragClaimY - ly) / span;
-    return std::lerp(lifted, thumbScale, smoothstep(p));
+    if (ly >= top && ly <= bottom) {
+      return thumbScale;
+    }
+    // Progress runs from a start to the strip's near edge: the claim on its own output, else the output's edge across
+    // from the strip. The span is at least the strip's height, so a start next to the strip does not jump.
+    const wlr_box& box = state->outputBox;
+    const bool stripBelow = top - box.y > box.y + box.height - bottom;
+    const double start = boxContains(box, m_dragClaimX, m_dragClaimY) ? m_dragClaimY
+        : stripBelow                                                  ? static_cast<double>(box.y)
+                                                                      : static_cast<double>(box.y + box.height);
+    const double edge = start > bottom ? bottom : top;
+    const double span = std::copysign(std::max(std::abs(start - edge), bottom - top), start - edge);
+    return std::lerp(lifted, thumbScale, smoothstep((start - ly) / span));
   }
 
   void Overview::placeDragCard(Card& card) {
