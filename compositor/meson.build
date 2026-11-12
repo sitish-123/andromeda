@@ -1180,6 +1180,8 @@ andromeda = executable(
   dependencies: [andromeda_core_dep] + jemalloc_deps,
   install: true,
   install_rpath: wlroots_dep.type_name() == 'internal' ? get_option('prefix') / wlroots_private_libdir : '',
+  # DT_RPATH, unlike DT_RUNPATH, also finds libwlroots' own private dependency (the wrap's libliftoff).
+  link_args: wlroots_dep.type_name() == 'internal' ? ['-Wl,--disable-new-dtags'] : [],
 )
 
 # Unit tests and the harness clients check.sh drives.
