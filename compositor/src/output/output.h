@@ -121,6 +121,9 @@ namespace andromeda {
     [[nodiscard]] bool applyOutputState();
     // Re-applies the output state only when the refresh cap changes the automatic mode.
     void applyRefreshCap();
+    // Whether the refresh cap holds this output below the fastest mode at its preferred resolution right now: a
+    // configured or user-picked mode overrides the cap.
+    [[nodiscard]] bool refreshCapLimits() const;
     // Adopt a successfully committed wlr-output-management state in two
     // phases. Logical state changes first so callbacks cannot revive a
     // disabled output, then layout membership changes after transient UI has

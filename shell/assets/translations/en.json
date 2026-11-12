@@ -6834,6 +6834,7 @@
       "enabled": "Enabled",
       "resolution": "Resolution",
       "refresh-rate": "Refresh rate",
+      "refresh-capped": "Limited to {hz} Hz by Power Saver on battery",
       "scale": "Scale",
       "rotation": "Rotation",
       "rotation-normal": "Normal",

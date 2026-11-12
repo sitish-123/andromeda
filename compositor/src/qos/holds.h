@@ -69,8 +69,10 @@ namespace andromeda::qos {
     unsigned hiddenFpsCap = 0;
     std::string fpsCapOwner;
     // display.refresh_cap_hz from SetRefreshCap: outputs with no configured mode pick their fastest mode at or below
-    // it; 0 = no cap. Ends when `refreshCapOwner` leaves the bus.
+    // it; 0 = no cap. Ends when `refreshCapOwner` leaves the bus. Only andromeda-system's power rules set it, all on
+    // battery under Power Saver, so the reason a client shows is always kRefreshCapReason.
     unsigned refreshCap = 0;
+    static constexpr const char* kRefreshCapReason = "power_saver_on_battery";
     std::string refreshCapOwner;
     // qos.freeze_hidden from SetFreezeHidden (power saver on battery): T3 freezes every non-exempt app while the
     // general.freeze_hidden_apps setting is on. Ends when `freezeHiddenOwner` leaves the bus.

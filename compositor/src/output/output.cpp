@@ -1310,13 +1310,28 @@ namespace andromeda {
   void Output::applyRefreshCap() {
     // Same pick as commitConfiguredState: a configured mode or a nested output ignores the cap.
     const OutputRule* rule = findOutputRule(config(), identity());
-    if (!m_output->enabled || (rule != nullptr && rule->mode) || wlr_output_is_wl(m_output)) {
-      return;
+    if (m_output->enabled && !(rule != nullptr && rule->mode) && !wlr_output_is_wl(m_output)) {
+      const wlr_output_mode* mode =
+          fastestPreferredMode(m_output, static_cast<int>(qos::registry().refreshCap * 1000));
+      if (mode != nullptr && !liveModeMatches(*m_output, mode)) {
+        (void)applyOutputState();
+      }
     }
-    const wlr_output_mode* mode = fastestPreferredMode(m_output, static_cast<int>(qos::registry().refreshCap * 1000));
-    if (mode != nullptr && !liveModeMatches(*m_output, mode)) {
-      (void)applyOutputState();
+    if (DesktopOutputManager* manager = m_server->desktopOutputManager()) {
+      manager->outputPropertiesChanged(*this);
     }
+  }
+
+  bool Output::refreshCapLimits() const {
+    const unsigned cap = qos::registry().refreshCap;
+    const OutputRule* rule = findOutputRule(config(), identity());
+    if (cap == 0 || !m_output->enabled || (rule != nullptr && rule->mode) || wlr_output_is_wl(m_output)) {
+      return false;
+    }
+    const wlr_output_mode* capped = fastestPreferredMode(m_output, static_cast<int>(cap * 1000));
+    const wlr_output_mode* fastest = fastestPreferredMode(m_output);
+    return capped != nullptr && fastest != nullptr && capped->refresh < fastest->refresh
+        && liveModeMatches(*m_output, capped);
   }
 
   bool Output::applyOutputState() {

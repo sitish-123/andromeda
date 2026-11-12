@@ -42,6 +42,7 @@ namespace andromeda {
 #ifdef ANDROMEDA_TEST_IPC
     static nlohmann::json rendererRecover(Server& server, std::string_view arg);
     static nlohmann::json outputCommits(Server& server, std::string_view arg);
+    static nlohmann::json outputTestModes(Server& server, std::string_view arg);
     static nlohmann::json swipeForTest(Server& server, std::string_view arg);
     static nlohmann::json pinchForTest(Server& server, std::string_view arg);
     static nlohmann::json animationCaptureFail(Server& server, std::string_view arg);

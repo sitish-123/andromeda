@@ -27,6 +27,8 @@ namespace andromeda {
     void broadcast(const Output& output);
     // Resends every output's properties after a configuration change.
     void propertiesChanged();
+    // Resends one output's properties after its refresh cap state changed.
+    void outputPropertiesChanged(const Output& output);
 
   private:
     // The scanner also declares a wl_interface variable of this name, so the struct needs its elaborated form.

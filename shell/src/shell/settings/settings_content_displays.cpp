@@ -174,6 +174,11 @@ namespace settings {
         refreshModes.push_back(mode->handle);
         refreshLabels.push_back(formatRefresh(mode->refreshMhz));
       }
+      // "<hz> <reason>" while the compositor's refresh cap holds this display below its fastest mode.
+      const std::string cap = ctx.mirrors != nullptr ? ctx.mirrors->property(head.name, "refresh_cap") : std::string();
+      const std::string capNote = cap.empty()
+          ? std::string()
+          : i18n::tr("settings.displays.refresh-capped", "hz", cap.substr(0, cap.find(' ')));
       body.addChild(SettingsControlFactory::makeRow(
           i18n::tr("settings.displays.refresh-rate"),
           makeDisplaySelect(
@@ -184,7 +189,7 @@ namespace settings {
                 edit(std::move(next));
               }
           ),
-          ctx.scale
+          ctx.scale, capNote
       ));
     }
 

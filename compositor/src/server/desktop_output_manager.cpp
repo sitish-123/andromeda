@@ -6,6 +6,7 @@
 #include "desktop-unstable-v1-protocol.h"
 #include "output/display_store.h"
 #include "output/output.h"
+#include "qos/holds.h"
 #include "server/server.h"
 #include "wlr.h"
 
@@ -283,6 +284,17 @@ namespace andromeda {
       const std::string key(spec.key);
       const std::string value = property(rule, spec.key);
       dsk_output_manager_v1_send_property(resource, output.wlr()->name, key.c_str(), value.c_str());
+    }
+    const std::string cap = output.refreshCapLimits()
+        ? std::format("{} {}", qos::registry().refreshCap, qos::Registry::kRefreshCapReason)
+        : std::string();
+    dsk_output_manager_v1_send_property(resource, output.wlr()->name, "refresh_cap", cap.c_str());
+  }
+
+  void DesktopOutputManager::outputPropertiesChanged(const Output& output) {
+    for (wl_resource* resource : m_resources) {
+      sendProperties(resource, output);
+      dsk_output_manager_v1_send_done(resource);
     }
   }
 

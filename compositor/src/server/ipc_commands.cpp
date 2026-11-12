@@ -8,7 +8,9 @@
 #include "overview/overview.h"
 #include "layer/layer_surface.h"
 #include "output/identity.h"
+#include "output/mode_selection.h"
 #include "output/output.h"
+#include "qos/holds.h"
 #include "scene/effect_registry.h"
 #include "scene/effect_selection.h"
 #include "server/desktop_shell.h"
@@ -30,6 +32,8 @@
 #include <map>
 #include <nlohmann/json.hpp>
 #include <print>
+#include <ranges>
+#include <span>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -1023,6 +1027,15 @@ namespace andromeda {
             {"commit_seq", tracker.commitSeq()},
         };
       }
+      // Null without a cap; `limits` is whether it holds this output below its fastest mode right now.
+      nlohmann::json refreshCap = nullptr;
+      if (const unsigned cap = qos::registry().refreshCap; cap > 0) {
+        refreshCap = {
+            {"hz", cap},
+            {"reason", qos::Registry::kRefreshCapReason},
+            {"limits", output->refreshCapLimits()},
+        };
+      }
       outputs.push_back({
           {"name", wlrOutput->name},
           {"description", wlrOutput->description != nullptr ? wlrOutput->description : ""},
@@ -1045,6 +1058,7 @@ namespace andromeda {
           {"adaptive_sync", std::move(adaptiveSync)},
           {"hdr_active", output->hdrActive()},
           {"direct_scanout", std::move(directScanout)},
+          {"refresh_cap", std::move(refreshCap)},
           {"modes", std::move(modes)},
       });
     }
@@ -1450,6 +1464,52 @@ namespace andromeda {
     return nlohmann::json{{"ok", std::move(commits)}};
   }
 
+  // Headless outputs advertise no modes and commit only custom ones. This gives one a mode list at its current size and
+  // marks the mode the refresh cap picks as live without a commit, so the cap's reporting can be tested. A later commit
+  // of a listed mode aborts the headless backend.
+  nlohmann::json IpcCommands::outputTestModes(Server& server, std::string_view arg) {
+    std::vector<std::string_view> words;
+    for (const auto word : std::views::split(arg, ' ')) {
+      if (!word.empty()) {
+        words.emplace_back(word.begin(), word.end());
+      }
+    }
+    Output* target = nullptr;
+    for (const auto& output : server.outputs()) {
+      if (!words.empty() && words.front() == output->wlr()->name) {
+        target = output.get();
+      }
+    }
+    if (target == nullptr || words.size() < 2 || !wl_list_empty(&target->wlr()->modes)) {
+      return nlohmann::json{{"err", "usage: output-test-modes <headless output without modes> <mode>... (the first is preferred)"}};
+    }
+    std::vector<OutputMode> modes;
+    for (const std::string_view word : std::span(words).subspan(1)) {
+      if (OutputMode mode; parseOutputMode(word, mode)) {
+        modes.push_back(mode);
+      } else {
+        return nlohmann::json{{"err", std::format("'{}' is not a mode", word)}};
+      }
+    }
+    wlr_output* wlrOutput = target->wlr();
+    for (const OutputMode& mode : modes) {
+      // wlr_output_finish frees every mode in the list.
+      auto* added = static_cast<wlr_output_mode*>(calloc(1, sizeof(wlr_output_mode)));
+      added->width = mode.width;
+      added->height = mode.height;
+      added->refresh = mode.refreshMHz;
+      added->preferred = &mode == &modes.front();
+      wl_list_insert(wlrOutput->modes.prev, &added->link);
+    }
+    if (wlr_output_mode* live = fastestPreferredMode(wlrOutput, static_cast<int>(qos::registry().refreshCap * 1000))) {
+      wlrOutput->current_mode = live;
+      wlrOutput->refresh = live->refresh;
+    }
+    target->applyRefreshCap();
+    server.updateOutputManagerConfig();
+    return nlohmann::json{{"ok", nullptr}};
+  }
+
   nlohmann::json IpcCommands::planeCursor(Server& server, std::string_view arg) {
     std::string error;
     if (!server.injectPlaneCursor(arg, &error)) {
@@ -1600,6 +1660,8 @@ namespace andromeda {
        IpcCommandGroup::Harness, false, &IpcCommands::blurCachePixels, nullptr},
       {"output-commits", "", "committed frame count per output", IpcCommandGroup::Harness, false,
        &IpcCommands::outputCommits, nullptr},
+      {"output-test-modes", "<output> <mode>...", "give a headless output advertised modes, the first preferred (harness only)",
+       IpcCommandGroup::Harness, true, &IpcCommands::outputTestModes, nullptr},
       {"cursor-state", "", "inspect the current client cursor source (harness only)", IpcCommandGroup::Harness, false,
        &IpcCommands::cursorState, nullptr},
 #endif
