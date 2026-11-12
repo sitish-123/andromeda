@@ -148,14 +148,27 @@ namespace andromeda {
     std::string_view hdrFail = params.earlyHdrFail;
     std::string_view sdr10Fail;
 
-    result.committed = runSequenceForCurrentMode(params, ops, result, hdrFail, sdr10Fail);
-
-    const auto rerunOnMode = [&](wlr_output_mode* mode) {
-      ops.stageMode(mode);
+    const auto rerun = [&] {
       hdrFail = params.earlyHdrFail;
       sdr10Fail = {};
       result.committed = runSequenceForCurrentMode(params, ops, result, hdrFail, sdr10Fail);
     };
+    const auto rerunOnMode = [&](wlr_output_mode* mode) {
+      ops.stageMode(mode);
+      rerun();
+    };
+
+    // A modeset blocks the main thread (eDP link training, panel power cycle); the kernel can often change only the
+    // refresh without one.
+    if (params.refreshOnlyChange) {
+      ops.allowModeset(false);
+    }
+    result.committed = runSequenceForCurrentMode(params, ops, result, hdrFail, sdr10Fail);
+    if (params.refreshOnlyChange && !result.committed && !result.retry) {
+      ops.allowModeset(true);
+      result.usedRefreshModesetRetry = true;
+      rerun();
+    }
 
     if (!result.committed && !result.retry && params.keptLiveMode != nullptr) {
       result.usedLiveModeRetry = true;

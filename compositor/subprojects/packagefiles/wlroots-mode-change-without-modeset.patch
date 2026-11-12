@@ -1,0 +1,32 @@
+diff --git a/backend/drm/atomic.c b/backend/drm/atomic.c
+index faa535d..053f2a0 100644
+--- a/backend/drm/atomic.c
++++ b/backend/drm/atomic.c
+@@ -324,7 +324,10 @@ bool drm_atomic_connector_prepare(struct wlr_drm_connector_state *state, bool mo
+ 	struct wlr_drm_crtc *crtc = conn->crtc;
+ 
+ 	uint32_t mode_id = crtc->mode_id;
+-	if (modeset) {
++	// A mode change without ALLOW_MODESET still sends the new MODE_ID: the
++	// kernel applies it as a fastset (e.g. a seamless eDP refresh change) or
++	// rejects the commit.
++	if (modeset || (state->base->committed & WLR_OUTPUT_STATE_MODE)) {
+ 		if (!create_mode_blob(conn, state, &mode_id)) {
+ 			return false;
+ 		}
+diff --git a/backend/drm/legacy.c b/backend/drm/legacy.c
+index 223852e..70ddb1b 100644
+--- a/backend/drm/legacy.c
++++ b/backend/drm/legacy.c
+@@ -41,6 +41,11 @@ static bool legacy_crtc_test(const struct wlr_drm_connector_state *state,
+ 	struct wlr_drm_connector *conn = state->connector;
+ 	struct wlr_drm_crtc *crtc = conn->crtc;
+ 
++	// Legacy KMS changes the mode only with drmModeSetCrtc, i.e. a modeset.
++	if (!modeset && (state->base->committed & WLR_OUTPUT_STATE_MODE)) {
++		return false;
++	}
++
+ 	if (state->base->committed & WLR_OUTPUT_STATE_BUFFER) {
+ 		// If the size doesn't match, reject buffer (scaling is not supported)
+ 		int pending_width, pending_height;

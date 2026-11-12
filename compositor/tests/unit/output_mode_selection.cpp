@@ -19,6 +19,7 @@ using andromeda::outputCanAutoEnable;
 using andromeda::outputEnableNeedsStaging;
 using andromeda::OutputMode;
 using andromeda::preferredFallbackMode;
+using andromeda::refreshOnlyChange;
 using andromeda::selectOutputMode;
 
 namespace {
@@ -269,6 +270,22 @@ ANDROMEDA_TEST(litOutputModesetsToAnotherRefreshAtTheSameResolution) {
   output.current_mode = &live;
 
   CHECK(!liveModeMatches(output, &wanted));
+}
+
+ANDROMEDA_TEST(onlyASameSizeModeOnALitOutputIsARefreshOnlyChange) {
+  wlr_output output{};
+  wlr_output_mode live = outputMode(2880, 1800, 60001);
+  wlr_output_mode faster = outputMode(2880, 1800, 120000, true);
+  wlr_output_mode smaller = outputMode(1920, 1200, 120000);
+  output.enabled = true;
+  output.current_mode = &live;
+
+  CHECK(refreshOnlyChange(output, &faster));
+  CHECK(!refreshOnlyChange(output, &live));
+  CHECK(!refreshOnlyChange(output, &smaller));
+  CHECK(!refreshOnlyChange(output, nullptr));
+  output.enabled = false;
+  CHECK(!refreshOnlyChange(output, &faster));
 }
 
 ANDROMEDA_TEST(unlitOutputModesetsEvenToItsLastMode) {

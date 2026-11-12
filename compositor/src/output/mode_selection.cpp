@@ -73,6 +73,12 @@ namespace andromeda {
     return output.enabled && output.current_mode == mode;
   }
 
+  bool refreshOnlyChange(const wlr_output& output, const wlr_output_mode* mode) {
+    const wlr_output_mode* live = output.current_mode;
+    return output.enabled && live != nullptr && mode != nullptr && live != mode && live->width == mode->width
+        && live->height == mode->height;
+  }
+
   bool outputEnableNeedsStaging(const wlr_output& output, bool enabled) { return !(enabled && output.enabled); }
 
   bool colorChangeNeedsModeset(const wlr_output& output, uint32_t renderFormat, bool hdr) {

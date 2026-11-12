@@ -38,6 +38,7 @@ namespace {
         .automaticMode = {},
         .preferredMode = nullptr,
         .keptLiveMode = nullptr,
+        .refreshOnlyChange = false,
         .modeFallbackAlreadyWarned = false,
         .vrrDroppedTier = std::nullopt,
         .earlyHdrFail = {},
@@ -68,6 +69,9 @@ namespace {
     bool modeFallbackWarned = false;
     std::vector<FormatTier> vrrWarnings;
     wlr_output_mode* stagedMode = nullptr;
+    bool modesetAllowed = true;
+    std::vector<bool> testModeset;   // whether each test allowed a modeset
+    std::vector<bool> commitModeset; // whether each commit allowed a modeset
 
     static bool next(const std::vector<bool>& script, size_t& index, bool fallback) {
       if (script.empty()) {
@@ -110,11 +114,13 @@ namespace {
           .test =
               [this] {
                 calls.push_back({Kind::Test, stagedFormat, stagedVrr});
+                testModeset.push_back(modesetAllowed);
                 return next(testResults, testIndex, false);
               },
           .commit =
               [this] {
                 calls.push_back({Kind::Commit, stagedFormat, stagedVrr});
+                commitModeset.push_back(modesetAllowed);
                 const size_t index = commitIndex;
                 const bool committed = next(commitResults, commitIndex, true);
                 if (std::ranges::find(retryCommitIndices, index) != retryCommitIndices.end()) {
@@ -124,6 +130,7 @@ namespace {
               },
           .clearImageDescription = [this] { imageDescCleared = true; },
           .stageMode = [this](wlr_output_mode* m) { stagedMode = m; },
+          .allowModeset = [this](bool allow) { modesetAllowed = allow; },
           .warnModeFallback = [this](std::string_view, const wlr_output_mode&) { modeFallbackWarned = true; },
           .warnVrrDropped = [this](FormatTier tier) { vrrWarnings.push_back(tier); },
       };
@@ -927,6 +934,62 @@ ANDROMEDA_TEST(noPreferredModeYieldsUncommitted) {
 
   CHECK(!r.committed);
   CHECK(!r.usedModeFallback);
+}
+
+// A modeset blocks the compositor for hundreds of ms on eDP, so a refresh-only
+// change is tested and committed without one first.
+ANDROMEDA_TEST(refreshOnlyChangeCommitsWithoutModeset) {
+  MockOps m;
+  m.testResults = {true};
+
+  FormatSequenceParams p = sdr8Params();
+  p.refreshOnlyChange = true;
+
+  const FormatSequenceResult r = runFormatSequence(p, m.ops());
+
+  CHECK(r.committed);
+  CHECK(!r.usedRefreshModesetRetry);
+  CHECK(m.testModeset == std::vector<bool>{false});
+  CHECK(m.commitModeset == std::vector<bool>{false});
+}
+
+ANDROMEDA_TEST(rejectedRefreshWithoutModesetRetriesWithModeset) {
+  static wlr_output_mode preferred{};
+  static const andromeda::OutputMode spec{2880, 1800, 120000};
+
+  MockOps m;
+  m.testResults = {false, true};
+
+  FormatSequenceParams p = sdr8Params();
+  p.configuredModeSpec = &spec;
+  p.preferredMode = &preferred;
+  p.refreshOnlyChange = true;
+
+  const FormatSequenceResult r = runFormatSequence(p, m.ops());
+
+  CHECK(r.committed);
+  CHECK(r.usedRefreshModesetRetry);
+  CHECK(!r.usedModeFallback);
+  CHECK(m.stagedMode == nullptr);
+  CHECK(m.testModeset == (std::vector<bool>{false, true}));
+  CHECK(m.commitModeset == std::vector<bool>{true});
+}
+
+// A busy plane is no rejection: the next frame retries without a modeset.
+ANDROMEDA_TEST(retryableRefreshWithoutModesetDoesNotModeset) {
+  MockOps m;
+  m.testResults = {true};
+  m.retryCommitIndices = {0};
+
+  FormatSequenceParams p = sdr8Params();
+  p.refreshOnlyChange = true;
+
+  const FormatSequenceResult r = runFormatSequence(p, m.ops());
+
+  CHECK(!r.committed);
+  CHECK(r.retry);
+  CHECK(!r.usedRefreshModesetRetry);
+  CHECK(m.commitModeset == std::vector<bool>{false});
 }
 
 int main() { return RUN_TESTS(); }

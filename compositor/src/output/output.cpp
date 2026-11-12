@@ -843,11 +843,14 @@ namespace andromeda {
             },
     };
 
+    bool refreshWithoutModeset = false;
     // wlroots writes max bpc only in commits that allow a modeset, and the kernel may require one to change
     // colorspace or to switch HDR on or off.
     const auto allowModesetForColorChange = [&](uint32_t fmt, bool hdr) {
       if (colorChangeNeedsModeset(*m_output, fmt, hdr)) {
         state.allow_reconfiguration = true;
+      } else if (refreshWithoutModeset) {
+        state.allow_reconfiguration = false;
       }
     };
 
@@ -897,6 +900,7 @@ namespace andromeda {
           .automaticMode = stageGeometry ? std::string_view(automaticMode) : std::string_view{},
           .preferredMode = stageGeometry ? preferredFallbackMode(m_output, stagedMode) : nullptr,
           .keptLiveMode = keptLiveMode,
+          .refreshOnlyChange = stageGeometry && refreshOnlyChange(*m_output, stagedMode),
           .modeFallbackAlreadyWarned = m_modeFallbackWarned,
           .vrrDroppedTier = m_vrrDroppedTier,
           .earlyHdrFail = earlyHdrFail,
@@ -1009,6 +1013,11 @@ namespace andromeda {
           .commit = commitStagedState,
           .clearImageDescription = [&] { wlr_output_state_set_image_description(&state, nullptr); },
           .stageMode = [&](wlr_output_mode* mode) { wlr_output_state_set_mode(&state, mode); },
+          .allowModeset =
+              [&](bool allow) {
+                refreshWithoutModeset = !allow;
+                state.allow_reconfiguration = allow;
+              },
           .warnModeFallback =
               [&](std::string_view requested, const wlr_output_mode& fallback) {
                 kLog.warn(
@@ -1044,6 +1053,13 @@ namespace andromeda {
             "output '{}': backend rejected keeping live mode {}x{}@{}mHz, retried with a modeset", m_output->name,
             keptLiveMode->width, keptLiveMode->height, keptLiveMode->refresh
         );
+      }
+      if (seq.usedRefreshModesetRetry) {
+        kLog.info(
+            "output '{}': backend rejected the refresh change without a modeset, retried with one", m_output->name
+        );
+      } else if (seqParams.refreshOnlyChange && seq.committed && !state.allow_reconfiguration) {
+        kLog.info("output '{}': changed the refresh without a modeset", m_output->name);
       }
       if (seq.modeFallbackWarnedNow) {
         m_modeFallbackWarned = true;

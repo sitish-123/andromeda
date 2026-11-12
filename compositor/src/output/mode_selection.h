@@ -30,6 +30,9 @@ namespace andromeda {
   // Whether `output` is lit at `mode` already. Staging it again would only force a modeset.
   [[nodiscard]] bool liveModeMatches(const wlr_output& output, const wlr_output_mode* mode);
 
+  // Whether staging `mode` on the lit `output` changes only the refresh, which the kernel may apply without a modeset.
+  [[nodiscard]] bool refreshOnlyChange(const wlr_output& output, const wlr_output_mode* mode);
+
   // Whether `enabled` has to be staged. Re-enabling a lit output would only force a modeset.
   [[nodiscard]] bool outputEnableNeedsStaging(const wlr_output& output, bool enabled);
 

@@ -10,7 +10,9 @@ depth = 1
 # so the compositor's liftoff_* interposer (src/server/liftoff_deadline.cpp) never runs in the package.
 # Logs no error when closing an input device the kernel removed: logind already released it ("Device not taken").
 # Keeps a previous master's MODE_ID blob unowned until a modeset replaces it (destroying it failed with EPERM).
-diff_files = wlroots-cursor-plane-unchanged.patch, wlroots-feedback-unregistered-plane.patch, wlroots-register-planes-without-modeset.patch, wlroots-libliftoff-clear-in-fence.patch, wlroots-libliftoff-test-unshown-layer.patch, wlroots-session-close-removed-device.patch, wlroots-keep-previous-master-mode-blob.patch
+# Sends a new MODE_ID in a commit without ALLOW_MODESET (upstream dropped the mode), so the kernel can fastset a
+# refresh-only change or reject it; legacy KMS rejects such a commit.
+diff_files = wlroots-cursor-plane-unchanged.patch, wlroots-feedback-unregistered-plane.patch, wlroots-register-planes-without-modeset.patch, wlroots-libliftoff-clear-in-fence.patch, wlroots-libliftoff-test-unshown-layer.patch, wlroots-session-close-removed-device.patch, wlroots-keep-previous-master-mode-blob.patch, wlroots-mode-change-without-modeset.patch
 
 [provide]
 dependency_names = wlroots-0.20

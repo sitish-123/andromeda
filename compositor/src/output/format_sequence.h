@@ -33,6 +33,7 @@ namespace andromeda {
     std::string_view automaticMode;       // the mode picked without a configured one, as text; empty = none staged
     wlr_output_mode* preferredMode;       // nullptr = No fallback available
     wlr_output_mode* keptLiveMode;        // nullptr = No live mode was kept
+    bool refreshOnlyChange;               // the staged mode changes only the refresh of the lit output
     bool modeFallbackAlreadyWarned;
     std::optional<FormatTier> vrrDroppedTier;
     std::string_view earlyHdrFail;
@@ -45,6 +46,8 @@ namespace andromeda {
     std::function<FormatCommitResult()> commit;
     std::function<void()> clearImageDescription;
     std::function<void(wlr_output_mode*)> stageMode;
+    // false: stage and test without ALLOW_MODESET unless a color change needs it.
+    std::function<void(bool allow)> allowModeset;
     std::function<void(std::string_view requested, const wlr_output_mode& fallback)> warnModeFallback;
     std::function<void(FormatTier tier)> warnVrrDropped;
   };
@@ -52,6 +55,7 @@ namespace andromeda {
   struct FormatSequenceResult {
     bool committed = false;
     bool usedLiveModeRetry = false;
+    bool usedRefreshModesetRetry = false;
     bool usedModeFallback = false;
     bool modeFallbackWarnedNow = false;
     bool retry = false;
