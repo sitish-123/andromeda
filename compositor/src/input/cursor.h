@@ -466,6 +466,14 @@ namespace andromeda {
       double lastY = 0.0;
     };
     std::optional<TrackerTouch> m_trackerTouch;
+    // The one touch point the overview takes as its left button: a tap clicks, travel drags a card. Its last point is
+    // where an up (which carries none) releases.
+    struct OverviewTouch {
+      int32_t touchId = 0;
+      double lastX = 0.0;
+      double lastY = 0.0;
+    };
+    std::optional<OverviewTouch> m_overviewTouch;
     static constexpr double kTrackerDragSlop = 8.0;
     // Returns true when the tracker drag owns this motion.
     bool processTrackerDragMotion(uint32_t timeMsec, double oldX, double oldY);

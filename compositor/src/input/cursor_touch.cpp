@@ -60,12 +60,13 @@ namespace andromeda {
     LayerSurface* layer = nullptr;
     View* view = m_server->viewAt(lx, ly, &surface, &sx, &sy, &layer);
 
-    // A tap in overview activates like a left click; panels keep their touch.
+    // In the overview one touch point is the left button, so a tap clicks and travel drags a card; panels keep their
+    // touch.
     if (Overview* overview = m_server->overview();
         overview != nullptr && overview->active() && !m_server->sessionLocked() && !overviewPassthroughLayer(layer)) {
-      if (overview->interactive()) {
+      if (overview->interactive() && !m_overviewTouch) {
+        m_overviewTouch = OverviewTouch{.touchId = event->touch_id, .lastX = lx, .lastY = ly};
         overview->handleButton(BTN_LEFT, true, lx, ly, event->time_msec);
-        overview->handleButton(BTN_LEFT, false, lx, ly, event->time_msec);
       }
       return;
     }
@@ -119,6 +120,14 @@ namespace andromeda {
   void Cursor::handleTouchUp(void* data) {
     auto* event = static_cast<wlr_touch_up_event*>(data);
     m_server->notifyIdleActivity();
+    if (m_overviewTouch && m_overviewTouch->touchId == event->touch_id) {
+      const OverviewTouch touch = *m_overviewTouch;
+      m_overviewTouch.reset();
+      if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+        overview->handleButton(BTN_LEFT, false, touch.lastX, touch.lastY, event->time_msec);
+      }
+      return;
+    }
     if (m_trackerTouch && m_trackerTouch->touchId == event->touch_id) {
       const bool claimed = m_trackerTouch->drag.claimed;
       m_trackerTouch.reset();
@@ -136,6 +145,15 @@ namespace andromeda {
     m_server->notifyInputActivity();
 
     wlr_seat* seat = m_server->seat()->wlr();
+    if (m_overviewTouch && m_overviewTouch->touchId == event->touch_id) {
+      wlr_cursor_absolute_to_layout_coords(
+          m_cursor, &event->touch->base, event->x, event->y, &m_overviewTouch->lastX, &m_overviewTouch->lastY
+      );
+      if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+        overview->handleMotion(m_overviewTouch->lastX, m_overviewTouch->lastY, event->time_msec);
+      }
+      return;
+    }
     if (m_trackerTouch && m_trackerTouch->touchId == event->touch_id) {
       double tx = 0;
       double ty = 0;
@@ -174,6 +192,12 @@ namespace andromeda {
     auto* event = static_cast<wlr_touch_cancel_event*>(data);
     (void)event;
     m_server->notifyIdleActivity();
+    if (m_overviewTouch) {
+      m_overviewTouch.reset();
+      if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+        overview->cancelDrag();
+      }
+    }
     if (m_trackerTouch && m_trackerTouch->drag.claimed) {
       m_server->dskSurfaces()->cancelSwipe();
     }

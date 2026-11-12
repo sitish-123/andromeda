@@ -1,3 +1,4 @@
+#include "design_tokens.h"
 #include "overview/overview_internal.h"
 
 namespace andromeda {
@@ -14,8 +15,17 @@ namespace andromeda {
       return;
     }
     View* view = card->view;
-    m_dragOffsetX = m_pressX - card->box.x;
-    m_dragOffsetY = m_pressY - card->box.y;
+    m_dragGrabX = card->box.width > 0 ? (m_pressX - card->box.x) / card->box.width : 0.5;
+    m_dragGrabY = card->box.height > 0 ? (m_pressY - card->box.y) / card->box.height : 0.5;
+    m_dragSlotScale = card->scale;
+    m_dragScale = card->scale;
+    m_dragClaimX = m_dragX;
+    m_dragClaimY = m_dragY;
+    m_dragSamples.clear();
+    m_dropThumb = nullptr;
+    if (m_return.has_value() && m_return->view.get() == view) {
+      m_return.reset();
+    }
     m_dragSourceWorkspace = view->workspace();
     m_dragSourceColumn = -1;
     m_dragSourceRow = -1;
@@ -44,15 +54,80 @@ namespace andromeda {
     m_server->cursor()->overrideCursor("grabbing");
   }
 
-  void Overview::updateDrag(double lx, double ly) {
+  void Overview::updateDrag(double lx, double ly, uint32_t timeMsec) {
     Card* card = dragCard();
-    card->box.x = static_cast<int>(std::lround(lx - m_dragOffsetX));
-    card->box.y = static_cast<int>(std::lround(ly - m_dragOffsetY));
-    wlr_scene_node_set_position(&card->tree->node, card->box.x, card->box.y);
     m_dragX = lx;
     m_dragY = ly;
+    std::erase_if(m_dragSamples, [timeMsec](const DragSample& sample) {
+      return static_cast<double>(timeMsec - sample.msec) > kReleaseWindowMs;
+    });
+    m_dragSamples.push_back({timeMsec, lx, ly});
+    m_dragScale = dragScaleAt(*card, lx, ly);
+    placeDragCard(*card);
+    layoutCard(*card, liveTargetView());
     retargetDrop(lx, ly);
     updateEdgeScroll(lx, ly);
+  }
+
+  double Overview::dragScaleAt(const Card& card, double lx, double ly) const {
+    const auto smoothstep = [](double x) {
+      x = std::clamp(x, 0.0, 1.0);
+      return x * x * (3.0 - 2.0 * x);
+    };
+    const double lift = kDragLiftShare * m_dragSlotScale;
+    const double lifted =
+        std::lerp(m_dragSlotScale, lift, smoothstep(std::hypot(lx - m_dragClaimX, ly - m_dragClaimY) / kDragThreshold));
+    // The thumb row of the card's output: its thumbs' vertical extent and the scale a window has inside one.
+    const OutputState* state = card.owner;
+    if (state == nullptr) {
+      return lifted;
+    }
+    double top = std::numeric_limits<double>::infinity();
+    double bottom = -std::numeric_limits<double>::infinity();
+    double thumbScale = 0.0;
+    for (const WorkspaceView& view : state->workspaceViews) {
+      if (!view.shown || view.kind != ov::CardKind::Thumb) {
+        continue;
+      }
+      top = std::min(top, static_cast<double>(view.box.y));
+      bottom = std::max(bottom, static_cast<double>(view.box.y + view.box.height));
+      thumbScale = view.fit.s;
+    }
+    if (thumbScale <= 0.0) {
+      return lifted;
+    }
+    // The strip's near edge, above or below where the drag began.
+    const double edge = m_dragClaimY > bottom ? bottom : top;
+    const bool inBand = ly >= top && ly <= bottom;
+    const double span = m_dragClaimY - edge;
+    const double p = inBand || std::abs(span) < 1.0 ? 1.0 : (m_dragClaimY - ly) / span;
+    return std::lerp(lifted, thumbScale, smoothstep(p));
+  }
+
+  void Overview::placeDragCard(Card& card) {
+    const wlr_box& world = card.view->presentedBox();
+    card.scale = m_dragScale;
+    card.box.width = std::max(1, static_cast<int>(std::lround(world.width * m_dragScale)));
+    card.box.height = std::max(1, static_cast<int>(std::lround(world.height * m_dragScale)));
+    card.box.x = static_cast<int>(std::lround(m_dragX - m_dragGrabX * card.box.width));
+    card.box.y = static_cast<int>(std::lround(m_dragY - m_dragGrabY * card.box.height));
+  }
+
+  Workspace* Overview::rowThumbAt(double lx, double ly, wlr_box* outBox) {
+    for (const auto& state : m_outputs) {
+      WorkspaceGroup* group = state->output->workspaceGroup();
+      if (group == nullptr || !boxContains(state->outputBox, lx, ly)) {
+        continue;
+      }
+      for (size_t index = 0; index < state->workspaceViews.size(); ++index) {
+        const WorkspaceView& view = state->workspaceViews[index];
+        if (view.shown && view.kind == ov::CardKind::Thumb && boxContains(view.box, lx, ly)) {
+          *outBox = view.box;
+          return group->workspaceAt(index);
+        }
+      }
+    }
+    return nullptr;
   }
 
   void Overview::retargetDrop(double lx, double ly) {
@@ -60,6 +135,7 @@ namespace andromeda {
     OutputState* state = nullptr;
     size_t workspaceIndex = 0;
     wlr_box workspaceHint{};
+    m_dropThumb = nullptr;
     if (WorkspaceGroup* group = plusTargetAt(lx, ly, &state, &workspaceHint)) {
       m_drop = {};
       m_dropWorkspaceGroup = group;
@@ -81,6 +157,24 @@ namespace andromeda {
       return;
     }
     m_dropWorkspaceGroup = nullptr;
+
+    // A thumb is one target, "move there": the window joins that workspace the way the window menu moves it.
+    // The dragged window's own thumb takes no drop: a release there returns the card to its slot.
+    if (Workspace* thumb = rowThumbAt(lx, ly, &workspaceHint)) {
+      m_drop = {};
+      if (thumb == card->view->workspace()) {
+        hideDropHint();
+      } else {
+        m_dropThumb = thumb;
+        if (m_dropHint == nullptr) {
+          m_dropHint = std::make_unique<HintRect>(*m_server, m_tree);
+        }
+        m_dropHint->show(thumb->group()->output(), workspaceHint, kPlusHintRadius, HintLook::Ring);
+        wlr_scene_node_raise_to_top(&card->tree->node);
+      }
+      scheduleFrames();
+      return;
+    }
 
     if (View* other = swapTargetAt(lx, ly)) {
       m_drop = {.workspace = other->workspace()};
@@ -139,22 +233,27 @@ namespace andromeda {
     scheduleFrames();
   }
 
-  void Overview::endDrag(bool drop) {
+  void Overview::endDrag(bool drop, uint32_t releaseMsec) {
     Card* card = dragCard();
     if (card == nullptr) {
       return;
     }
     View* view = card->view;
     WorkspaceGroup* insertionGroup = drop ? m_dropWorkspaceGroup : nullptr;
-    View* swapWith = drop && insertionGroup == nullptr ? swapTargetAt(m_dragX, m_dragY) : nullptr;
+    Workspace* thumb = drop ? m_dropThumb.get() : nullptr;
+    View* swapWith = drop && insertionGroup == nullptr && thumb == nullptr ? swapTargetAt(m_dragX, m_dragY) : nullptr;
     Workspace* target = drop ? m_drop.workspace : nullptr;
     DropTarget targetDrop = m_drop;
-    const wlr_box cardBox = card->box;
     OutputState* dropState = target != nullptr ? stateForWorkspace(target) : nullptr;
+    const ov::Rect released{
+        static_cast<double>(card->box.x), static_cast<double>(card->box.y), static_cast<double>(card->box.width),
+        static_cast<double>(card->box.height)
+    };
 
     m_pointer.release();
     m_drop = {};
     m_dropWorkspaceGroup = nullptr;
+    m_dropThumb = nullptr;
     hideDropHint();
     stopEdgeScroll();
     m_server->cursor()->overrideCursor(nullptr);
@@ -163,44 +262,71 @@ namespace andromeda {
       return;
     }
 
-    bool insertedWorkspace = false;
-    if (insertionGroup != nullptr) {
-      target = insertionGroup->insertDynamicWorkspace(m_dropWorkspaceIndex);
-      dropState = target != nullptr ? stateForWorkspace(target) : nullptr;
-      if (target != nullptr && dropState != nullptr) {
-        targetDrop = {
-            .workspace = target,
-            .column = 0,
-        };
-        insertedWorkspace = true;
+    // Release velocity: a least-squares line through the last kReleaseWindowMs of samples (rulebook 7.7).
+    double vx = 0;
+    double vy = 0;
+    std::erase_if(m_dragSamples, [releaseMsec](const DragSample& sample) {
+      return releaseMsec == 0 || static_cast<double>(releaseMsec - sample.msec) > kReleaseWindowMs;
+    });
+    if (m_dragSamples.size() >= 2) {
+      const auto count = static_cast<double>(m_dragSamples.size());
+      double meanT = 0, meanX = 0, meanY = 0;
+      for (const DragSample& sample : m_dragSamples) {
+        meanT += static_cast<double>(sample.msec - m_dragSamples.front().msec) / count;
+        meanX += sample.x / count;
+        meanY += sample.y / count;
+      }
+      double stt = 0, stx = 0, sty = 0;
+      for (const DragSample& sample : m_dragSamples) {
+        const double dt = static_cast<double>(sample.msec - m_dragSamples.front().msec) - meanT;
+        stt += dt * dt;
+        stx += dt * (sample.x - meanX);
+        sty += dt * (sample.y - meanY);
+      }
+      if (stt > 0) {
+        vx = stx / stt * 1000.0;
+        vy = sty / stt * 1000.0;
       }
     }
+    m_dragSamples.clear();
 
-    if (swapWith == nullptr && target != nullptr && target->layoutMode() == LayoutMode::Floating && view->tiled()) {
-      view->floatForLayout();
-    }
-    if (swapWith != nullptr) {
-      swapDragged(*view, *swapWith);
-    } else if (target != nullptr && view->tiled()) {
-      applyDrop(
-          *m_server, *view, *target, targetDrop, m_dragSourceWidth.has_value() ? &*m_dragSourceWidth : nullptr,
-          /*animate=*/false
-      );
-    } else if (target != nullptr && dropState != nullptr && insertedWorkspace) {
-      view->rememberFloatingPosition();
-      if (view->workspace() != target) {
-        view->moveToWorkspace(target);
+    // Into a thumb or a new workspace, and a cancel: Return on `close`. Anywhere else: Return on `page`, carrying the
+    // release velocity.
+    const bool intoWorkspace = thumb != nullptr || insertionGroup != nullptr;
+    const SpringConfig closeSpring{.damping = Tokens::springClose.damping, .stiffness = Tokens::springClose.stiffness};
+    const SpringConfig pageSpring{.damping = Tokens::springPage.damping, .stiffness = Tokens::springPage.stiffness};
+    const bool page = drop && !intoWorkspace;
+    startDropReturn(*view, released, page ? pageSpring : closeSpring, page ? vx : 0.0, page ? vy : 0.0);
+
+    if (intoWorkspace) {
+      // The same move as the window menu's "Move to": the window keeps its place policy and its floating position,
+      // and the overview stays on the workspace it shows.
+      Workspace* destination = thumb != nullptr ? thumb : insertionGroup->insertDynamicWorkspace(m_dropWorkspaceIndex);
+      if (destination != nullptr) {
+        moveViewTo(*view, destination);
+      } else if (m_dragSourceWorkspace != nullptr && view->tiled() && m_dragSourceColumn >= 0) {
+        restoreDragSlot(*view);
+        m_dragSourceWorkspace->arrange(false);
       }
-      if (view->floating()) {
-        view->restoreFloatingPosition();
+    } else {
+      if (swapWith == nullptr && target != nullptr && target->layoutMode() == LayoutMode::Floating && view->tiled()) {
+        view->floatForLayout();
       }
-      m_server->focusView(view, FocusReason::DragDrop);
-    } else if (target != nullptr && dropState != nullptr) {
-      // Floating: map the card origin back out of the thumbnail.
-      {
+      if (swapWith != nullptr) {
+        swapDragged(*view, *swapWith);
+      } else if (target != nullptr && view->tiled()) {
+        applyDrop(
+            *m_server, *view, *target, targetDrop, m_dragSourceWidth.has_value() ? &*m_dragSourceWidth : nullptr,
+            /*animate=*/false
+        );
+      } else if (target != nullptr && dropState != nullptr) {
+        // Floating: the window goes where the grab point was let go, at its own size.
         const ov::Fit fit = workspaceFit(*dropState, target->index());
-        const int x = dropState->outputBox.x + static_cast<int>(std::lround((cardBox.x - fit.ox) / fit.s));
-        const int y = dropState->outputBox.y + static_cast<int>(std::lround((cardBox.y - fit.oy) / fit.s));
+        const wlr_box& world = view->presentedBox();
+        const int x = dropState->outputBox.x
+            + static_cast<int>(std::lround((m_dragX - fit.ox) / fit.s - m_dragGrabX * world.width));
+        const int y = dropState->outputBox.y
+            + static_cast<int>(std::lround((m_dragY - fit.oy) / fit.s - m_dragGrabY * world.height));
         if (view->workspace() != target) {
           view->moveToWorkspace(target);
           target->exitFullscreenForIncomingView(view);
@@ -211,11 +337,11 @@ namespace andromeda {
         }
         // Cards are laid out from the presented box, which setPosition does not refresh.
         target->syncViewPresentation(view);
+      } else if (m_dragSourceWorkspace != nullptr && view->tiled() && m_dragSourceColumn >= 0) {
+        // Cancelled or dropped on nothing: put the tile back where it came from.
+        restoreDragSlot(*view);
+        m_dragSourceWorkspace->arrange(false);
       }
-    } else if (m_dragSourceWorkspace != nullptr && view->tiled() && m_dragSourceColumn >= 0) {
-      // Cancelled or dropped on nothing: put the tile back where it came from.
-      restoreDragSlot(*view);
-      m_dragSourceWorkspace->arrange(false);
     }
 
     m_dragSourceWorkspace = nullptr;
@@ -226,6 +352,30 @@ namespace andromeda {
     // about than rebinding its surface listeners in place.
     rebuildCard(view);
     applyProgress();
+    // A card the layout did not place (hidden, filtered out) has no path to travel.
+    if (m_return.has_value() && !m_return->started) {
+      m_return.reset();
+    }
+  }
+
+  void Overview::startDropReturn(View& view, const ov::Rect& from, const SpringConfig& spring, double vx, double vy) {
+    const auto& animation = config().animation;
+    const bool fade = config().appearance.reduceMotion;
+    if (!animation.enabled || (!fade && !animation.overview.enabled)) {
+      m_return.reset();
+      return;
+    }
+    const SpringConfig fadeSpring{.damping = Tokens::springFade.damping, .stiffness = Tokens::springFade.stiffness};
+    m_return =
+        DropReturn{.view = &view, .from = from, .spring = fade ? fadeSpring : spring, .vx = vx, .vy = vy, .fade = fade};
+  }
+
+  float Overview::returnOpacity(const View* view) const {
+    if (!m_return.has_value() || !m_return->fade || !m_return->started || m_return->view.get() != view) {
+      return 1.0F;
+    }
+    // Out at the release point over the first half, in at the slot over the second.
+    return static_cast<float>(std::clamp(std::abs(1.0 - 2.0 * m_return->t.current()), 0.0, 1.0));
   }
 
   void Overview::restoreDragSlot(View& view) {

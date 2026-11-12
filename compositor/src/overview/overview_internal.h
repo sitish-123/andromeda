@@ -122,8 +122,12 @@ namespace andromeda::ovimpl {
         && world.height > 0
         && !view->presentationSuppressed();
   }
-  // Pointer travel that promotes a press on a card into a relocate drag.
-  inline constexpr double kDragThreshold = 10.0;
+  // Pointer or touch travel that promotes a press on a card into a relocate drag (rulebook 7.7 slop).
+  inline constexpr double kDragThreshold = 8.0;
+  // A dragged card leaves its slot at this share of its slot scale before the strip pulls it down further.
+  inline constexpr double kDragLiftShare = 0.85;
+  // Pointer samples the release velocity is fitted over (rulebook 7.7).
+  inline constexpr double kReleaseWindowMs = 100.0;
   // Edge auto-scroll while dragging: the band along an output edge, the hold before the first row step, the step
   // period after it, and the pan speed of a scrolling workspace (no hold; it runs on the frame clock).
   inline constexpr double kEdgeZone = 72.0;

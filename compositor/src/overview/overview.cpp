@@ -576,12 +576,13 @@ namespace andromeda {
       const ov::Rect rect = ov::lerpRect(desk, placed, p);
       if (&card != dragCard()) {
         card.box = layoutBox(rect, outputBox);
+        card.scale = world.width > 0 ? rect.w / world.width : 1.0;
       } else {
-        // The pointer owns a dragged card: a drop reflows it from where it was let go.
-        m_shownRects[card.view] = {static_cast<double>(card.box.x), static_cast<double>(card.box.y), rect.w, rect.h};
+        // The pointer owns a dragged card, its scale and its origin.
+        placeDragCard(card);
       }
-      card.scale = world.width > 0 ? rect.w / world.width : 1.0;
-      card.opacity = static_cast<float>(ov::windowOpacity(*place, card.view->minimized(), p));
+      card.opacity =
+          static_cast<float>(ov::windowOpacity(*place, card.view->minimized(), p)) * returnOpacity(card.view);
       if (!m_filter.empty() && !cardMatches(card)) {
         card.opacity *= kFilterMissOpacity;
       }
@@ -748,6 +749,25 @@ namespace andromeda {
   }
 
   ov::Rect Overview::reflowRect(const void* key, const ov::Rect& target, bool began) {
+    if (m_return.has_value() && m_return->view.get() == key) {
+      DropReturn& back = *m_return;
+      if (!back.started) {
+        // The release velocity, projected onto the path to the target, in path lengths per second.
+        const double dx = target.x + target.w / 2 - (back.from.x + back.from.w / 2);
+        const double dy = target.y + target.h / 2 - (back.from.y + back.from.h / 2);
+        const double length2 = dx * dx + dy * dy;
+        const double velocity = length2 > 1.0 ? (back.vx * dx + back.vy * dy) / length2 : 0.0;
+        back.t.snap(0.0);
+        back.t.settleSpring(1.0, back.spring, velocity);
+        back.started = true;
+        scheduleFrames();
+      }
+      m_reflowFrom.erase(key);
+      const double t = back.t.current();
+      const ov::Rect shown = back.fade ? (t < 0.5 ? back.from : target) : ov::lerpRect(back.from, target, t);
+      m_shownRects[key] = shown;
+      return shown;
+    }
     if (began) {
       // Only a rect that jumped glides; one following its window's own layout spring is already smooth.
       if (const auto shown = m_shownRects.find(key); shown != m_shownRects.end()) {
@@ -1187,6 +1207,13 @@ namespace andromeda {
       m_reflowFrom.clear();
     }
     active = active || m_reflow.animating();
+    if (m_return.has_value() && m_return->started) {
+      rowTicked = m_return->t.tick(nowMsec) || rowTicked;
+      if (!m_return->t.animating()) {
+        m_return.reset();
+      }
+    }
+    active = active || m_return.has_value();
     for (const auto& state : m_outputs) {
       const bool ticked = state->rowScroll.tick(nowMsec);
       if (ticked && state->rowScroll.animating() && state->rowScroll.curve().easing == Easing::Spring) {
@@ -1234,6 +1261,7 @@ namespace andromeda {
   bool Overview::hasActiveAnimations() const {
     return m_zoomAnim.animating()
         || m_reflow.animating()
+        || m_return.has_value()
         || std::ranges::any_of(m_outputs, [](const auto& state) { return state->rowScroll.animating(); })
         || (m_dropHint != nullptr && m_dropHint->hasActiveAnimations());
   }
@@ -1293,6 +1321,7 @@ namespace andromeda {
     m_fingerProgress.reset();
     m_server->cursor()->resetWheelAccumulation();
     m_reflow.snap(1.0);
+    m_return.reset();
     m_shownRects.clear();
     m_reflowFrom.clear();
     cancelNavigation();

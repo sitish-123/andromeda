@@ -215,7 +215,7 @@ namespace andromeda {
         return true;
       }
       if (dragCard() != nullptr) {
-        endDrag(true);
+        endDrag(true, timeMsec);
         return true;
       }
       if (m_thumbDragging) {
@@ -395,7 +395,7 @@ namespace andromeda {
       return;
     }
     if (dragCard() != nullptr) {
-      updateDrag(lx, ly);
+      updateDrag(lx, ly, timeMsec);
       return;
     }
     if (m_pressThumb && m_pressWorkspace != nullptr) {
@@ -420,8 +420,21 @@ namespace andromeda {
     if (dx * dx + dy * dy < kDragThreshold * kDragThreshold) {
       return;
     }
+    m_dragX = lx;
+    m_dragY = ly;
     beginDrag();
-    updateDrag(lx, ly);
+    if (dragCard() != nullptr) {
+      updateDrag(lx, ly, timeMsec);
+    }
+  }
+
+  void Overview::cancelDrag() {
+    if (dragCard() != nullptr) {
+      endDrag(false);
+    }
+    endThumbDrag(false, 0, 0);
+    m_pointer.release();
+    m_pressWorkspace = nullptr;
   }
 
   bool Overview::selectRelativeWorkspace(int delta, Output* output) {
@@ -1340,6 +1353,11 @@ namespace andromeda {
       return false;
     }
     if (renameKey(keysym) || windowMenuKey(keysym) || menuKey(keysym)) {
+      return true;
+    }
+    // Escape drops a held card back into its slot and keeps the overview open.
+    if (keysym == XKB_KEY_Escape && dragCard() != nullptr) {
+      cancelDrag();
       return true;
     }
     if (keysym == XKB_KEY_F2) {

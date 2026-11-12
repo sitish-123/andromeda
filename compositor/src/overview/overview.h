@@ -129,6 +129,8 @@ namespace andromeda {
     // Input entry points; called from Cursor/Keyboard while active.
     bool handleButton(uint32_t button, bool pressed, double lx, double ly, uint32_t timeMsec);
     void handleMotion(double lx, double ly, uint32_t timeMsec);
+    // Ends a held card or thumb without a drop: the card returns to its slot (Escape, touch cancel).
+    void cancelDrag();
     bool handleAxisNotch(bool vertical, double direction, double lx, double ly);
     // Swipe and finger-scroll input both arrive as content-direction deltas and share one navigation lifetime; the
     // source only selects the travel distances and decides who may end the gesture. Scroll samples are combined at
@@ -470,7 +472,14 @@ namespace andromeda {
     void clearMiddlePress();
 
     void beginDrag();
-    void updateDrag(double lx, double ly);
+    void updateDrag(double lx, double ly, uint32_t timeMsec);
+    // The dragged card's scale at pointer (lx, ly): lifted off its slot, then pulled toward the thumb size as the
+    // pointer nears the thumb row (.agent/TASK-overview.md "Drag spec").
+    [[nodiscard]] double dragScaleAt(const Card& card, double lx, double ly) const;
+    // Places the dragged card at its scale with the grab point under (m_dragX, m_dragY).
+    void placeDragCard(Card& card);
+    // The workspace whose thumb in the Spaces or Task View row is under the point, and that thumb's box.
+    [[nodiscard]] Workspace* rowThumbAt(double lx, double ly, wlr_box* outBox);
     // Recomputes the drop target under the pointer without moving the dragged card: rows can slide under a still one.
     void retargetDrop(double lx, double ly);
     // Edge auto-scroll: holding a dragged card within kEdgeZone of an output edge steps the rows along the workspace
@@ -482,7 +491,10 @@ namespace andromeda {
     static int onEdgeTimer(void* data);
     // The new-workspace target under the pointer, as an insertion at the end of its output's workspaces.
     [[nodiscard]] WorkspaceGroup* plusTargetAt(double lx, double ly, OutputState** outState, wlr_box* outBox);
-    void endDrag(bool drop);
+    // `releaseMsec`: the input time of the release, which ends the velocity window (0: no release velocity).
+    void endDrag(bool drop, uint32_t releaseMsec = 0);
+    // The released card glides from `from` to wherever the next layout places it.
+    void startDropReturn(View& view, const ov::Rect& from, const SpringConfig& spring, double vx, double vy);
     // Inserts `view` back into the slot beginDrag detached the dragged window from.
     void restoreDragSlot(View& view);
     // The tiled window whose middle is under the pointer, which a drop swaps with the dragged one.
@@ -536,6 +548,22 @@ namespace andromeda {
     std::unordered_map<const void*, ov::Rect> m_reflowFrom;
     void beginReflow();
     ov::Rect reflowRect(const void* key, const ov::Rect& target, bool began);
+    // A released card on its own spring, outside the shared reflow: it travels from its release rect, or under reduced
+    // motion fades out there and in at its place. The spring starts at the first layout that knows the target, so the
+    // release velocity projects onto the real path.
+    struct DropReturn {
+      Ref<View> view;
+      ov::Rect from;
+      SpringConfig spring;
+      double vx = 0; // release velocity, layout px/s
+      double vy = 0;
+      bool fade = false;
+      bool started = false;
+      AnimatedValue t{0.0};
+    };
+    std::optional<DropReturn> m_return;
+    // Opacity factor the return puts on `view`'s card: 1 unless it is fading.
+    [[nodiscard]] float returnOpacity(const View* view) const;
     Ref<View> m_pendingFocus;
     bool m_cardPresentationDirty = false;
     // Touchpads report faster than the display: the gesture's IPC overview event goes out once per frame.
@@ -587,8 +615,20 @@ namespace andromeda {
     bool m_middlePanning = false;
     bool m_middleScrolling = false;
 
-    double m_dragOffsetX = 0;
-    double m_dragOffsetY = 0;
+    // The grab point as a share of the card box, kept at every drag scale.
+    double m_dragGrabX = 0;
+    double m_dragGrabY = 0;
+    double m_dragSlotScale = 1.0; // card scale in its slot when the drag claimed it
+    double m_dragScale = 1.0;
+    double m_dragClaimX = 0; // pointer at the claim
+    double m_dragClaimY = 0;
+    struct DragSample {
+      uint32_t msec;
+      double x;
+      double y;
+    };
+    std::vector<DragSample> m_dragSamples; // the last kReleaseWindowMs of drag motion
+    Ref<Workspace> m_dropThumb;            // the thumb a release moves the window to
     Ref<Workspace> m_dragSourceWorkspace;
     int m_dragSourceColumn = -1;
     int m_dragSourceRow = -1;
