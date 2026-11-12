@@ -141,7 +141,7 @@ namespace andromeda {
     double m_initialVelocity = 0.0;
     double m_progress = 1.0; // linear fraction as of the last tick(); 1.0 when never animating
     double m_startMsec = 0;  // 0 = clock starts on the first tick
-    double m_tickMsec = 0;   // frame clock of the last tick
+    double m_tickMsec = 0;   // frame clock of the last tick of this run; 0 at rest
     uint64_t m_durationMsec = 1;
     uint64_t m_transitionId = 0;
     std::array<float, 4> m_shaderSeed{};

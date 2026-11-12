@@ -231,6 +231,30 @@ ANDROMEDA_TEST(steeredSpringContinuesOnTheNextFrame) {
   CHECK_EQ(value.current(), 2000.0);
 }
 
+ANDROMEDA_TEST(twoSteersAfterAnIdleStartFromTheNextFrame) {
+  const andromeda::SpringConfig spring{.damping = 1.0, .stiffness = 900.0, .mass = 1.0};
+  andromeda::AnimatedValue value;
+  value.settleSpring(1000.0, spring);
+  CHECK(value.tick(1000));
+  CHECK(value.tick(5000));
+  CHECK(!value.animating());
+
+  // Long after it settled, two steers before one frame (a target that changes twice in one event) start at that frame.
+  value.steerSpring(2000.0, spring);
+  value.steerSpring(3000.0, spring);
+  CHECK(value.tick(60000));
+  CHECK(value.tick(60008));
+  CHECK(value.current() - 1000.0 < 200.0);
+
+  // A snap forgets the clock too.
+  value.snap(0.0);
+  value.steerSpring(1000.0, spring);
+  value.steerSpring(500.0, spring);
+  CHECK(value.tick(90000));
+  CHECK(value.tick(90008));
+  CHECK(value.current() < 100.0);
+}
+
 ANDROMEDA_TEST(animatedValueKeepsSubMillisecondTime) {
   // Frames tick at vblank instants that fall between milliseconds; the timeline must not round them away.
   andromeda::AnimatedValue value;

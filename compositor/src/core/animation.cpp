@@ -305,6 +305,7 @@ namespace andromeda {
     m_initialVelocity = 0.0;
     m_progress = 1.0;
     m_startMsec = 0;
+    m_tickMsec = 0;
     m_animating = false;
     m_physics = false;
   }
@@ -423,6 +424,7 @@ namespace andromeda {
       if (m_current == m_target && velocity == 0.0) {
         m_progress = 1.0;
         m_animating = false;
+        m_tickMsec = 0;
       }
       return true;
     }
@@ -434,6 +436,7 @@ namespace andromeda {
       m_current = m_target;
       m_velocity = 0.0;
       m_animating = false;
+      m_tickMsec = 0;
       return true;
     }
 

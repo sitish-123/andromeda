@@ -153,11 +153,19 @@ namespace andromeda {
   }
 
   bool HintRect::tickAnimations(double nowMsec) {
-    const bool alphaTicked = m_alpha.tick(nowMsec);
-    const bool xTicked = m_x.tick(nowMsec);
-    const bool yTicked = m_y.tick(nowMsec);
-    const bool widthTicked = m_w.tick(nowMsec);
-    const bool heightTicked = m_h.tick(nowMsec);
+    // Rulebook 7.1 rule 9: a spring stops once it can no longer move a pixel or an 8-bit opacity level.
+    const auto tickTail = [nowMsec](AnimatedValue& value, double pixelsPerUnit) {
+      const bool ticked = value.tick(nowMsec);
+      if (ticked && value.animating()) {
+        static_cast<void>(value.finishSpringTail(pixelsPerUnit));
+      }
+      return ticked;
+    };
+    const bool alphaTicked = tickTail(m_alpha, 255.0);
+    const bool xTicked = tickTail(m_x, 1.0);
+    const bool yTicked = tickTail(m_y, 1.0);
+    const bool widthTicked = tickTail(m_w, 1.0);
+    const bool heightTicked = tickTail(m_h, 1.0);
     const bool geometryTicked = xTicked || yTicked || widthTicked || heightTicked;
     if (alphaTicked || geometryTicked) {
       applyState();
