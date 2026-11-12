@@ -7,6 +7,7 @@
 #include "scene/color.h"
 #include "server/ipc_commands.h"
 #include "server/server.h"
+#include "workspace/workspace.h"
 
 #include <algorithm>
 #include <bit>
@@ -116,6 +117,25 @@ namespace andromeda {
 
     nlohmann::json outputsEvent(Server& server) {
       return nlohmann::json{{"event", "outputs"}, {"data", IpcCommands::outputs(server, {}).at("ok")}};
+    }
+
+    nlohmann::json workspaceSlideEvent(const WorkspaceGroup& group, double nowMsec) {
+      const WorkspaceGroup::SlideReport report = group.slideReport();
+      nlohmann::json data{
+          {"output", group.output()->wlr()->name},
+          {"phase", report.phase},
+          {"time_ms", nowMsec},
+          {"from", report.from != nullptr ? report.from->id() : ""},
+          {"to", report.to != nullptr ? report.to->id() : ""},
+          {"progress", report.progress},
+      };
+      if (report.from != nullptr && report.to != nullptr) {
+        const auto from = static_cast<double>(report.from->index());
+        const auto to = static_cast<double>(report.to->index());
+        // 1-based like the workspaces event's index.
+        data["position"] = from + 1.0 + report.progress * (to - from);
+      }
+      return nlohmann::json{{"event", "workspace_slide"}, {"data", std::move(data)}};
     }
 
     nlohmann::json screenCastEvent(Server& server) {
@@ -651,7 +671,8 @@ namespace andromeda {
         connection.deadline = nullptr;
       }
       // Initial-state lines in a fixed order; prepareResponse appends the final newline. A keyboard_layout line with no
-      // keyboard is skipped, so that stream simply starts when a keyboard arrives.
+      // keyboard is skipped, so that stream simply starts when a keyboard arrives. workspace_slide has no initial line:
+      // it streams only while a slide runs.
       std::string response;
       auto append = [&response](const nlohmann::json& event) {
         if (!response.empty()) {
@@ -841,6 +862,12 @@ namespace andromeda {
   void Ipc::notifyOutputsChanged() {
     if (hasSubscriber(kEventOutputs)) {
       broadcastEvent(kEventOutputs, outputsEvent(*m_server));
+    }
+  }
+
+  void Ipc::notifyWorkspaceSlide(const WorkspaceGroup& group, double nowMsec) {
+    if (hasSubscriber(kEventWorkspaceSlide)) {
+      broadcastEvent(kEventWorkspaceSlide, workspaceSlideEvent(group, nowMsec));
     }
   }
 

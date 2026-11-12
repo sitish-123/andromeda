@@ -12,6 +12,7 @@
 #include "output/output.h"
 #include "overview/overview.h"
 #include "scene/effect_registry.h"
+#include "server/ipc.h"
 #include "server/server.h"
 #include "view/floating.h"
 #include "view/registry.h"
@@ -3360,6 +3361,7 @@ namespace andromeda {
     abandonReveal();
     m_slideAnim.snap(0.0);
     if (const std::optional<Slide> ended = m_slide.finish()) {
+      m_slideEventPending = true;
       for (Workspace* workspace : {ended->base, ended->previous, ended->next}) {
         if (workspace != nullptr) {
           workspace->endSwitchTransition();
@@ -3414,6 +3416,7 @@ namespace andromeda {
   void WorkspaceGroup::slideApply(double progress) {
     Slide* slide = m_slide.data();
     slide->progress = progress;
+    m_slideEventPending = true;
     const double extent = slide->extent;
     // Increasing workspace index moves outgoing content toward negative coordinates
     // on the group's axis; the other coordinate stays at rest.
@@ -3477,6 +3480,7 @@ namespace andromeda {
       return;
     }
     m_slideAnim.snap(slide.progress);
+    m_slideEventPending = true;
     if (workspaces.curve.easing == Easing::Spring) {
       // A spring carries the release speed, so the slide keeps moving the way the fingers were instead of stopping
       // dead at the release and starting over from rest.
@@ -3513,7 +3517,25 @@ namespace andromeda {
     for (const auto& workspace : m_workspaces) {
       active = workspace->tickLayoutMotion(nowMsec) || active;
     }
+    if (std::exchange(m_slideEventPending, false)) {
+      if (Ipc* ipc = m_server->ipc()) {
+        ipc->notifyWorkspaceSlide(*this, nowMsec);
+      }
+    }
     return active;
+  }
+
+  WorkspaceGroup::SlideReport WorkspaceGroup::slideReport() const {
+    const Slide* slide = m_slide.data();
+    if (slide == nullptr) {
+      return {.phase = "idle", .from = m_active, .to = m_active, .progress = 0.0};
+    }
+    const std::string_view phase = m_slide.phase() == decltype(m_slide)::Phase::Tracking ? "tracking" : "settling";
+    const Workspace* to = slide->progress < 0 ? slide->previous : slide->next;
+    if (to == nullptr) {
+      return {.phase = phase, .from = slide->base, .to = slide->base, .progress = 0.0};
+    }
+    return {.phase = phase, .from = slide->base, .to = to, .progress = std::abs(slide->progress)};
   }
 
   bool WorkspaceGroup::hasActiveAnimations() const {

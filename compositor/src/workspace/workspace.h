@@ -448,6 +448,15 @@ namespace andromeda {
     // Where the slide sits between its steps right now. A gesture that starts mid-settle picks the slide up here
     // instead of snapping it to an end first.
     [[nodiscard]] double slideProgress() const { return m_slide.active() ? m_slide.data()->progress : 0.0; }
+    // The slide as the workspace_slide IPC event reports it: `to` is the workspace on the side `progress` points to,
+    // and `progress` is the fraction of the way from `from` to `to`. Idle reports the active workspace at 0.
+    struct SlideReport {
+      std::string_view phase;
+      const Workspace* from = nullptr;
+      const Workspace* to = nullptr;
+      double progress = 0;
+    };
+    [[nodiscard]] SlideReport slideReport() const;
     bool slideBegin(bool includePrev, bool includeNext);
     void slideApply(double progress);
     // Settle onto `delta` steps from the base. `velocity` is what the gesture still had when it was released, in steps
@@ -521,6 +530,8 @@ namespace andromeda {
     std::vector<std::unique_ptr<Workspace>> m_workspaces;
     AnimatedValue m_slideAnim;
     SlideMode<Slide, ThawHold> m_slide;
+    // Touchpads report faster than the display: the workspace_slide IPC event goes out once per animation tick.
+    bool m_slideEventPending = false;
   };
 
 } // namespace andromeda
