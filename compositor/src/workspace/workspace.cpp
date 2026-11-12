@@ -2638,6 +2638,11 @@ namespace andromeda {
   WorkspaceGroup::~WorkspaceGroup() {
     m_server->unregisterAnimatable(this);
     slideFinish();
+    // No tick follows the unregister: a slide that ends here sends its idle line now.
+    if (Ipc* ipc = m_server->ipc();
+        ipc != nullptr && m_output->wlr() != nullptr && std::exchange(m_slideEventPending, false)) {
+      ipc->notifyWorkspaceSlide(*this, static_cast<double>(m_server->animationClockMsec()));
+    }
     m_active = nullptr;
     m_previous = nullptr;
     if (m_handle != nullptr && m_output != nullptr && m_output->wlr() != nullptr) {
@@ -3461,9 +3466,11 @@ namespace andromeda {
       if (m_previous != nullptr) {
         m_previous->showSwitchViews();
       }
-      // The neighbour on the other side leaves the slide: it no longer moves with it.
+      // The neighbour on the other side leaves the slide: it no longer moves with it. One still on screen stays until
+      // the slide ends.
       Workspace*& unused = (delta > 0) ? slide.previous : slide.next;
-      if (unused != nullptr) {
+      const bool unusedShown = delta > 0 ? slide.progress < 0 : slide.progress > 0;
+      if (unused != nullptr && !unusedShown) {
         Workspace* left = std::exchange(unused, nullptr);
         unbindReveal(slide, left);
         left->endSwitchTransition();
@@ -3481,7 +3488,10 @@ namespace andromeda {
     }
     m_slideAnim.snap(slide.progress);
     m_slideEventPending = true;
-    if (workspaces.curve.easing == Easing::Spring) {
+    if (config().appearance.reduceMotion) {
+      // Rulebook 7.8: the release settles on `close`, with no velocity carry and no overshoot.
+      m_slideAnim.settleSpring(static_cast<double>(delta), motionSpring(Tokens::springClose));
+    } else if (workspaces.curve.easing == Easing::Spring) {
       // A spring carries the release speed, so the slide keeps moving the way the fingers were instead of stopping
       // dead at the release and starting over from rest.
       m_slideAnim.settleSpring(static_cast<double>(delta), workspaces.curve.spring, velocity);
@@ -3550,6 +3560,24 @@ namespace andromeda {
     if (m_active == workspace) {
       return;
     }
+    // A slide still on screen hands its position and speed to the new one (rulebook 7.1 r5), as slideBegin does. The
+    // workspace shown beside the active one joins the new slide on the far side, or must be the target itself.
+    double carried = 0.0;
+    double carriedVelocity = 0.0;
+    Workspace* beside = nullptr;
+    if (const Slide* running = m_slide.data(); running != nullptr && m_active != nullptr) {
+      const auto baseIndex = static_cast<double>(running->base->index());
+      const auto activeIndex = static_cast<double>(m_active->index());
+      const double offset = running->progress - (activeIndex - baseIndex);
+      const size_t idx = m_active->index();
+      Workspace* shown = offset < 0 ? (idx > 0 ? workspaceAt(idx - 1) : nullptr) : workspaceAt(idx + 1);
+      const bool towardTarget = (offset < 0) == (workspace->index() < idx);
+      if (std::abs(activeIndex - baseIndex) <= 1 && offset != 0 && (!towardTarget || shown == workspace)) {
+        carried = offset;
+        carriedVelocity = m_slideAnim.animating() ? m_slideAnim.velocity() : 0.0;
+        beside = towardTarget ? nullptr : shown;
+      }
+    }
     slideFinish();
     Overview* overview = m_server->overview();
     const bool overviewActive = overview != nullptr && overview->active();
@@ -3589,15 +3617,21 @@ namespace andromeda {
     const int sign = workspace->index() > m_active->index() ? 1 : -1;
     Slide slide;
     slide.base = m_active;
-    slide.previous = sign < 0 ? workspace : nullptr;
-    slide.next = sign > 0 ? workspace : nullptr;
+    slide.previous = sign < 0 ? workspace : beside;
+    slide.next = sign > 0 ? workspace : beside;
     slide.extent = extent;
+    slide.progress = carried;
     beginReveal(slide);
     m_slide.track(slide, ThawHold(m_server));
     slide.base->beginSwitchTransition();
     workspace->beginSwitchTransition();
-    slideApply(0.0);
-    slideSettle(sign);
+    if (beside != nullptr) {
+      beside->beginSwitchTransition();
+      beside->showSwitchViews();
+      beside->arrange(false);
+    }
+    slideApply(carried);
+    slideSettle(sign, carriedVelocity);
   }
 
   void WorkspaceGroup::select(Workspace* workspace) {
