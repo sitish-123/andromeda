@@ -1,0 +1,17 @@
+--- a/backend/drm/atomic.c
++++ b/backend/drm/atomic.c
+@@ -408,10 +408,12 @@
+ 	struct wlr_drm_crtc *crtc = conn->crtc;
+ 	struct wlr_drm_backend *drm = conn->backend;
+ 
+-	if (!crtc->own_mode_id) {
++	// A commit without a modeset keeps the previous master's blob, which this
++	// fd cannot destroy (EPERM): take ownership only when a new blob replaces it.
++	if (!crtc->own_mode_id && state->mode_id != crtc->mode_id) {
+ 		crtc->mode_id = 0; // don't try to delete previous master's blobs
++		crtc->own_mode_id = true;
+ 	}
+-	crtc->own_mode_id = true;
+ 	commit_blob(drm, &crtc->mode_id, state->mode_id);
+ 	commit_blob(drm, &crtc->gamma_lut, state->gamma_lut);
+ 	commit_blob(drm, &conn->hdr_output_metadata, state->hdr_output_metadata);
