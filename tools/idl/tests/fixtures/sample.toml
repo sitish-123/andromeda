@@ -1,0 +1,36 @@
+[[type]]
+name = "Point"
+fields = [{ name = "x", type = "i64" }, { name = "y", type = "i64" }]
+
+[[type]]
+name = "Shape"
+fields = [
+  { name = "id", type = "id" },
+  { name = "points", type = "list<Point>" },
+  { name = "label", type = "optional<string>" },
+]
+
+[[action]]
+name = "shape.list"
+description = "List shapes."
+result = "list<Shape>"
+permission = "read"
+reversible = true
+sensitive = false
+binds = "shapes"
+
+[[action]]
+name = "shape.scale"
+description = "Scale a shape."
+args = [
+  { name = "id", type = "id", example = "s1" },
+  { name = "factor", type = "f64" },
+  { name = "tags", type = "list<string>", required = false },
+  { name = "note", type = "optional<string>" },
+]
+result = "Shape"
+events = ["shape.changed"]
+permission = "windows"
+reversible = true
+sensitive = false
+binds = "shape-scale"
