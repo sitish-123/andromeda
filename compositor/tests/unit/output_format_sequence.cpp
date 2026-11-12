@@ -21,6 +21,8 @@ using andromeda::FormatSequenceOps;
 using andromeda::FormatSequenceParams;
 using andromeda::FormatSequenceResult;
 using andromeda::FormatTier;
+using andromeda::ModesetPolicy;
+using andromeda::StageResult;
 using andromeda::runFormatSequence;
 
 namespace {
@@ -70,6 +72,8 @@ namespace {
     std::vector<FormatTier> vrrWarnings;
     wlr_output_mode* stagedMode = nullptr;
     bool modesetAllowed = true;
+    uint32_t liveFormat = DRM_FORMAT_XRGB8888; // the lit output's render format; another one needs a modeset
+    bool liveHdr = false;
     std::vector<bool> testModeset;   // whether each test allowed a modeset
     std::vector<bool> commitModeset; // whether each commit allowed a modeset
 
@@ -92,6 +96,20 @@ namespace {
       return true;
     }
 
+    // Mirrors Output: a staged mode allows a modeset, and so does a format or HDR change unless the policy forbids it.
+    StageResult stageColor(Kind kind, uint32_t fmt, bool vrr, bool hdr, ModesetPolicy policy) {
+      if (std::ranges::find(nonPrimaryFormats, fmt) != nonPrimaryFormats.end()) {
+        calls.push_back({kind, fmt, vrr});
+        return StageResult::Unsupported;
+      }
+      if (policy == ModesetPolicy::Forbidden && (fmt != liveFormat || hdr != liveHdr)) {
+        return StageResult::NeedsModeset;
+      }
+      stage(kind, fmt, vrr);
+      modesetAllowed = policy == ModesetPolicy::Allowed;
+      return StageResult::Staged;
+    }
+
     [[nodiscard]] size_t count(Kind kind) const {
       return static_cast<size_t>(std::ranges::count_if(calls, [&](const Call& c) { return c.kind == kind; }));
     }
@@ -109,8 +127,10 @@ namespace {
 
     FormatSequenceOps ops() {
       return FormatSequenceOps{
-          .stageSdr = [this](uint32_t fmt, bool vrr) { return stage(Kind::StageSdr, fmt, vrr); },
-          .stageHdr = [this](uint32_t fmt, bool vrr) { return stage(Kind::StageHdr, fmt, vrr); },
+          .stageSdr = [this](uint32_t fmt, bool vrr,
+                             ModesetPolicy policy) { return stageColor(Kind::StageSdr, fmt, vrr, false, policy); },
+          .stageHdr = [this](uint32_t fmt, bool vrr,
+                             ModesetPolicy policy) { return stageColor(Kind::StageHdr, fmt, vrr, true, policy); },
           .test =
               [this] {
                 calls.push_back({Kind::Test, stagedFormat, stagedVrr});
@@ -130,7 +150,6 @@ namespace {
               },
           .clearImageDescription = [this] { imageDescCleared = true; },
           .stageMode = [this](wlr_output_mode* m) { stagedMode = m; },
-          .allowModeset = [this](bool allow) { modesetAllowed = allow; },
           .warnModeFallback = [this](std::string_view, const wlr_output_mode&) { modeFallbackWarned = true; },
           .warnVrrDropped = [this](FormatTier tier) { vrrWarnings.push_back(tier); },
       };
@@ -971,6 +990,33 @@ ANDROMEDA_TEST(rejectedRefreshWithoutModesetRetriesWithModeset) {
   CHECK(r.usedRefreshModesetRetry);
   CHECK(!r.usedModeFallback);
   CHECK(m.stagedMode == nullptr);
+  CHECK(m.testModeset == (std::vector<bool>{false, true}));
+  CHECK(m.commitModeset == std::vector<bool>{true});
+}
+
+// The other HDR format needs a modeset, so the no-modeset pass ends at the rejected live format and the retry runs the
+// full order with a modeset: HDR stays on and is not marked unavailable.
+ANDROMEDA_TEST(rejectedHdrRefreshWithoutModesetRetriesLiveFormatWithModeset) {
+  MockOps m;
+  m.liveFormat = DRM_FORMAT_XRGB2101010;
+  m.liveHdr = true;
+  m.testResults = {false, true};
+
+  FormatSequenceParams p = sdr8Params();
+  p.hdrRequested = true;
+  p.imageDescAvailable = true;
+  p.hdrWasActive = true;
+  p.currentRenderFormat = DRM_FORMAT_XRGB2101010;
+  p.bitDepth = 10;
+  p.refreshOnlyChange = true;
+
+  const FormatSequenceResult r = runFormatSequence(p, m.ops());
+
+  CHECK(r.committed);
+  CHECK(r.usedRefreshModesetRetry);
+  CHECK(r.committedTier == FormatTier::Hdr);
+  CHECK_EQ(r.committedFormat, uint32_t{DRM_FORMAT_XRGB2101010});
+  CHECK(r.hdrFail.empty());
   CHECK(m.testModeset == (std::vector<bool>{false, true}));
   CHECK(m.commitModeset == std::vector<bool>{true});
 }

@@ -22,6 +22,18 @@ namespace andromeda {
     Retry,
   };
 
+  // Whether the commits of one pass over the candidates may modeset.
+  enum class ModesetPolicy : uint8_t {
+    Allowed,
+    Forbidden,
+  };
+
+  enum class StageResult : uint8_t {
+    Staged,
+    Unsupported,
+    NeedsModeset, // under ModesetPolicy::Forbidden only; nothing was staged
+  };
+
   struct FormatSequenceParams {
     bool hdrRequested;
     bool imageDescAvailable;
@@ -40,14 +52,12 @@ namespace andromeda {
   };
 
   struct FormatSequenceOps {
-    std::function<bool(uint32_t format, bool vrr)> stageSdr;
-    std::function<bool(uint32_t format, bool vrr)> stageHdr;
+    std::function<StageResult(uint32_t format, bool vrr, ModesetPolicy policy)> stageSdr;
+    std::function<StageResult(uint32_t format, bool vrr, ModesetPolicy policy)> stageHdr;
     std::function<bool()> test;
     std::function<FormatCommitResult()> commit;
     std::function<void()> clearImageDescription;
     std::function<void(wlr_output_mode*)> stageMode;
-    // false: stage and test without ALLOW_MODESET unless a color change needs it.
-    std::function<void(bool allow)> allowModeset;
     std::function<void(std::string_view requested, const wlr_output_mode& fallback)> warnModeFallback;
     std::function<void(FormatTier tier)> warnVrrDropped;
   };

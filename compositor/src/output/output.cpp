@@ -142,10 +142,20 @@ namespace andromeda {
       return {.x = sceneOutput.x, .y = sceneOutput.y, .width = width, .height = height};
     }
 
-    // Staging any mode, even the live one, makes wlroots request ALLOW_MODESET, which makes the display resync.
-    wlr_output_mode* keepLiveModeOrStage(wlr_output_state& state, const wlr_output& output, wlr_output_mode* mode) {
-      if (!liveModeMatches(output, mode)) {
+    // Only DRM takes a mode from its list; headless and X11 assert on one, and their list holds only the modes the
+    // harness IPC `output-test-modes` added.
+    void stageListedMode(wlr_output_state& state, wlr_output& output, wlr_output_mode* mode) {
+      if (wlr_output_is_drm(&output)) {
         wlr_output_state_set_mode(&state, mode);
+      } else {
+        wlr_output_state_set_custom_mode(&state, mode->width, mode->height, mode->refresh);
+      }
+    }
+
+    // Staging any mode, even the live one, makes wlroots request ALLOW_MODESET, which makes the display resync.
+    wlr_output_mode* keepLiveModeOrStage(wlr_output_state& state, wlr_output& output, wlr_output_mode* mode) {
+      if (!liveModeMatches(output, mode)) {
+        stageListedMode(state, output, mode);
         return nullptr;
       }
       kLog.info("output '{}': keeping live mode {}x{}@{}mHz", output.name, mode->width, mode->height, mode->refresh);
@@ -681,8 +691,7 @@ namespace andromeda {
   CommitResult Output::applyConfiguredState(PowerState restore, bool stageGeometry) {
     // wlroots fails a nonblocking commit while a page flip is pending, and the live-mode fallback would then force a
     // modeset (a black blink). An apply that keeps a lit output lit runs at the next frame event instead.
-    const bool flipPending =
-        m_mirrorSource == nullptr && m_output->enabled && m_output->frame_pending && configuredPowered();
+    const bool flipPending = m_output->enabled && m_output->frame_pending && configuredPowered();
     const std::optional<ConfiguredRun> run = m_configuredCommit.request(stageGeometry, restore, flipPending);
     return run.has_value() ? runConfiguredState(*run) : CommitResult::Pending;
   }
@@ -776,12 +785,6 @@ namespace andromeda {
       }
     }
 
-    if (enabled && !stageGeometry) {
-      // Image-description and max-bpc changes may require a modeset even
-      // though the live mode and geometry stay unchanged.
-      state.allow_reconfiguration = true;
-    }
-
     // VRR variants. Try with VRR first (if requested and supported), then without.
     const bool vrrRequested = enabled && configuredVrrEnabled();
     const bool vrrSupported = m_output->adaptive_sync_supported;
@@ -843,38 +846,41 @@ namespace andromeda {
             },
     };
 
-    bool refreshWithoutModeset = false;
     // wlroots writes max bpc only in commits that allow a modeset, and the kernel may require one to change
-    // colorspace or to switch HDR on or off.
-    const auto allowModesetForColorChange = [&](uint32_t fmt, bool hdr) {
-      if (colorChangeNeedsModeset(*m_output, fmt, hdr)) {
-        state.allow_reconfiguration = true;
-      } else if (refreshWithoutModeset) {
-        state.allow_reconfiguration = false;
-      }
+    // colorspace or to switch HDR on or off. A staged mode or enable needs one too, and so may an image-description or
+    // max-bpc change on a configured-state commit that keeps the geometry.
+    const auto modesetFor = [&](uint32_t fmt, bool hdr) {
+      return !stageGeometry || (state.committed & (WLR_OUTPUT_STATE_MODE | WLR_OUTPUT_STATE_ENABLED)) != 0
+          || colorChangeNeedsModeset(*m_output, fmt, hdr);
     };
 
-    const auto stageHdr = [&](uint32_t fmt, bool vrr) -> bool {
+    const auto stageHdr = [&](uint32_t fmt, bool vrr, ModesetPolicy policy) -> StageResult {
       if (!isPrimaryFormat(fmt)) {
-        return false;
+        return StageResult::Unsupported;
+      }
+      if (policy == ModesetPolicy::Forbidden && colorChangeNeedsModeset(*m_output, fmt, true)) {
+        return StageResult::NeedsModeset;
       }
       stageVrr(vrr);
       (void)stageGammaForOutputMode(GammaOutputMode::Hdr, gammaOps);
       wlr_output_state_set_image_description(&state, &hdrDescription);
       wlr_output_state_set_render_format(&state, fmt);
-      allowModesetForColorChange(fmt, true);
-      return true;
+      state.allow_reconfiguration = policy == ModesetPolicy::Allowed && modesetFor(fmt, true);
+      return StageResult::Staged;
     };
 
-    const auto stageSdr = [&](uint32_t fmt, bool vrr) -> bool {
+    const auto stageSdr = [&](uint32_t fmt, bool vrr, ModesetPolicy policy) -> StageResult {
       if (fmt != DRM_FORMAT_XRGB8888 && !isPrimaryFormat(fmt)) {
-        return false;
+        return StageResult::Unsupported;
+      }
+      if (policy == ModesetPolicy::Forbidden && colorChangeNeedsModeset(*m_output, fmt, false)) {
+        return StageResult::NeedsModeset;
       }
       stageVrr(vrr);
       (void)stageGammaForOutputMode(GammaOutputMode::Sdr, gammaOps);
       wlr_output_state_set_render_format(&state, fmt);
-      allowModesetForColorChange(fmt, false);
-      return true;
+      state.allow_reconfiguration = policy == ModesetPolicy::Allowed && modesetFor(fmt, false);
+      return StageResult::Staged;
     };
 
     // Run the format sequence, retrying with the preferred mode on failure.
@@ -1012,12 +1018,7 @@ namespace andromeda {
               },
           .commit = commitStagedState,
           .clearImageDescription = [&] { wlr_output_state_set_image_description(&state, nullptr); },
-          .stageMode = [&](wlr_output_mode* mode) { wlr_output_state_set_mode(&state, mode); },
-          .allowModeset =
-              [&](bool allow) {
-                refreshWithoutModeset = !allow;
-                state.allow_reconfiguration = allow;
-              },
+          .stageMode = [&](wlr_output_mode* mode) { stageListedMode(state, *m_output, mode); },
           .warnModeFallback =
               [&](std::string_view requested, const wlr_output_mode& fallback) {
                 kLog.warn(
@@ -1058,7 +1059,7 @@ namespace andromeda {
         kLog.info(
             "output '{}': backend rejected the refresh change without a modeset, retried with one", m_output->name
         );
-      } else if (seqParams.refreshOnlyChange && seq.committed && !state.allow_reconfiguration) {
+      } else if (seqParams.refreshOnlyChange && seq.committed) {
         kLog.info("output '{}': changed the refresh without a modeset", m_output->name);
       }
       if (seq.modeFallbackWarnedNow) {
@@ -1098,7 +1099,7 @@ namespace andromeda {
       updateSceneSdrWhite();
       markBlurBackgroundDirty();
       m_server->updateColorPreferences();
-      if (commitBusy && m_mirrorSource == nullptr) {
+      if (commitBusy) {
         return CommitOutcome::Busy;
       }
       kLog.error("output '{}': failed to commit configured state", m_output->name);
@@ -2690,7 +2691,12 @@ namespace andromeda {
       return;
     }
     if (m_mirrorSource != nullptr) {
-      if (m_mirrorDirty && m_mirrorSource->m_lastFrame != nullptr) {
+      (void)m_configuredCommit.beginFrame();
+      if (const std::optional<ConfiguredRun> dueApply = m_configuredCommit.takeDue()) {
+        if (runConfiguredState(*dueApply) == CommitResult::Applied) {
+          m_server->updateOutputManagerConfig();
+        }
+      } else if (m_mirrorDirty && m_mirrorSource->m_lastFrame != nullptr) {
         m_mirrorDirty = !renderMirrorFrame(
             m_output, m_server->renderer(), m_mirrorSource->m_lastFrame, m_mirrorSource->m_output->transform,
             [this](const wlr_output_state& state) {
@@ -2704,6 +2710,9 @@ namespace andromeda {
       }
       if (Ipc* ipc = m_server->ipc()) {
         ipc->notifyOutputFrame(*this);
+      }
+      if (const std::optional<RequestedMode> mode = m_configuredCommit.endFrame()) {
+        applyMode(mode->width, mode->height, mode->refreshMHz);
       }
       return;
     }
