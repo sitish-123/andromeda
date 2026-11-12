@@ -117,9 +117,9 @@ namespace andromeda::ov {
   // Where a window of workspace `workspace` sits on the desktop while the workspaces are scrolled to `row`: its own
   // rect, one output away per workspace along the workspace axis. Open progress 0 starts here.
   [[nodiscard]] Rect deskRect(const Input& input, const Rect& desk, size_t workspace, double row);
-  // Where a workspace card starts at open progress 0: thumbs slide in from past the nearest edge, frames and tiles
+  // Where a workspace card starts at open progress 0: a thumb in its own slot (it fades in there), frames and tiles
   // grow from the full output one workspace step away.
-  [[nodiscard]] Rect cardDeskRect(Style style, const Input& input, const Card& card, double row);
+  [[nodiscard]] Rect cardDeskRect(const Input& input, const Card& card, double row);
   // A window's opacity at open progress `p` in [0, 1]: a minimized window fades in from 0, a window that the
   // placement hides fades out early, an off-screen strip column dims to half.
   [[nodiscard]] double windowOpacity(const WindowPlace& place, bool minimized, double p);

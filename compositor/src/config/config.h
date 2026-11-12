@@ -851,8 +851,10 @@ namespace andromeda {
       struct WindowsOut {
         std::string effect;
         bool enabled = true;
-        int durationMs = 150;
-        AnimationCurve curve{.easing = Easing::EaseOutCubic};
+        // A spring derives its own length; duration_ms stays at the shared value.
+        int durationMs = 250;
+        // Rulebook spring `fade_out` (k 3948, z 1.0, ~120 ms).
+        AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 1.0, .stiffness = 3947.8}};
         std::string style = "popin";
         double scale = 0.8;
         bool operator==(const WindowsOut&) const = default;
@@ -889,10 +891,12 @@ namespace andromeda {
         std::string effect;
         bool enabled = true;
         int durationMs = 250;
-        AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 0.95, .stiffness = 386.0}};
+        // Rulebook spring `open`. While this is a spring, the close runs on `close` and a gesture release on `page`
+        // (rulebook 7.2); a duration curve drives all three.
+        AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 0.9, .stiffness = 438.6}};
         // Filmstrip movement between workspace previews, for the wheel, the keyboard and touchpad releases alike. A
         // spring curve settles from the current position and carries the release velocity of a gesture; any other
-        // curve runs over duration_ms and ignores it.
+        // curve runs over duration_ms and ignores it. A card reflow runs on `move` while this is a spring, else on it.
         AnimationCurve workspaceCurve{.easing = Easing::Spring, .spring = {.damping = 0.95, .stiffness = 386.0}};
         bool operator==(const Overview&) const = default;
       } overview;
@@ -1342,10 +1346,15 @@ namespace andromeda {
   [[nodiscard]] bool configHasMissingIncludes();
   // Applies the live appearance keys to the settings they govern: appearance.accent replaces colors.accent_primary;
   // reduce_transparency turns blur off; increase_contrast draws borders at least 2 px wide;
-  // reduce_motion turns window open and close into fades and drops the sliding and zooming animations (workspaces,
-  // window move and resize, overview, scratchpad); fades, such as layer fades, stay.
+  // reduce_motion turns window open and close into fades, the workspace switch and the overview into crossfades, and
+  // drops the window move and resize and scratchpad animations; fades, such as layer fades, stay.
   void applyLiveAppearance(Config& config);
   // Divides every event duration by animation.speed and speeds up every spring curve by the same factor.
   void applyAnimationSpeed(Config::Animation& animation);
+  // A rulebook spring (docs/design/rulebook.md 7.2) at animation.speed, scaled the way applyAnimationSpeed scales one.
+  [[nodiscard]] inline SpringConfig motionSpring(const Tokens::Spring& token) {
+    const double speed = config().animation.speed;
+    return {.damping = token.damping, .stiffness = token.stiffness * speed * speed};
+  }
 
 } // namespace andromeda

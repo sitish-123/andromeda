@@ -338,10 +338,10 @@ namespace andromeda::ov {
                             : Rect{desk.x, desk.y + offset, desk.w, desk.h};
   }
 
-  Rect cardDeskRect(Style style, const Input& input, const Card& card, double row) {
+  Rect cardDeskRect(const Input& input, const Card& card, double row) {
+    // A thumb does not travel: it fades in its slot.
     if (card.kind == CardKind::Thumb) {
-      const double y = style == Style::Spaces ? -card.rect.h : input.height;
-      return {card.rect.x, y, card.rect.w, card.rect.h};
+      return card.rect;
     }
     return deskRect(input, {0, 0, input.width, input.height}, card.workspace, row);
   }

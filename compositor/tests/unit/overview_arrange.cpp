@@ -192,11 +192,11 @@ ANDROMEDA_TEST(desktopRectsStepOneOutputPerWorkspace) {
   in.horizontal = true;
   CHECK(deskRect(in, desk, 0, 1) == (Rect{8 - kW, 44, 628, 672}));
   const Placement spaces = place(Style::Spaces, in);
-  CHECK(cardDeskRect(Style::Spaces, in, spaces.cards[1], 0).y + spaces.cards[1].rect.h <= 0);
+  CHECK(cardDeskRect(in, spaces.cards[1], 0) == spaces.cards[1].rect);
   const Placement taskView = place(Style::TaskView, in);
-  CHECK(cardDeskRect(Style::TaskView, in, taskView.cards[1], 0).y >= kH);
+  CHECK(cardDeskRect(in, taskView.cards[1], 0) == taskView.cards[1].rect);
   const Placement grid = place(Style::Grid, in);
-  CHECK(cardDeskRect(Style::Grid, in, grid.cards[1], 0) == (Rect{kW, 0, kW, kH}));
+  CHECK(cardDeskRect(in, grid.cards[1], 0) == (Rect{kW, 0, kW, kH}));
 }
 
 ANDROMEDA_TEST(windowOpacityFadesHiddenMinimizedAndDimmedWindows) {

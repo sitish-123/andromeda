@@ -208,6 +208,29 @@ ANDROMEDA_TEST(animatedValueReportsItsCurvesSpeed) {
   CHECK(std::abs(value.velocity() - 100.0) < 0.5);
 }
 
+ANDROMEDA_TEST(steeredSpringContinuesOnTheNextFrame) {
+  const andromeda::SpringConfig spring{.damping = 1.0, .stiffness = 900.0, .mass = 1.0};
+  andromeda::AnimatedValue value;
+  value.settleSpring(1000.0, spring);
+  CHECK(value.tick(1000));
+  CHECK(value.tick(1050));
+  const double position = value.current();
+  const double speed = value.velocity();
+
+  // A retarget between frames keeps value and speed and moves a whole frame on the next tick: no held frame.
+  value.steerSpring(2000.0, spring);
+  CHECK(value.tick(1058));
+  const double moved = (value.current() - position) / 0.008;
+  CHECK(moved > speed);
+  CHECK(value.tick(5000));
+  CHECK_EQ(value.current(), 2000.0);
+
+  // A value at rest starts from rest on its first tick.
+  value.steerSpring(0.0, spring);
+  CHECK(value.tick(6000));
+  CHECK_EQ(value.current(), 2000.0);
+}
+
 ANDROMEDA_TEST(animatedValueKeepsSubMillisecondTime) {
   // Frames tick at vblank instants that fall between milliseconds; the timeline must not round them away.
   andromeda::AnimatedValue value;

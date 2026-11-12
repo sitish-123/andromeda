@@ -10,14 +10,13 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <utility>
 #include "wlr.h"
 // clang-format on
 
 namespace andromeda {
 
   namespace {
-    constexpr int kFadeMs = 100;
-    constexpr int kMorphMs = 75;
     constexpr int kRingWidth = 3;
     constexpr float kRingFill = 0.18F;
     constexpr int kGlowSigma = 8;
@@ -118,8 +117,10 @@ namespace andromeda {
       m_w.snap(box.width);
       m_h.snap(box.height);
       m_targetBox = box;
-      m_alpha.snap(0.0);
-      m_alpha.retarget(1.0, kFadeMs, Easing::EaseOutCubic);
+      m_alpha.snap(config().animation.enabled ? 0.0 : 1.0);
+      if (config().animation.enabled) {
+        m_alpha.settleSpring(1.0, motionSpring(Tokens::springFade));
+      }
       m_visible = true;
     } else if (output != m_output) {
       m_x.snap(box.x);
@@ -139,7 +140,11 @@ namespace andromeda {
   }
 
   void HintRect::hideImmediate() {
+    // A hidden hint animates on no output, so nothing may keep running.
     m_alpha.snap(0.0);
+    for (AnimatedValue* axis : {&m_x, &m_y, &m_w, &m_h}) {
+      axis->snap(axis->target());
+    }
     if (m_tree != nullptr) {
       wlr_scene_node_set_enabled(&m_tree->node, false);
     }
@@ -165,10 +170,19 @@ namespace andromeda {
   }
 
   void HintRect::retargetGeometry(const wlr_box& box) {
-    m_x.retarget(box.x, kMorphMs, Easing::EaseOutCubic);
-    m_y.retarget(box.y, kMorphMs, Easing::EaseOutCubic);
-    m_w.retarget(box.width, kMorphMs, Easing::EaseOutCubic);
-    m_h.retarget(box.height, kMorphMs, Easing::EaseOutCubic);
+    // The hint travels to the next target on `snap`; reduced motion moves it at once (rulebook 7.2, 7.8).
+    const bool moves = config().animation.enabled && !config().appearance.reduceMotion;
+    const SpringConfig spring = motionSpring(Tokens::springSnap);
+    const std::array<std::pair<AnimatedValue*, int>, 4> axes{
+        {{&m_x, box.x}, {&m_y, box.y}, {&m_w, box.width}, {&m_h, box.height}}
+    };
+    for (const auto& [value, to] : axes) {
+      if (moves) {
+        value->steerSpring(to, spring);
+      } else {
+        value->snap(to);
+      }
+    }
   }
 
   void HintRect::applyState() {

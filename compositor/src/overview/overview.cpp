@@ -43,9 +43,6 @@ namespace andromeda {
       const double steps = rows ? 1.0 : static_cast<double>(state->workspaceViews.size() + 1);
       bound = std::max(bound, extent * steps);
     }
-    if (!rows) {
-      bound *= std::abs(m_targetProgress - m_progressFrom);
-    }
     return std::ceil(bound);
   }
 
@@ -459,9 +456,6 @@ namespace andromeda {
     }
     const bool reflowed = state.placed && structure != state.structure;
     state.structure.swap(structure);
-    if (reflowed) {
-      beginReflow();
-    }
     if (!state.placed || style != state.placedStyle || row != state.placedRow || input != state.placedInput) {
       state.placement = ov::placeAt(style, input, row);
       state.placedInput = std::move(input);
@@ -478,6 +472,8 @@ namespace andromeda {
     const ov::Input& in = state.placedInput;
     const ov::Placement& placement = state.placement;
     const double p = m_progress;
+    // Reduced motion (rulebook 7.8) moves nothing: workspace cards change place halfway, while the windows are faded out.
+    const double travel = config().appearance.reduceMotion ? (p < 0.5 ? 0.0 : 1.0) : p;
     const ov::Rect output{0.0, 0.0, in.width, in.height};
     const auto toLayout = [&outputBox](ov::Rect rect) {
       rect.x += outputBox.x;
@@ -500,7 +496,7 @@ namespace andromeda {
       const Workspace* workspace = group != nullptr ? group->workspaceAt(card.workspace) : nullptr;
       const ov::Rect placed =
           workspace != nullptr ? toLocal(reflowRect(workspace, toLayout(card.rect), reflowed)) : card.rect;
-      const wlr_box box = layoutBox(ov::lerpRect(ov::cardDeskRect(style, in, card, row), placed, p), outputBox);
+      const wlr_box box = layoutBox(ov::lerpRect(ov::cardDeskRect(in, card, row), placed, travel), outputBox);
       state.workspaceViews[card.workspace] = {
           .box = box,
           .fit =
@@ -515,11 +511,15 @@ namespace andromeda {
       const ov::Fit& fit = *placement.mainFit;
       state.mainWorkspace =
           static_cast<size_t>(std::clamp(std::lround(row), 0L, static_cast<long>(state.workspaceViews.size() - 1)));
-      state.mainBox = layoutBox(ov::lerpRect(output, *placement.main, p), outputBox);
-      state.mainFit = {1.0 + (fit.s - 1.0) * p, outputBox.x + fit.ox * p, outputBox.y + fit.oy * p};
+      state.mainBox = layoutBox(ov::lerpRect(output, *placement.main, travel), outputBox);
+      state.mainFit = {1.0 + (fit.s - 1.0) * travel, outputBox.x + fit.ox * travel, outputBox.y + fit.oy * travel};
     }
 
-    const std::array<float, 4> backgroundColor = tint(config().colors.overview.workspaceBackground, m_progress);
+    const auto& workspaceFill = config().colors.overview.workspaceBackground;
+    // Thumbs appear in their slots with the windows that are not on screen; the shown workspace grows with the zoom.
+    const std::array<float, 4> backgroundColor = tint(workspaceFill, m_progress);
+    const auto thumbAlpha = static_cast<float>(std::clamp(m_appearOpacity.current(), 0.0, 1.0));
+    const std::array<float, 4> thumbColor = tint(workspaceFill, thumbAlpha);
     for (size_t index = 0; index < state.workspaceBackgrounds.size(); ++index) {
       const WorkspaceBackground& background = state.workspaceBackgrounds[index];
       const WorkspaceView& view = state.workspaceViews[index];
@@ -527,10 +527,11 @@ namespace andromeda {
       if (!view.shown) {
         continue;
       }
+      const bool thumb = view.kind == ov::CardKind::Thumb;
       const double z = view.fit.s;
       const wlr_box& full = view.box;
       const int backgroundRadius = static_cast<int>(std::lround(config().appearance.cornerRadius * z));
-      layoutWorkspaceBackground(background.fill, full, backgroundRadius, backgroundColor);
+      layoutWorkspaceBackground(background.fill, full, backgroundRadius, thumb ? thumbColor : backgroundColor);
       if (background.mirrors.empty()) {
         continue;
       }
@@ -539,10 +540,11 @@ namespace andromeda {
       for (const auto& mirror : background.mirrors) {
         wlr_box box{};
         const bool visible = desktopSourceBox(*mirror->source, box);
-        wlr_scene_node_set_enabled(&mirror->buffer->node, visible);
+        wlr_scene_node_set_enabled(&mirror->buffer->node, visible && (!thumb || thumbAlpha > 0.0F));
         if (!visible) {
           continue;
         }
+        wlr_scene_buffer_set_opacity(mirror->buffer, thumb ? thumbAlpha : 1.0F);
         wlr_scene_node_set_position(
             &mirror->buffer->node, full.x + static_cast<int>(std::lround(box.x * z)),
             full.y + static_cast<int>(std::lround(box.y * z))
@@ -571,9 +573,24 @@ namespace andromeda {
         continue;
       }
       const wlr_box& world = card.view->presentedBox();
-      const ov::Rect desk = ov::deskRect(in, localRect(world, outputBox), place->workspace, row);
       const ov::Rect placed = toLocal(reflowRect(card.view, toLayout(place->rect), reflowed));
-      const ov::Rect rect = ov::lerpRect(desk, placed, p);
+      ov::Rect rect;
+      double opacity = 1.0;
+      if (growsFromDesk(state, card, place->workspace)) {
+        const ov::Rect desk = ov::deskRect(in, localRect(world, outputBox), place->workspace, row);
+        opacity = ov::windowOpacity(*place, card.view->minimized(), p);
+        if (config().appearance.reduceMotion) {
+          // Reduced motion (rulebook 7.8): out at the window over the first half, in at the slot over the second.
+          rect = p < 0.5 ? desk : placed;
+          opacity *= std::clamp(std::abs(1.0 - 2.0 * p), 0.0, 1.0);
+        } else {
+          rect = ov::lerpRect(desk, placed, p);
+        }
+      } else {
+        const double s = m_appearScale.current();
+        rect = {placed.x + placed.w * (1.0 - s) / 2, placed.y + placed.h * (1.0 - s) / 2, placed.w * s, placed.h * s};
+        opacity = ov::windowOpacity(*place, card.view->minimized(), 1.0) * std::clamp(m_appearOpacity.current(), 0.0, 1.0);
+      }
       if (&card != dragCard()) {
         card.box = layoutBox(rect, outputBox);
         card.scale = world.width > 0 ? rect.w / world.width : 1.0;
@@ -581,11 +598,11 @@ namespace andromeda {
         // The pointer owns a dragged card, its scale and its origin.
         placeDragCard(card);
       }
-      card.opacity =
-          static_cast<float>(ov::windowOpacity(*place, card.view->minimized(), p)) * returnOpacity(card.view);
-      if (!m_filter.empty() && !cardMatches(card)) {
-        card.opacity *= kFilterMissOpacity;
+      const double filter = m_filter.empty() || cardMatches(card) ? 1.0 : kFilterMissOpacity;
+      if (filter != card.filter.target()) {
+        drive(card.filter, filter, filter > card.filter.current() ? Tokens::springFade : Tokens::springFadeOut);
       }
+      card.opacity = static_cast<float>(opacity * card.filter.current()) * returnOpacity(card.view);
       card.clip = {};
       if (place->clip.has_value()) {
         const ov::Insets& cut = *place->clip;
@@ -725,27 +742,13 @@ namespace andromeda {
     state.chrome->raise();
   }
 
-  void Overview::beginReflow() {
+  void Overview::drive(AnimatedValue& value, double to, const Tokens::Spring& spring) {
     const auto& animation = config().animation;
-    if (!animation.enabled || !animation.overview.enabled || !m_active) {
-      m_reflowFrom.clear();
-      m_reflow.snap(1.0);
-      return;
-    }
-    // A reflow over one still running restarts from where everything is drawn, so nothing snaps back.
-    for (auto& [key, from] : m_reflowFrom) {
-      if (const auto shown = m_shownRects.find(key); shown != m_shownRects.end()) {
-        from = shown->second;
-      }
-    }
-    m_reflow.snap(0.0);
-    const auto& curve = animation.overview.workspaceCurve;
-    if (curve.easing == Easing::Spring) {
-      m_reflow.settleSpring(1.0, curve.spring);
+    if (!animation.enabled) {
+      value.snap(to);
     } else {
-      m_reflow.retarget(1.0, animation.overview.durationMs, curve);
+      value.steerSpring(to, motionSpring(spring));
     }
-    scheduleFrames();
   }
 
   ov::Rect Overview::reflowRect(const void* key, const ov::Rect& target, bool began) {
@@ -762,30 +765,42 @@ namespace andromeda {
         back.started = true;
         scheduleFrames();
       }
-      m_reflowFrom.erase(key);
+      m_reflowOffsets.erase(key);
       const double t = back.t.current();
       const ov::Rect shown = back.fade ? (t < 0.5 ? back.from : target) : ov::lerpRect(back.from, target, t);
       m_shownRects[key] = shown;
       return shown;
     }
-    if (began) {
+    const auto& animation = config().animation;
+    const bool glides = m_active && animation.enabled && animation.overview.enabled && !config().appearance.reduceMotion;
+    if (began && glides) {
       // Only a rect that jumped glides; one following its window's own layout spring is already smooth.
       if (const auto shown = m_shownRects.find(key); shown != m_shownRects.end()) {
         const ov::Rect& last = shown->second;
-        const double moved = std::max(
-            {std::abs(last.x - target.x), std::abs(last.y - target.y), std::abs(last.w - target.w),
-             std::abs(last.h - target.h)}
-        );
-        if (moved > 0.5) {
-          m_reflowFrom[key] = last;
+        const std::array<double, 4> jump{last.x - target.x, last.y - target.y, last.w - target.w, last.h - target.h};
+        if (std::ranges::any_of(jump, [](double d) { return std::abs(d) > 0.5; })) {
+          auto [it, fresh] = m_reflowOffsets.try_emplace(key);
+          for (size_t i = 0; i < jump.size(); ++i) {
+            // Keep the speed a running glide has; its offset now measures from the new place.
+            const double velocity = fresh ? 0.0 : it->second[i].velocity();
+            it->second[i].snap(jump[i]);
+            if (animation.overview.workspaceCurve.easing == Easing::Spring) {
+              it->second[i].settleSpring(0.0, motionSpring(Tokens::springMove), velocity);
+              if (!fresh && m_lastTickMsec > 0.0) {
+                it->second[i].startClockAt(m_lastTickMsec);
+              }
+            } else {
+              it->second[i].retarget(0.0, animation.overview.durationMs, animation.overview.workspaceCurve);
+            }
+          }
+          scheduleFrames();
         }
       }
     }
     ov::Rect shown = target;
-    if (m_reflow.animating()) {
-      if (const auto from = m_reflowFrom.find(key); from != m_reflowFrom.end()) {
-        shown = ov::lerpRect(from->second, target, m_reflow.current());
-      }
+    if (const auto offset = m_reflowOffsets.find(key); offset != m_reflowOffsets.end()) {
+      const auto& o = offset->second;
+      shown = {target.x + o[0].current(), target.y + o[1].current(), target.w + o[2].current(), target.h + o[3].current()};
     }
     m_shownRects[key] = shown;
     return shown;
@@ -924,6 +939,9 @@ namespace andromeda {
     m_closing = false;
     m_progress = 0.0;
     m_targetProgress = 0.0;
+    m_zoomAnim.snap(0.0);
+    m_appearOpacity.snap(0.0);
+    m_appearScale.snap(config().appearance.reduceMotion ? 1.0 : kAppearScaleIn);
     m_pendingFocus = nullptr;
     m_pointerOutput = m_server->outputFromWlr(m_server->preferredOutput());
     m_server->notifyOverviewChanged();
@@ -1046,7 +1064,7 @@ namespace andromeda {
     beginClose(focus);
   }
 
-  void Overview::beginClose(View* focus, double releaseVelocity) {
+  void Overview::beginClose(View* focus, std::optional<double> release) {
     if (!m_active || m_closing) {
       return;
     }
@@ -1076,7 +1094,7 @@ namespace andromeda {
         animateRow(*state, static_cast<double>(group->active()->index()));
       }
     }
-    startAnimation(0.0, true, releaseVelocity);
+    startAnimation(0.0, true, release);
   }
 
   void Overview::forceClose() {
@@ -1095,39 +1113,45 @@ namespace andromeda {
     restoreFocus(nullptr);
   }
 
-  void Overview::startAnimation(double target, bool closing, double releaseVelocity) {
-    // A zoom already in flight hands on its speed, so a reversed toggle retargets instead of restarting (7.1.5).
-    if (releaseVelocity == 0.0 && m_zoomAnim.animating()) {
-      releaseVelocity = m_zoomAnim.velocity() * (m_targetProgress - m_progressFrom);
-    }
+  void Overview::startAnimation(double target, bool closing, std::optional<double> release) {
     m_closing = closing;
     m_server->notifyOverviewChanged();
     m_targetProgress = target;
-    m_progressFrom = m_progress;
-    if (m_traceFrames) {
-      kLog.debug(
-          "overview trace release: {:.3f} -> {:.1f}, velocity {:.2f}/s, spring k {:.0f} z {:.2f}", m_progress, target,
-          releaseVelocity, config().animation.overview.curve.spring.stiffness,
-          config().animation.overview.curve.spring.damping
-      );
-    }
     const auto& animation = config().animation;
     const auto& overview = animation.overview;
     if (!animation.enabled || !overview.enabled) {
-      m_zoomAnim.snap(1.0);
+      m_zoomAnim.snap(target);
       m_progress = target;
       for (const auto& state : m_outputs) {
         state->rowScroll.snap(state->rowScroll.target());
       }
+      updateAppear();
       finishAnimation();
       return;
     }
-    m_zoomAnim.snap(0.0);
-    if (overview.curve.easing == Easing::Spring) {
-      // Physics mode, so the tail can end once it no longer moves a pixel. The zoom runs the span from where the
-      // gesture left off to the target, so a release speed given in progress per second is that speed over this span.
-      const double span = m_targetProgress - m_progressFrom;
-      m_zoomAnim.settleSpring(1.0, overview.curve.spring, span != 0.0 ? releaseVelocity / span : 0.0);
+    // Rulebook 7.2: a gesture release settles on `page` with the fingers' speed; any other start opens on `open` or
+    // closes on `close` from the speed the zoom already has, so a reversed toggle turns the same motion around (7.1.5).
+    // Reduced motion fades, and a release settles on `close` without the fingers' speed (7.8).
+    const bool reduced = config().appearance.reduceMotion;
+    const Tokens::Spring& spring = release.has_value()
+        ? (reduced ? Tokens::springClose : Tokens::springPage)
+        : (closing ? (reduced ? Tokens::springFadeOut : Tokens::springClose)
+                   : (reduced ? Tokens::springFade : Tokens::springOpen));
+    const double releaseVelocity = release.has_value() && !reduced ? *release : 0.0;
+    if (m_traceFrames) {
+      kLog.debug(
+          "overview trace release: {:.3f} -> {:.1f}, velocity {:.2f}/s, spring k {:.0f} z {:.2f}", m_progress, target,
+          releaseVelocity, spring.stiffness, spring.damping
+      );
+    }
+    if (!m_zoomAnim.animating()) {
+      m_zoomAnim.snap(m_progress);
+    }
+    if (overview.curve.easing != Easing::Spring) {
+      m_zoomAnim.retarget(target, overview.durationMs, overview.curve);
+    } else if (release.has_value()) {
+      // Physics mode, so the tail can end once it no longer moves a pixel.
+      m_zoomAnim.settleSpring(target, motionSpring(spring), releaseVelocity);
       // A release hands the fingers' speed on: a clock that starts on the next tick would hold that frame still.
       // Only a recent tick: after frames stopped (a resting hand), the old clock would jump the spring ahead.
       if (releaseVelocity != 0.0 && m_lastTickMsec > 0.0
@@ -1135,10 +1159,37 @@ namespace andromeda {
         m_zoomAnim.startClockAt(m_lastTickMsec);
       }
     } else {
-      m_zoomAnim.retarget(1.0, overview.durationMs, overview.curve);
+      m_zoomAnim.steerSpring(target, motionSpring(spring));
     }
+    updateAppear();
     // Animations only tick from an output frame; kick one so an idle desktop starts the zoom.
     scheduleFrames();
+  }
+
+  void Overview::updateAppear() {
+    const bool shown = m_active && !m_closing && m_progress >= Tokens::motionContentGate;
+    const double opacity = shown ? 1.0 : 0.0;
+    if (m_appearOpacity.target() == opacity) {
+      return;
+    }
+    // Content follows the shape in, and leaves on the same frame as the close (rulebook 7.4).
+    drive(m_appearOpacity, opacity, shown ? Tokens::springFade : Tokens::springFadeOut);
+    if (!config().appearance.reduceMotion) {
+      drive(m_appearScale, shown ? 1.0 : kAppearScaleOut, shown ? Tokens::springOpen : Tokens::springClose);
+    }
+    scheduleFrames();
+  }
+
+  bool Overview::growsFromDesk(const OutputState& state, const Card& card, size_t workspace) const {
+    // Strip and Grid zoom whole workspace cards out of the screen, so their windows ride along.
+    if (state.placedStyle != ov::Style::Spaces && state.placedStyle != ov::Style::TaskView) {
+      return true;
+    }
+    if (card.view->minimized() || static_cast<long>(workspace) != std::lround(state.rowScroll.target())) {
+      return false;
+    }
+    wlr_box onScreen{};
+    return wlr_box_intersection(&onScreen, &card.view->presentedBox(), &state.outputBox);
   }
 
   void Overview::animateRow(OutputState& state, double target, double releaseVelocity) {
@@ -1149,8 +1200,11 @@ namespace andromeda {
       applyProgress();
       return;
     }
-    if (overview.workspaceCurve.easing == Easing::Spring) {
+    if (overview.workspaceCurve.easing == Easing::Spring && releaseVelocity != 0.0) {
       state.rowScroll.settleSpring(target, overview.workspaceCurve.spring, releaseVelocity);
+    } else if (overview.workspaceCurve.easing == Easing::Spring) {
+      // A row already sliding keeps its speed toward the new row.
+      state.rowScroll.steerSpring(target, overview.workspaceCurve.spring);
     } else {
       state.rowScroll.retarget(target, overview.durationMs, overview.workspaceCurve);
     }
@@ -1196,17 +1250,44 @@ namespace andromeda {
       static_cast<void>(m_zoomAnim.finishSpringTail(motionPixelsPerUnit(false)));
     }
     if (zoomTicked) {
-      const double value = m_zoomAnim.current();
-      m_progress = m_progressFrom + (m_targetProgress - m_progressFrom) * value;
+      m_progress = m_zoomAnim.current();
     }
-    bool rowTicked = m_reflow.tick(nowMsec);
-    if (rowTicked && m_reflow.animating() && m_reflow.curve().easing == Easing::Spring) {
-      static_cast<void>(m_reflow.finishSpringTail(motionPixelsPerUnit(true)));
+    if (m_active) {
+      updateAppear();
     }
-    if (!m_reflow.animating()) {
-      m_reflowFrom.clear();
+    bool rowTicked = false;
+    for (auto it = m_reflowOffsets.begin(); it != m_reflowOffsets.end();) {
+      bool running = false;
+      for (AnimatedValue& offset : it->second) {
+        if (offset.tick(nowMsec)) {
+          rowTicked = true;
+          if (offset.animating() && offset.curve().easing == Easing::Spring) {
+            static_cast<void>(offset.finishSpringTail(1.0));
+          }
+        }
+        running = running || offset.animating();
+      }
+      it = running ? std::next(it) : m_reflowOffsets.erase(it);
     }
-    active = active || m_reflow.animating();
+    active = active || !m_reflowOffsets.empty();
+    // An opacity ends within one 8-bit level; a scale within a pixel of the largest card, an output.
+    constexpr double kOpacityLevels = 255.0;
+    const auto tickTail = [nowMsec](AnimatedValue& value, double pixelsPerUnit) {
+      const bool ticked = value.tick(nowMsec);
+      if (ticked && value.animating()) {
+        static_cast<void>(value.finishSpringTail(pixelsPerUnit));
+      }
+      return ticked;
+    };
+    bool appearTicked = tickTail(m_appearOpacity, kOpacityLevels);
+    appearTicked = tickTail(m_appearScale, motionPixelsPerUnit(true)) || appearTicked;
+    for (const auto& state : m_outputs) {
+      for (const auto& card : state->cards) {
+        appearTicked = tickTail(card->filter, kOpacityLevels) || appearTicked;
+        active = active || card->filter.animating();
+      }
+    }
+    active = active || m_appearOpacity.animating() || m_appearScale.animating();
     if (m_return.has_value() && m_return->started) {
       rowTicked = m_return->t.tick(nowMsec) || rowTicked;
       if (!m_return->t.animating()) {
@@ -1222,7 +1303,7 @@ namespace andromeda {
       rowTicked = ticked || rowTicked;
       active = active || state->rowScroll.animating();
     }
-    if (zoomTicked || rowTicked || m_cardPresentationDirty) {
+    if (zoomTicked || rowTicked || appearTicked || m_cardPresentationDirty) {
       applyProgress();
     }
     if (rowTicked && dragCard() != nullptr) {
@@ -1240,9 +1321,12 @@ namespace andromeda {
       syncCardEffects();
     }
     for (const auto& state : m_outputs) {
+      // The zoom owns the effect until it settles; only a row slide started after that drives it, so the progress
+      // never jumps from one source to the other.
+      const AnimatedValue& row = state->rowScroll;
+      const bool rowOwns = !m_zoomAnim.animating() && row.transitionId() > m_zoomAnim.transitionId();
       bindAnimationEffect(
-          &state->tree->node, AnimationEvent::Overview, m_zoomAnim.animating() ? m_zoomAnim : state->rowScroll,
-          m_closing ? -1.0F : 1.0F
+          &state->tree->node, AnimationEvent::Overview, rowOwns ? row : m_zoomAnim, m_closing ? -1.0F : 1.0F
       );
     }
     if (m_traceFrames) {
@@ -1260,7 +1344,15 @@ namespace andromeda {
 
   bool Overview::hasActiveAnimations() const {
     return m_zoomAnim.animating()
-        || m_reflow.animating()
+        || !m_reflowOffsets.empty()
+        || m_appearOpacity.animating()
+        || m_appearScale.animating()
+        || std::ranges::any_of(
+               m_outputs,
+               [](const auto& state) {
+                 return std::ranges::any_of(state->cards, [](const auto& card) { return card->filter.animating(); });
+               }
+        )
         || m_return.has_value()
         || std::ranges::any_of(m_outputs, [](const auto& state) { return state->rowScroll.animating(); })
         || (m_dropHint != nullptr && m_dropHint->hasActiveAnimations());
@@ -1320,10 +1412,9 @@ namespace andromeda {
     // Before the closed event: a stale gesture_progress would leave shell chrome following no fingers.
     m_fingerProgress.reset();
     m_server->cursor()->resetWheelAccumulation();
-    m_reflow.snap(1.0);
     m_return.reset();
     m_shownRects.clear();
-    m_reflowFrom.clear();
+    m_reflowOffsets.clear();
     cancelNavigation();
     clearMiddlePress();
     hideDropHint();
@@ -1397,8 +1488,7 @@ namespace andromeda {
     }
     // A swipe catches the zoom where it is drawn, as niri and GNOME do: a running open or close stops there, and a
     // close turns back into an overview the fingers hold. Reading it as fully open or closed jumps the first frame.
-    m_zoomAnim.snap(0.0);
-    m_progressFrom = m_progress;
+    m_zoomAnim.snap(m_progress);
     m_targetProgress = m_progress;
     if (m_closing) {
       m_closing = false;
@@ -1430,7 +1520,7 @@ namespace andromeda {
     // Already rubber-banded past either end by Gestures::overviewGestureProgress; a second band here made the
     // overscroll stiffer than the fingers.
     const double target = progress;
-    m_zoomAnim.snap(0.0);
+    m_zoomAnim.snap(target);
     m_fingerTarget = target;
     m_traceFrames = true;
     kLog.debug("overview trace event: finger {:.3f}, drawn {:.3f}", target, m_progress);

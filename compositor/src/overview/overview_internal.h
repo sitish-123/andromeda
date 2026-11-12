@@ -61,6 +61,9 @@ namespace andromeda::ovimpl {
   inline constexpr float kHiddenOpacity = 0.004F;
   // A card the filter misses keeps this share of its opacity.
   inline constexpr float kFilterMissOpacity = 0.25F;
+  // Scale of a card that appears in its slot (rulebook P15 / P16): in from 0.94, out to 0.96.
+  inline constexpr double kAppearScaleIn = 0.94;
+  inline constexpr double kAppearScaleOut = 0.96;
 
   static_assert(static_cast<int>(OverviewStyle::Grid) == static_cast<int>(ov::Style::Grid));
   inline ov::Style configuredStyle() { return static_cast<ov::Style>(config().overview.style); }

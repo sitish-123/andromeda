@@ -227,6 +227,8 @@ namespace andromeda {
       double scale = 1.0;
       float opacity = 1.0F;
       wlr_box clip{};
+      // Opacity factor of the search filter: 1 for a match, kFilterMissOpacity for a miss.
+      AnimatedValue filter{1.0};
     };
 
     // One surface of the output's mirrored stack: a background- or bottom-layer surface copied into every workspace
@@ -450,14 +452,14 @@ namespace andromeda {
     bool cycleSelection(int step);
     bool activateFilter();
 
-    // `releaseVelocity` is the speed a gesture left behind, in overview progress per second, and is zero for every
-    // other caller: it starts the zoom spring from the speed the fingers had instead of from rest.
-    void startAnimation(double target, bool closing, double releaseVelocity = 0);
+    // `release` is set only for a gesture release: the speed the fingers left behind, in overview progress per second,
+    // which the zoom settles with on `page`. Every other start runs `open` or `close` from the zoom's current speed.
+    void startAnimation(double target, bool closing, std::optional<double> release = std::nullopt);
     // Move one output's filmstrip onto row `target`. `releaseVelocity` is the speed a touchpad gesture left behind,
     // in rows per second, and is zero for every other caller.
     void animateRow(OutputState& state, double target, double releaseVelocity = 0);
     void finishAnimation();
-    void beginClose(View* focus, double releaseVelocity = 0);
+    void beginClose(View* focus, std::optional<double> release = std::nullopt);
     void teardown();
     // Hand the seat back after teardown: `focus`, or normal refocus when null or unmapped.
     void restoreFocus(View* focus);
@@ -533,21 +535,29 @@ namespace andromeda {
     bool m_closing = false;
     double m_progress = 0;
     double m_targetProgress = 0;
-    double m_progressFrom = 0;
+    // The open progress itself: 0 desktop, 1 overview.
     AnimatedValue m_zoomAnim;
-    // Reflow: one shared spring from 0 to 1 carries every card and workspace card whose placed rect jumped in a
-    // structural change from where it was drawn to its new place. Keys are View and Workspace pointers, rects are
-    // layout coordinates before the open progress, so a card rebuilt or dropped on another output still glides.
+    // In-place entrance of what is not on screen at the open (rulebook 7.4): opacity on fade / fade_out, scale
+    // 0.94 -> 1 on open and 1 -> 0.96 on close. It shows once the zoom passes Tokens::motionContentGate of its travel.
+    AnimatedValue m_appearOpacity{0.0};
+    AnimatedValue m_appearScale{1.0};
+    void updateAppear();
+    // Whether `card` grows from its real rect (on screen at the open) instead of appearing in its slot.
+    [[nodiscard]] bool growsFromDesk(const OutputState& state, const Card& card, size_t workspace) const;
     // Scratch lists layoutChrome refills every frame, kept to avoid reallocating them.
     std::vector<ov::ChromeWorkspace> m_chromeWorkspaces;
     std::vector<std::string> m_chromeNames; // owns the names m_chromeWorkspaces views
     std::vector<ov::ChromeWindow> m_chromeWindows;
     std::unique_ptr<ov::AppIcons> m_appIcons;
-    AnimatedValue m_reflow{1.0};
+    // Reflow: a card or workspace card whose placed rect jumped in a structural change glides on `move` from where it
+    // was drawn; an offset from its new place springs to zero, so a second jump keeps its speed. Keys are View and
+    // Workspace pointers, rects are layout coordinates before the open progress, so a card rebuilt or dropped on
+    // another output still glides.
     std::unordered_map<const void*, ov::Rect> m_shownRects;
-    std::unordered_map<const void*, ov::Rect> m_reflowFrom;
-    void beginReflow();
+    std::unordered_map<const void*, std::array<AnimatedValue, 4>> m_reflowOffsets;
     ov::Rect reflowRect(const void* key, const ov::Rect& target, bool began);
+    // Steers `value` to `to` on the rulebook `spring`; instant with animations off.
+    static void drive(AnimatedValue& value, double to, const Tokens::Spring& spring);
     // A released card on its own spring, outside the shared reflow: it travels from its release rect, or under reduced
     // motion fades out there and in at its place. The spring starts at the first layout that knows the target, so the
     // release velocity projects onto the real path.

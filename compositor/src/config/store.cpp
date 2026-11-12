@@ -253,7 +253,6 @@ namespace andromeda {
     }
     animation.workspaces.style = "reveal";
     animation.workspaces.effect = std::string(kCrossfade);
-    animation.overview.enabled = false;
     animation.scratchpad.enabled = false;
   }
 

@@ -105,6 +105,9 @@ namespace andromeda {
     // Physics spring: continues from the current value with `initialVelocity` in units per second and settles when
     // the solver reaches the target. Retargeting runs the same solver, but from rest over a precomputed duration.
     void settleSpring(double to, const SpringConfig& spring, double initialVelocity = 0.0);
+    // Physics spring toward `to` that keeps the current value and velocity (rulebook 7.1 rule 5). A running value
+    // continues from its last tick, so the next frame moves by a whole frame of the new spring instead of holding.
+    void steerSpring(double to, const SpringConfig& spring);
     // Starts the clock at `nowMsec` (the frame clock) instead of the next tick, so the next frame already moves.
     void startClockAt(double nowMsec) { m_startMsec = nowMsec; }
     // Stop a physics spring once its remaining energy cannot leave the projected target's pixel rounding cell. Returns
@@ -138,6 +141,7 @@ namespace andromeda {
     double m_initialVelocity = 0.0;
     double m_progress = 1.0; // linear fraction as of the last tick(); 1.0 when never animating
     double m_startMsec = 0;  // 0 = clock starts on the first tick
+    double m_tickMsec = 0;   // frame clock of the last tick
     uint64_t m_durationMsec = 1;
     uint64_t m_transitionId = 0;
     std::array<float, 4> m_shaderSeed{};

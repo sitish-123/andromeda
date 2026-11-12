@@ -369,6 +369,14 @@ namespace andromeda {
     m_physics = true;
   }
 
+  void AnimatedValue::steerSpring(double to, const SpringConfig& spring) {
+    const bool moving = m_animating && m_tickMsec > 0.0;
+    settleSpring(to, spring, m_animating && std::isfinite(m_velocity) ? m_velocity : 0.0);
+    if (moving) {
+      m_startMsec = m_tickMsec;
+    }
+  }
+
   bool AnimatedValue::finishSpringTail(double pixelsPerUnit) {
     if (!m_animating || !m_physics || !std::isfinite(pixelsPerUnit) || pixelsPerUnit <= 0.0) {
       return false;
@@ -402,6 +410,7 @@ namespace andromeda {
     if (m_startMsec == 0) {
       m_startMsec = nowMsec;
     }
+    m_tickMsec = nowMsec;
 
     const double elapsed = std::max(0.0, nowMsec - m_startMsec);
 
