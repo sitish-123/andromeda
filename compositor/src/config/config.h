@@ -851,9 +851,11 @@ namespace andromeda {
       struct WindowsOut {
         std::string effect;
         bool enabled = true;
-        // A spring derives its own length; duration_ms stays at the shared value.
+        // A spring derives its own length. A duration_ms here or under [animation] without a curve here turns the curve
+        // into the ease-out-cubic duration curve it was before.
         int durationMs = 250;
-        // Rulebook spring `fade_out` (k 3948, z 1.0, ~120 ms).
+        // Rulebook spring `fade_out` (k 3948, z 1.0). Its timeline runs to 1e-4 of the travel, ~190 ms; the last
+        // visible level (1/256) is reached near 120 ms.
         AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 1.0, .stiffness = 3947.8}};
         std::string style = "popin";
         double scale = 0.8;

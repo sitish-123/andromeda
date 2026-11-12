@@ -1192,6 +1192,30 @@ ANDROMEDA_TEST(durationBesideASpringCurveIsReportedAsInert) {
   CHECK_EQ(store.config().animation.workspaces.durationMs, 200);
 }
 
+ANDROMEDA_TEST(windowCloseDurationsWithoutACurveStillApply) {
+  const TempConfig file;
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+
+  file.write("[animation.windows_out]\nduration_ms = 300\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().animation.windowsOut.curve.easing != andromeda::Easing::Spring);
+  CHECK_EQ(store.config().animation.windowsOut.durationMs, 300);
+  CHECK(!containsDiagnostic(store, "has no effect"));
+
+  file.write("[animation]\nduration_ms = 180\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().animation.windowsOut.curve.easing != andromeda::Easing::Spring);
+  CHECK_EQ(store.config().animation.windowsOut.durationMs, 180);
+  CHECK(!containsDiagnostic(store, "has no effect"));
+
+  // A spring curve configured beside the duration still wins, and still reports the duration.
+  file.write("[animation.windows_out]\nduration_ms = 300\ncurve = \"spring:1,1000\"\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().animation.windowsOut.curve.easing == andromeda::Easing::Spring);
+  CHECK(containsDiagnostic(store, "animation.windows_out.duration_ms has no effect"));
+}
+
 ANDROMEDA_TEST(workspaceRevealRequiresAnAnimationShader) {
   const TempConfigTree tree;
   tree.write("wipe.glsl", "vec4 animation(vec2 uv) { return andromeda_sample(uv); }");

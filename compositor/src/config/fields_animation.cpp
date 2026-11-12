@@ -11,6 +11,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -105,6 +106,9 @@ namespace andromeda {
       return std::nullopt;
     }
 
+    // Window close runs on a duration when a duration is configured for it without a curve.
+    const AnimationCurve kWindowsOutDurationCurve{.easing = Easing::EaseOutCubic};
+
     // Every timeline under [animation], each fed by the shared duration and curve.
     template <typename F> void forEachTimeline(Config::Animation& animation, F&& apply) {
       apply(animation.windowsIn.durationMs, animation.windowsIn.curve);
@@ -121,13 +125,16 @@ namespace andromeda {
     }
 
     // A curve key: a built-in easing, or one of the [animation.beziers] and [animation.springs] read before it.
-    template <typename T> registry::Field<T> curveField(std::string_view key, AnimationCurve T::* member) {
+    template <typename T>
+    registry::Field<T>
+    curveField(std::string_view key, AnimationCurve T::* member, registry::Current<T> current = nullptr) {
       return registry::custom<T>(
           key, registry::KeyDescription("string").withFormat("curve"),
           [member](const toml::node& node, const std::string& path, T& target, registry::ReadContext& context) {
             const Config::Animation& animation = context.loaded.animation;
             registry::assign(target.*member, parseCurve(node, path, animation.beziers, animation.springs));
-          }
+          },
+          std::move(current)
       );
     }
 
@@ -145,8 +152,24 @@ namespace andromeda {
         }
       };
       fields.push_back(std::move(duration));
-      fields.push_back(curveField("curve", &E::curve));
+      if constexpr (std::is_same_v<E, Config::Animation::WindowsOut>) {
+        // Stated, because a duration without it switches window close to a duration curve.
+        fields.push_back(curveField<E>("curve", &E::curve, [](const E& event) -> nlohmann::ordered_json {
+          if (event.curve.easing != Easing::Spring) {
+            return nullptr;
+          }
+          return std::format("spring:{},{}", event.curve.spring.damping, event.curve.spring.stiffness);
+        }));
+      } else {
+        fields.push_back(curveField("curve", &E::curve));
+      }
       fields.push_back(registry::step<E>([](Section& s, E& event, registry::ReadContext&) {
+        if constexpr (std::is_same_v<E, Config::Animation::WindowsOut>) {
+          // windows_out.duration_ms without a curve keeps the duration curve it had before the spring default.
+          if (registry::configuredInteger(s, "duration_ms") && s.node("curve") == nullptr && event.curve == E{}.curve) {
+            event.curve = kWindowsOutDurationCurve;
+          }
+        }
         if (registry::configuredInteger(s, "duration_ms") && event.curve.easing == Easing::Spring) {
           warnAt(
               s.node("duration_ms")->source(), "{} has no effect: its spring curve sets its own length",
@@ -263,6 +286,8 @@ namespace andromeda {
           registry::step<A>([](Section& s, A& animation, registry::ReadContext&) {
             if (registry::configuredInteger(s, "duration_ms")) {
               forEachTimeline(animation, [&](int& duration, AnimationCurve&) { duration = animation.durationMs; });
+              // The shared duration still reaches window close, on the duration curve it had before.
+              animation.windowsOut.curve = kWindowsOutDurationCurve;
             }
           }),
           registry::custom<A>(
