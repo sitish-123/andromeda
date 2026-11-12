@@ -181,6 +181,19 @@ ANDROMEDA_TEST(liveAppearanceAppliesAccentAndReduceMotion) {
   CHECK(crossfade != nullptr && !crossfade->inert());
 }
 
+// animation.speed is one time scale for every event: twice the speed halves each duration and each spring's settle time.
+ANDROMEDA_TEST(animationSpeedScalesResolvedDurations) {
+  andromeda::Config config;
+  config.animation.windowsMove.durationMs = 300;
+  config.animation.overview.workspaceCurve = andromeda::AnimationCurve{.easing = andromeda::Easing::Spring};
+  const int springBefore = andromeda::springDurationMs(config.animation.overview.workspaceCurve.spring);
+  config.animation.speed = 2.0;
+  andromeda::applyAnimationSpeed(config.animation);
+  CHECK_EQ(config.animation.windowsMove.durationMs, 150);
+  const int springAfter = andromeda::springDurationMs(config.animation.overview.workspaceCurve.spring);
+  CHECK(std::abs(springAfter * 2 - springBefore) <= 2);
+}
+
 // Settings > Battery app rules: one [[window_rule]] per app in the settings file; a new choice replaces it, "normal"
 // removes it, and a rule the user wrote by hand stays.
 ANDROMEDA_TEST(appQosRulesReplaceAndRemoveOnlyTheirOwn) {

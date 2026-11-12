@@ -51,10 +51,6 @@ mic_filter_regex = ""                # microphone app names to ignore in privacy
 cam_filter_regex = ""                # camera app names to ignore in privacy indicators and OSD
 screen_filter_regex = ""             # screen-sharing app names to ignore in privacy indicators and OSD
 
-[shell.animation]
-enabled = true
-speed   = 1.0                       # 0.5 = 2× slower, 2.0 = 2× faster
-
 [shell.shadow]
 direction = "down"                  # center, up, down, left, right, up_left, up_right, down_left, down_right
 alpha     = 0.55                    # multiplied by each component's background opacity

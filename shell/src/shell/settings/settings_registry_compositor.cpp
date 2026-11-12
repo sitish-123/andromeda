@@ -168,8 +168,19 @@ namespace settings {
         );
       }
       toggle(Motion, "motion", "appearance.reduce_motion", "accessibility reduce motion animations");
+      // Captioned as the shell rows they replace: the compositor runs every animation on the desktop.
+      entries.push_back(makeEntry(
+          Motion, "motion", tr("settings.schema.appearance.animations.label"),
+          tr("settings.schema.appearance.animations.description"), compositorPath("animation.enabled"),
+          ToggleSetting{isOn("animation.enabled")}, "motion animations window compositor"
+      ));
+      entries.push_back(makeEntry(
+          Motion, "motion", tr("settings.schema.appearance.animation-speed.label"),
+          tr("settings.schema.appearance.animation-speed.description"), compositorPath("animation.speed"),
+          SliderSetting(compositorNumber(compositor, "animation.speed"), 0.05, 4.0, 0.05, false),
+          "motion animation speed"
+      ));
 
-      toggle(Motion, "window-motion", "animation.enabled", "window animations compositor");
       if (isOn("animation.enabled")) {
         stepper(Motion, "window-motion", "animation.duration_ms", 1, 10000, 25, "ms", "animation duration speed");
         toggle(Motion, "window-motion", "animation.windows_in.enabled", "window open animation");

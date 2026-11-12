@@ -526,7 +526,6 @@ location = "https://example.invalid/bad"
     c.storage.keyFile = "/run/agenix/noctalia-storage-key";
     c.shell.avatarPath = "/home/u/face.png";
     c.shell.settingsWindowTranslucent = true;
-    c.shell.animation.speed = 1.5F;
     c.shell.shadow.direction = ShadowDirection::UpLeft;
     c.shell.panel.transparencyMode = PanelTransparencyMode::Glass;
     c.shell.panel.floatingLayer = "top";

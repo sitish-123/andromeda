@@ -1569,7 +1569,11 @@ void ConfigService::loadAll() {
 
   // Apply the app-writable overrides overlay last; sidecar wins. Compatibility
   // normalization must see the final effective values to preserve overlay intent.
-  deepMerge(merged, effectiveOverrides);
+  // [shell.animation] in the overrides file waits for moveLegacyAnimationSettings(), so it raises no reminder; the
+  // persisted sidecar keeps it until then.
+  toml::table overlay = effectiveOverrides;
+  noctalia::config::eraseLegacyShellAnimation(overlay);
+  deepMerge(merged, overlay);
   merged.erase(noctalia::config::kConfigVersionKey);
   noctalia::config::LegacyConfigIssues legacyIssues;
   noctalia::config::normalizeLegacyConfig(merged, legacyIssues);

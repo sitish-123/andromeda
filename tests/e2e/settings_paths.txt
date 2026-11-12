@@ -234,8 +234,6 @@ osd.orientation
 osd.position
 osd.position_vertical
 osd.scale
-shell.animation.enabled
-shell.animation.speed
 shell.app_icon_color
 shell.app_icon_colorize
 shell.automount_drives

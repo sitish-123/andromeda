@@ -145,7 +145,7 @@ namespace settings {
         "lockscreen.enabled", "lockscreen.lock_before_suspend", "lockscreen.grace_period_seconds",
         "lockscreen.face", "lockscreen.face_on_request", "lockscreen.fingerprint", "lockscreen.theme", "lockscreen.layout", "lockscreen.clock_style",
         "lockscreen.notification_content",
-        "shell.animation.enabled", "shell.animation.speed", "accessibility.high_contrast",
+        "andromeda.animation.enabled", "andromeda.animation.speed", "accessibility.high_contrast",
         "shell.window_switcher.mru", "shell.window_switcher.show_all_outputs",
         "shell.offline_mode", "location.auto_locate", "location.address",
         "weather.enabled",

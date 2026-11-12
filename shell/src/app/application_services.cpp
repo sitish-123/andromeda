@@ -78,7 +78,6 @@
 #include "pipewire/pipewire_spectrum_poll_source.h"
 #include "pipewire/sound_player.h"
 #include "pipewire/wireplumber_mixer.h"
-#include "render/animation/motion_service.h"
 #include "render/backend/render_backend.h"
 #include "render/core/texture_manager.h"
 #include "render/text/font_weight_catalog.h"
@@ -823,12 +822,6 @@ void Application::initStyleThemeAndWayland() {
   std::signal(SIGTERM, signal_handler);
   std::signal(SIGINT, signal_handler);
 
-  auto applyMotionConfig = [this] {
-    auto& motion = MotionService::instance();
-    motion.setSpeed(m_configService.config().shell.animation.speed);
-    motion.setEnabled(m_configService.config().shell.animation.enabled);
-    motion.setReduced(m_liveAppearance.state().reduceMotion);
-  };
   auto applyStyleConfig = [this, lastCornerRadiusScale = std::numeric_limits<float>::quiet_NaN()] mutable {
     const float corner = m_configService.config().shell.cornerRadiusScale;
     const bool cornerChanged =
@@ -854,13 +847,11 @@ void Application::initStyleThemeAndWayland() {
   auto applyInputConfig = [this] {
     Input::setReadlineShortcutsEnabled(m_configService.config().shell.readlineShortcuts);
   };
-  applyMotionConfig();
   applyStyleConfig();
   applyPasswordMaskStyle();
   applyInputConfig();
   m_httpClient.setOfflineMode(m_configService.config().shell.offlineMode);
   m_scriptApi.setConfigSnapshot(m_configService.configTable());
-  m_configService.addReloadCallback(applyMotionConfig);
   m_configService.addReloadCallback(applyStyleConfig);
   m_configService.addReloadCallback(applyPasswordMaskStyle);
   m_configService.addReloadCallback(applyInputConfig);

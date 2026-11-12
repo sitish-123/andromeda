@@ -1655,26 +1655,6 @@ namespace noctalia::config::schema {
       );
     }
 
-    const Schema<ShellConfig::AnimationConfig>& shellAnimationSchema() {
-      static const Schema<ShellConfig::AnimationConfig> s = {
-          field(
-              &ShellConfig::AnimationConfig::enabled, "enabled",
-              RowSpec{.section = "motion", .group = "motion", .label = "appearance.animations", .tags = "motion"}
-          ),
-          field(
-              &ShellConfig::AnimationConfig::speed, "speed", kAnimationSpeedRange,
-              RowSpec{
-                  .kind = RowSpec::Kind::Slider,
-                  .section = "motion",
-                  .group = "motion",
-                  .label = "appearance.animation-speed",
-                  .tags = "motion",
-              }
-          ),
-      };
-      return s;
-    }
-
     const Schema<ShellConfig::ShadowConfig>& shellShadowSchema() {
       static const Schema<ShellConfig::ShadowConfig> s = {
           enumField(&ShellConfig::ShadowConfig::direction, "direction", kShadowDirections),
@@ -2568,7 +2548,6 @@ namespace noctalia::config::schema {
   const Schema<ShellConfig::PanelConfig>& panelSchema() { return shellPanelSchema(); }
   const Schema<ShellConfig::WindowSwitcherConfig>& windowSwitcherSchema() { return shellWindowSwitcherSchema(); }
   const Schema<ShellConfig::PrivacyConfig>& privacySchema() { return shellPrivacySchema(); }
-  const Schema<ShellConfig::AnimationConfig>& animationSchema() { return shellAnimationSchema(); }
   const Schema<ShellConfig::ScreenCornersConfig>& screenCornersSchema() { return shellScreenCornersSchema(); }
   const Schema<ShellSessionConfig>& sessionSchema() { return shellSessionSchema(); }
   const Schema<SystemConfig::MonitorConfig>& systemMonitorRowsSchema() { return systemMonitorSchema(); }
@@ -2767,7 +2746,6 @@ namespace noctalia::config::schema {
         enumField(&ShellConfig::clipboardAutoPaste, "clipboard_auto_paste", kClipboardAutoPasteModes),
         field(&ShellConfig::clipboardImageActionCommand, "clipboard_image_action_command"),
         pathStringField(&ShellConfig::avatarPath, "avatar_path"),
-        subTable(&ShellConfig::animation, "animation", shellAnimationSchema()),
         subTable(&ShellConfig::shadow, "shadow", shellShadowSchema()),
         subTable(&ShellConfig::panel, "panel", shellPanelSchema()),
         subTable(&ShellConfig::launcher, "launcher", shellLauncherSchema()),

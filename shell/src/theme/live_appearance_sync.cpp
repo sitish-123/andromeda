@@ -4,6 +4,7 @@
 #include "compositors/settings_control.h"
 #include "compositors/shell_wayland_connection.h"
 #include "design_tokens.h"
+#include "render/animation/motion_service.h"
 
 #include <algorithm>
 #include <cctype>
@@ -35,6 +36,30 @@ namespace {
 
 } // namespace
 
+LiveAppearance readLiveAppearance(const std::function<std::string(std::string_view key)>& value) {
+  float speed = 1.0F;
+  const std::string speedText = value("animation.speed");
+  std::from_chars(speedText.data(), speedText.data() + speedText.size(), speed);
+  return LiveAppearance{
+      .scheme = value("appearance.scheme"),
+      .accent = normalizeColor(value("appearance.accent")),
+      .glass = parseUnit(value("appearance.glass"), 0.5F),
+      .reduceTransparency = value("appearance.reduce_transparency") == "true",
+      .increaseContrast = value("appearance.increase_contrast") == "true",
+      .reduceMotion = value("appearance.reduce_motion") == "true",
+      .animationEnabled = value("animation.enabled") != "false",
+      .animationSpeed = speed,
+      .blurEnabled = value("appearance.blur.enabled") == "true",
+  };
+}
+
+void applyLiveMotion(const LiveAppearance& appearance) {
+  auto& motion = MotionService::instance();
+  motion.setSpeed(appearance.animationSpeed);
+  motion.setEnabled(appearance.animationEnabled);
+  motion.setReduced(appearance.reduceMotion);
+}
+
 LiveAppearanceSync::LiveAppearanceSync() = default;
 
 LiveAppearanceSync::~LiveAppearanceSync() = default;
@@ -52,6 +77,12 @@ void LiveAppearanceSync::publish(std::string_view scheme, std::string_view accen
   m_scheme = std::string(scheme);
   m_accent = normalizeColor(accent);
   flush();
+}
+
+void LiveAppearanceSync::set(const std::string& key, const std::string& value) {
+  if (m_control != nullptr && m_control->ready()) {
+    m_control->set(key, value);
+  }
 }
 
 void LiveAppearanceSync::setAccent(std::string_view accent) {
@@ -108,16 +139,11 @@ void LiveAppearanceSync::onSettingsChanged() {
   if (!m_control->ready()) {
     return;
   }
+  if (m_onBatch) {
+    m_onBatch(*m_control);
+  }
   const SettingsControl& c = *m_control;
-  const LiveAppearance next{
-      .scheme = c.value("appearance.scheme"),
-      .accent = normalizeColor(c.value("appearance.accent")),
-      .glass = parseUnit(c.value("appearance.glass"), 0.5F),
-      .reduceTransparency = c.value("appearance.reduce_transparency") == "true",
-      .increaseContrast = c.value("appearance.increase_contrast") == "true",
-      .reduceMotion = c.value("appearance.reduce_motion") == "true",
-      .blurEnabled = c.value("appearance.blur.enabled") == "true",
-  };
+  const LiveAppearance next = readLiveAppearance([&c](std::string_view key) { return c.value(key); });
   // A new value that the shell did not publish is another client's choice: adopt it instead of writing ours back.
   // The first snapshot can be stale from an earlier session, so only a change after it counts.
   const bool external = !m_state.scheme.empty() && next.scheme != m_state.scheme && next.scheme != m_scheme

@@ -146,10 +146,6 @@ namespace settings {
           ToggleSetting{cfg.accessibility.highContrast}, "accessibility high contrast visually impaired"
       ));
     }
-    auto animationRows = generateSchemaEntries(
-        noctalia::config::schema::animationSchema(), cfg.shell.animation, {"shell", "animation"}
-    );
-    appendGroup(entries, animationRows, "motion");
     for (const auto* key : {"button_borders", "input_borders", "popup_borders", "card_borders"}) {
       appendRow(entries, shellRows, key);
     }

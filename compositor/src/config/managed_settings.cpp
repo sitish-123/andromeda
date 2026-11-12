@@ -409,6 +409,7 @@ namespace andromeda {
         Spec{"appearance.shadow.offset_x", Kind::Int, -200, 200, {}, [](const Config& c) { return text(c.appearance.shadow.offsetX); }},
         Spec{"appearance.shadow.offset_y", Kind::Int, -200, 200, {}, [](const Config& c) { return text(c.appearance.shadow.offsetY); }},
         Spec{"animation.enabled", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.animation.enabled); }},
+        Spec{"animation.speed", Kind::Real, 0.05, 4.0, {}, [](const Config& c) { return text(c.animation.speed); }},
         Spec{"animation.duration_ms", Kind::Int, 1, 10000, {}, [](const Config& c) { return text(c.animation.durationMs); }},
         Spec{"animation.windows_in.enabled", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.animation.windowsIn.enabled); }},
         Spec{"animation.windows_out.enabled", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.animation.windowsOut.enabled); }},

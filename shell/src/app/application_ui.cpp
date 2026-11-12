@@ -4,6 +4,7 @@
 #include "shell/lockscreen/lock_client.h"
 #include "application_internal.h"
 #include "compositors/compositor_detect.h"
+#include "compositors/settings_control.h"
 #include "config/config_types.h"
 #include "core/build_info.h"
 #include "core/deferred_call.h"
@@ -63,7 +64,6 @@
 #include "pipewire/pipewire_spectrum.h"
 #include "pipewire/pipewire_spectrum_poll_source.h"
 #include "pipewire/sound_player.h"
-#include "render/animation/motion_service.h"
 #include "render/backend/render_backend.h"
 #include "render/core/texture_manager.h"
 #include "render/text/font_weight_catalog.h"
@@ -1489,6 +1489,12 @@ void Application::initWidgetControllersAndCallbacks() {
   m_liveAppearance.setOnExternalScheme([this](std::string_view scheme) {
     m_configService.setThemeMode(scheme == "light" ? ThemeMode::Light : ThemeMode::Dark);
   });
+  m_liveAppearance.setOnBatch([this](const SettingsControl& compositor) {
+    m_configService.moveLegacyAnimationSettings(
+        [&compositor](std::string_view key) { return compositor.value(key); }, compositor.lastFailure(),
+        [this](const std::string& key, const std::string& value) { m_liveAppearance.set(key, value); }
+    );
+  });
   m_liveAppearance.initialize(m_wayland, [this](const LiveAppearance& appearance) {
     kLog.info(
         "live appearance: glass={:.2f} reduce_transparency={} increase_contrast={} reduce_motion={} accent={}",
@@ -1496,8 +1502,7 @@ void Application::initWidgetControllersAndCallbacks() {
         appearance.accent
     );
     Style::setGlass(appearance.glass, appearance.reduceTransparency, appearance.blurEnabled);
-    MotionService::instance().setEnabled(m_configService.config().shell.animation.enabled);
-    MotionService::instance().setReduced(appearance.reduceMotion);
+    applyLiveMotion(appearance);
     m_themeService.setLiveAppearance(appearance.accent, appearance.increaseContrast);
     if (m_settingsPortal != nullptr) {
       const Color accent = colorForRole(ColorRole::Accent, 1.0F);

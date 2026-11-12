@@ -259,6 +259,7 @@ namespace andromeda {
 
   ConfigReloadResult ConfigStore::commit(Config&& config, std::filesystem::path rootPath, bool fileMissing) {
     applyLiveAppearance(config);
+    applyAnimationSpeed(config.animation);
     // Computed before the move, and only after the first load: everything is new
     // the first time through.
     ConfigReloadResult result{

@@ -1104,13 +1104,6 @@ constexpr EnumOption<ScreenshotFormat> kScreenshotFormats[] = {
 };
 
 struct ShellConfig {
-  struct AnimationConfig {
-    bool enabled = true;
-    float speed = 1.0F;
-
-    bool operator==(const AnimationConfig&) const = default;
-  };
-
   using ShadowConfig = ShadowStyle;
 
   struct PanelConfig {
@@ -1334,7 +1327,6 @@ struct ShellConfig {
   PasswordMaskStyle passwordMaskStyle = PasswordMaskStyle::CircleFilled;
   /// Readline-style editing shortcuts in every text input (Ctrl+A moves to the start instead of selecting all).
   bool readlineShortcuts = false;
-  AnimationConfig animation;
   std::string avatarPath;
   bool settingsExpandAllGroups = false;
   bool settingsWindowTranslucent = true;

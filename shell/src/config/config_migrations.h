@@ -8,6 +8,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace noctalia::config {
@@ -40,6 +41,12 @@ namespace noctalia::config {
   );
 
   void normalizeLegacyConfig(toml::table& root, LegacyConfigIssues& issues);
+
+  // [shell.animation] moved to the compositor's animation.enabled and animation.speed. Returns the compositor settings
+  // (key, value) for the values in `root` that differ from the old shell defaults.
+  [[nodiscard]] std::vector<std::pair<std::string, std::string>> legacyShellAnimationSettings(const toml::table& root);
+  // Removes [shell.animation]; true when `root` had it.
+  bool eraseLegacyShellAnimation(toml::table& root);
 
   [[nodiscard]] std::string legacyConfigIssueFingerprint(const LegacyConfigIssues& issues);
   [[nodiscard]] bool

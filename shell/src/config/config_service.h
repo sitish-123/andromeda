@@ -195,6 +195,13 @@ public:
       const std::vector<std::vector<std::string>>& clearPaths, bool* changed
   );
   bool clearOverride(const std::vector<std::string>& path);
+  // Moves [shell.animation] out of the overrides file to the compositor; call it on every compositor settings batch.
+  // The first batch sends each non-default value through `set` (key, value). The section goes once a batch shows every
+  // sent value through `value`; a refusal (`failure` not empty) keeps it, so the next start tries again.
+  void moveLegacyAnimationSettings(
+      const std::function<std::string(std::string_view key)>& value, std::string_view failure,
+      const std::function<void(const std::string& key, const std::string& value)>& set
+  );
   bool clearOverrides(const std::vector<std::vector<std::string>>& paths, bool* changed);
   bool renameOverrideTable(const std::vector<std::string>& oldPath, const std::vector<std::string>& newPath);
 
@@ -289,6 +296,10 @@ private:
   std::unordered_map<std::string, std::string> m_monitorWallpaperPaths;
   std::vector<WallpaperFavorite> m_wallpaperFavorites;
   mutable std::unordered_map<std::string, bool> m_effectiveOverrideCache;
+
+  enum class LegacyAnimationMove : std::uint8_t { NotStarted, Waiting, Finished };
+  LegacyAnimationMove m_legacyAnimationMove = LegacyAnimationMove::NotStarted;
+  std::vector<std::pair<std::string, std::string>> m_legacyAnimationSent;
 
   ConfigProblem m_overridesParseError;
   ConfigProblem m_pendingError;             // parse error from initial load, notified once the manager is wired up

@@ -830,6 +830,8 @@ namespace andromeda {
 
     struct Animation {
       bool enabled = true;
+      // Time scale of every animation: 2 runs twice as fast. Applied once by applyAnimationSpeed() on commit.
+      double speed = 1.0;
       int durationMs = 250;
       AnimationCurve curve{.easing = Easing::EaseOutCubic};
       std::map<std::string, BezierCurve> beziers;
@@ -1343,5 +1345,7 @@ namespace andromeda {
   // reduce_motion turns window open and close into fades and drops the sliding and zooming animations (workspaces,
   // window move and resize, overview, scratchpad); fades, such as layer fades, stay.
   void applyLiveAppearance(Config& config);
+  // Divides every event duration by animation.speed and speeds up every spring curve by the same factor.
+  void applyAnimationSpeed(Config::Animation& animation);
 
 } // namespace andromeda

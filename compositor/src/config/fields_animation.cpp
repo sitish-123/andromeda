@@ -225,6 +225,7 @@ namespace andromeda {
       };
       static const registry::Fields<A> fields{
           boolean("enabled", &A::enabled),
+          real("speed", 0.05, 4.0, &A::speed),
           registry::map<A>(
               "beziers", registry::KeyDescription("float_array").withFormat("bezier"),
               [](Section& s, A& animation, registry::ReadContext&) {
@@ -307,6 +308,24 @@ namespace andromeda {
     }
 
   } // namespace
+
+  void applyAnimationSpeed(Config::Animation& animation) {
+    const double speed = animation.speed;
+    if (speed == 1.0 ||!std::isfinite(speed) || speed <= 0.0) {
+      return;
+    }
+    // A spring keeps its damping ratio; its natural frequency sqrt(stiffness / mass) scales with the speed.
+    const auto scaleCurve = [speed](AnimationCurve& curve) {
+      if (curve.easing == Easing::Spring) {
+        curve.spring.stiffness *= speed * speed;
+      }
+    };
+    forEachTimeline(animation, [&](int& duration, AnimationCurve& curve) {
+      duration = std::max(1, static_cast<int>(std::lround(duration / speed)));
+      scaleCurve(curve);
+    });
+    scaleCurve(animation.overview.workspaceCurve);
+  }
 
   registry::Field<Config> animationTable() {
     return registry::table("animation", &Config::animation, animationFields());

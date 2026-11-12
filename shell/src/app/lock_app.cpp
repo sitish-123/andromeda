@@ -31,7 +31,6 @@
 #include "i18n/i18n_service.h"
 #include "ipc/pixel_stream_service.h"
 #include "net/http_client.h"
-#include "render/animation/motion_service.h"
 #include "render/core/shared_texture_cache.h"
 #include "render/gl_shared_context.h"
 #include "render/render_context.h"
@@ -139,8 +138,6 @@ namespace {
   private:
     void applyStyle() {
       const auto& shell = m_config.config().shell;
-      MotionService::instance().setSpeed(shell.animation.speed);
-      MotionService::instance().setEnabled(shell.animation.enabled);
       Style::setCornerRadiusScale(shell.cornerRadiusScale);
       Style::setInputBordersEnabled(shell.inputBorders);
       Style::setButtonBordersEnabled(shell.buttonBorders);
@@ -392,7 +389,7 @@ namespace {
     void initLiveAppearance() {
       m_liveAppearance.initialize(m_wayland, [this](const LiveAppearance& appearance) {
         Style::setGlass(appearance.glass, appearance.reduceTransparency, appearance.blurEnabled);
-        MotionService::instance().setReduced(appearance.reduceMotion);
+        applyLiveMotion(appearance);
         m_theme.setLiveAppearance(appearance.accent, appearance.increaseContrast);
         m_lock.onThemeChanged();
       });

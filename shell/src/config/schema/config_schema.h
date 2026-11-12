@@ -29,7 +29,6 @@ namespace noctalia::config::schema {
   const Schema<ShellConfig::PanelConfig>& panelSchema();           // [shell.panel]
   const Schema<ShellConfig::WindowSwitcherConfig>& windowSwitcherSchema(); // [shell.window_switcher]
   const Schema<ShellConfig::PrivacyConfig>& privacySchema();               // [shell.privacy]
-  const Schema<ShellConfig::AnimationConfig>& animationSchema();           // [shell.animation]
   const Schema<ShellConfig::ScreenCornersConfig>& screenCornersSchema();   // [shell.screen_corners]
   const Schema<ShellSessionConfig>& sessionSchema();                       // [shell.session]
   const Schema<SystemConfig::MonitorConfig>& systemMonitorRowsSchema();    // [system.monitor]

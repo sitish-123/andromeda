@@ -17,11 +17,19 @@ struct LiveAppearance {
   bool reduceTransparency = false;
   bool increaseContrast = false;
   bool reduceMotion = false;
+  // animation.enabled and animation.speed: the compositor owns them for every animation on the desktop.
+  bool animationEnabled = true;
+  float animationSpeed = 1.0F;
   // appearance.blur.enabled: with it the compositor draws the glass tints the shell sends (dsk_surface_v1 v9 tint).
   bool blurEnabled = false;
 
   bool operator==(const LiveAppearance&) const = default;
 };
+
+// Reads the live keys from the compositor's settings table; `value` returns "" for a key the table lacks.
+[[nodiscard]] LiveAppearance readLiveAppearance(const std::function<std::string(std::string_view key)>& value);
+// Hands animation.enabled, animation.speed and appearance.reduce_motion to MotionService.
+void applyLiveMotion(const LiveAppearance& appearance);
 
 // Keeps a dsk_settings_manager_v1 binding for the whole session on andromeda: reads the live appearance keys and
 // writes the shell's scheme and accent.
@@ -39,6 +47,10 @@ public:
   void setAccent(std::string_view accent);
   // Runs when another client (Settings, `andromeda msg settings-set`) changes appearance.scheme; the shell adopts it.
   void setOnExternalScheme(std::function<void(std::string_view)> callback) { m_onExternalScheme = std::move(callback); }
+  // Runs on every batch of settings and on every refused set, once the first batch has arrived.
+  void setOnBatch(std::function<void(const SettingsControl&)> callback) { m_onBatch = std::move(callback); }
+  // Sets one compositor setting; call it from the setOnBatch() callback or later.
+  void set(const std::string& key, const std::string& value);
 
   [[nodiscard]] const LiveAppearance& state() const noexcept { return m_state; }
 
@@ -55,4 +67,5 @@ private:
   std::unordered_map<std::string, std::string> m_sent; // last value set per key, until the compositor has it
   ChangeCallback m_onChange;
   std::function<void(std::string_view)> m_onExternalScheme;
+  std::function<void(const SettingsControl&)> m_onBatch;
 };

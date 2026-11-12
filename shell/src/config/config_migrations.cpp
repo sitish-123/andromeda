@@ -1,6 +1,7 @@
 #include "config/config_migrations.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <format>
 #include <limits>
@@ -13,6 +14,8 @@ namespace noctalia::config {
 
     // Versions 1-16 upgraded upstream Noctalia schemas and are retired; numbering continues so stored files stay valid.
     constexpr int kLockscreenThemeMigrationVersion = 17;
+    // Fingerprint id for the [shell.animation] reminder; no stored-file migration carries this number.
+    constexpr int kShellAnimationIssueVersion = 18;
 
     // lockscreen.style (ryoku | classic) became lockscreen.theme (ryoku | andromeda). keepRyokuWhenUnset writes ryoku
     // when neither key is set, for installs from before the theme key.
@@ -148,6 +151,33 @@ namespace noctalia::config {
           .message = "lockscreen style is deprecated; use theme = \"ryoku\" or \"andromeda\"",
       });
     });
+    if (eraseLegacyShellAnimation(root)) {
+      issues.push_back({
+          .migrationVersion = kShellAnimationIssueVersion,
+          .path = "shell.animation",
+          .message = "shell.animation is ignored; set enabled and speed in the compositor's [animation] section",
+      });
+    }
+  }
+
+  std::vector<std::pair<std::string, std::string>> legacyShellAnimationSettings(const toml::table& root) {
+    std::vector<std::pair<std::string, std::string>> settings;
+    const auto* section = root["shell"]["animation"].as_table();
+    if (section == nullptr) {
+      return settings;
+    }
+    if (const auto enabled = (*section)["enabled"].value<bool>(); enabled.has_value() && !*enabled) {
+      settings.emplace_back("animation.enabled", "false");
+    }
+    if (const auto speed = (*section)["speed"].value<double>(); speed.has_value() && std::isfinite(*speed) && *speed != 1.0) {
+      settings.emplace_back("animation.speed", std::format("{:g}", std::clamp(*speed, 0.05, 4.0)));
+    }
+    return settings;
+  }
+
+  bool eraseLegacyShellAnimation(toml::table& root) {
+    auto* shell = root["shell"].as_table();
+    return shell != nullptr && shell->erase("animation") > 0;
   }
 
   std::string legacyConfigIssueFingerprint(const LegacyConfigIssues& issues) {

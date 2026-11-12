@@ -1988,6 +1988,46 @@ bool ConfigService::clearOverrides(const std::vector<std::vector<std::string>>& 
   return mutateOverrides({}, paths, changed);
 }
 
+void ConfigService::moveLegacyAnimationSettings(
+    const std::function<std::string(std::string_view key)>& value, std::string_view failure,
+    const std::function<void(const std::string& key, const std::string& value)>& set
+) {
+  using Move = LegacyAnimationMove;
+  const auto held = [&] {
+    return std::ranges::all_of(m_legacyAnimationSent, [&](const auto& sent) { return value(sent.first) == sent.second; });
+  };
+  switch (m_legacyAnimationMove) {
+  case Move::NotStarted:
+    if (!hasOverride({"shell", "animation"})) {
+      m_legacyAnimationMove = Move::Finished;
+      return;
+    }
+    m_legacyAnimationSent = noctalia::config::legacyShellAnimationSettings(m_overridesTable);
+    if (!held()) {
+      for (const auto& [key, text] : m_legacyAnimationSent) {
+        set(key, text);
+      }
+      m_legacyAnimationMove = Move::Waiting;
+      return;
+    }
+    break;
+  case Move::Waiting:
+    if (!failure.empty()) {
+      kLog.warn("compositor refused the [shell.animation] values ({}); kept them for the next start", failure);
+      m_legacyAnimationMove = Move::Finished;
+      return;
+    }
+    if (!held()) {
+      return;
+    }
+    break;
+  case Move::Finished:
+    return;
+  }
+  m_legacyAnimationMove = Move::Finished;
+  (void)clearOverride({"shell", "animation"});
+}
+
 bool ConfigService::resetBarLaneOverride(const std::vector<std::string>& lanePath, bool* changed) {
   if (changed != nullptr) {
     *changed = false;

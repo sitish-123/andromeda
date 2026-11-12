@@ -42,7 +42,6 @@ int main() {
   // Real override paths the settings registry emits — leaf, nested sub-table,
   // enum, named-map, and bar/monitor forms.
   expectKnown({"accessibility", "ui_scale"});
-  expectKnown({"shell", "animation", "speed"});
   expectKnown({"shell", "panel_anchor_bar"});
   expectKnown({"shell", "panel", "control_center_placement"});
   expectKnown({"shell", "shadow", "alpha"});
@@ -87,6 +86,7 @@ int main() {
   expectUnknown({"shell", "panel", "control_center_palcement"}); // nested typo
   expectUnknown({"accessibilit", "ui_scale"});                   // section typo
   expectUnknown({"shell"});                                      // bare section
+  expectUnknown({"shell", "animation", "speed"});                // moved to the compositor's animation.speed
   expectUnknown({"dock", "radius_top_typo"});
   expectUnknown({"dock", "monitors"});
   expectUnknown({"dock", "monitor", "DP-1", "monitors"});
