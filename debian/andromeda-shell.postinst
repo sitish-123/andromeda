@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+# pkg/andromeda-shell.install explains the group and the order.
+if [ "$1" = configure ]; then
+  systemd-sysusers andromeda-askpass.conf
+  if ! dpkg-statoverride --list /usr/bin/andromeda-askpass > /dev/null; then
+    chgrp andromeda-askpass /usr/bin/andromeda-askpass
+    chmod 2755 /usr/bin/andromeda-askpass
+  fi
+fi
+#DEBHELPER#

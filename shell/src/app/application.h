@@ -31,6 +31,8 @@
 #include "idle/idle_manager.h"
 #include "idle/plugin_idle_watches.h"
 #include "ipc/ipc_poll_source.h"
+#include "shell/polkit/askpass_broker.h"
+#include "shell/polkit/auth_dialog_state.h"
 #include "ipc/ipc_service.h"
 #include "ipc/pixel_stream_service.h"
 #include "launcher/dmenu_ipc.h"
@@ -139,6 +141,7 @@ class AndromedaShellService;
 class SystemHealthService;
 class SoftwareUpdateService;
 class SetupWizardPanel;
+class PolkitPanel;
 class AmbientLightService;
 class EasyEffectsService;
 class INetworkService;
@@ -269,6 +272,10 @@ private:
   void syncScheduledShutdown();
   Timer m_shutdownWarnTimer;
   void syncPolkitAgent();
+  // The one way to change what the authentication dialog shows.
+  void handleAuthDialog(AuthDialogEvent event);
+  void syncAuthPanel();
+  void dropPolkitAgent();
   [[nodiscard]] bool likelySupportsInSessionPolkit() const noexcept;
   void syncClipboardService();
   void syncStorageKeyProvider();
@@ -383,6 +390,8 @@ private:
   std::unique_ptr<SoftwareUpdateService> m_softwareUpdateService;
   // Owned by m_panelManager; told when m_softwareUpdateService changes.
   SetupWizardPanel* m_setupWizard = nullptr;
+  // Owned by m_panelManager.
+  PolkitPanel* m_polkitPanel = nullptr;
   SoftwareUpdateService* softwareUpdateService();
   // display.brightness_step: the brightness each display had before a rule dimmed it one step.
   std::map<std::string, float> m_dimmedFrom;
@@ -494,6 +503,9 @@ private:
   LockScreen m_lockScreen;
   LockscreenWidgetsController m_lockscreenWidgetsController;
   SessionActionRunner m_sessionActionRunner{m_compositorPlatform, m_lockScreen};
+  // Before m_panelManager: the polkit panel holds a pointer to it.
+  AskpassBroker m_askpassBroker;
+  AuthDialogState m_authDialog;
   PanelManager m_panelManager;
   // Owned by m_panelManager; kept raw so plugin launcher providers can be re-applied.
   LauncherPanel* m_launcherPanel = nullptr;

@@ -1,0 +1,2 @@
+# /usr/bin/andromeda-askpass is setgid to this group: the shell knows the real helper by its connect-time gid.
+g andromeda-askpass - -

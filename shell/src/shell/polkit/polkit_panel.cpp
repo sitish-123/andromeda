@@ -7,6 +7,7 @@
 #include "core/input/keybind_matcher.h"
 #include "design_tokens.h"
 #include "dbus/polkit/polkit_agent.h"
+#include "shell/polkit/askpass_broker.h"
 #include "i18n/i18n.h"
 #include "render/core/renderer.h"
 #include "render/scene/input_area.h"
@@ -50,8 +51,12 @@ namespace {
 
 } // namespace
 
-PolkitPanel::PolkitPanel(ConfigService* config, std::function<PolkitAgent*()> agentProvider)
-    : m_config(config), m_agentProvider(std::move(agentProvider)) {}
+PolkitPanel::PolkitPanel(
+    ConfigService* config, std::function<PolkitAgent*()> agentProvider, AskpassBroker* askpass,
+    std::function<AuthDialogMode()> authMode, std::function<void(AuthDialogEvent)> authEvent
+)
+    : m_config(config), m_agentProvider(std::move(agentProvider)), m_askpass(askpass), m_authMode(std::move(authMode)),
+      m_authEvent(std::move(authEvent)) {}
 
 PanelPlacement PolkitPanel::panelPlacement() const noexcept {
   return m_config != nullptr ? m_config->config().shell.panel.polkitPlacement : PanelPlacement::Floating;
@@ -205,10 +210,7 @@ void PolkitPanel::create() {
               .paddingH = Style::spaceMd * scale,
               .radius = Style::scaledRadiusMd(scale),
               .onClick =
-                  [this] {
-                    cancelAuth();
-                    PanelManager::instance().close();
-                  },
+                  [this] { cancelAuth(); },
           }),
           ui::button({
               .out = &m_submitButton,
@@ -228,31 +230,25 @@ void PolkitPanel::create() {
 }
 
 void PolkitPanel::onOpen(std::string_view /*context*/) {
-  m_lastResponseRequired = false;
+  m_lastResponseRequired = showsAskpass();
   m_iconResolved = false;
-  m_hasTrackedRequest = false;
-  m_trackedRequestCookie.clear();
-  if (PolkitAgent* agent = m_agentProvider != nullptr ? m_agentProvider() : nullptr;
-      agent != nullptr && agent->hasPendingRequest()) {
-    m_trackedRequestCookie = agent->pendingRequest().cookie;
-    m_hasTrackedRequest = true;
+  clearInput();
+  if (m_authEvent) {
+    m_authEvent(AuthDialogEvent::PanelOpened);
   }
+}
+
+void PolkitPanel::clearInput() {
   if (m_input != nullptr) {
     m_input->setValue("");
   }
 }
 
 void PolkitPanel::onClose() {
-  // A panel close must settle the request it displayed. Match the cookie so a
-  // chained authentication that arrived after a successful response survives.
-  if (m_hasTrackedRequest) {
-    if (PolkitAgent* agent = m_agentProvider != nullptr ? m_agentProvider() : nullptr;
-        agent != nullptr && agent->hasPendingRequest() && agent->pendingRequest().cookie == m_trackedRequestCookie) {
-      agent->cancelRequest();
-    }
+  // The dialog state decides what a close does to the request it showed.
+  if (m_authEvent) {
+    m_authEvent(AuthDialogEvent::PanelClosed);
   }
-  m_hasTrackedRequest = false;
-  m_trackedRequestCookie.clear();
   m_lastResponseRequired = false;
   clearReleasedRoot();
 
@@ -275,9 +271,8 @@ void PolkitPanel::onClose() {
 }
 
 void PolkitPanel::cancelAuth() {
-  PolkitAgent* agent = m_agentProvider != nullptr ? m_agentProvider() : nullptr;
-  if (agent != nullptr && agent->hasPendingRequest()) {
-    agent->cancelRequest();
+  if (m_authEvent) {
+    m_authEvent(AuthDialogEvent::UserCancel);
   }
 }
 
@@ -286,13 +281,12 @@ bool PolkitPanel::handleGlobalKey(std::uint32_t sym, std::uint32_t modifiers, bo
     return false;
   }
   cancelAuth();
-  PanelManager::instance().close();
   return true;
 }
 
 InputArea* PolkitPanel::initialFocusArea() const {
   PolkitAgent* agent = m_agentProvider != nullptr ? m_agentProvider() : nullptr;
-  if (agent != nullptr && !agent->isResponseRequired()) {
+  if (!showsAskpass() && agent != nullptr && !agent->isResponseRequired()) {
     return m_focusArea;
   }
   return m_input != nullptr ? m_input->inputArea() : m_focusArea;
@@ -318,6 +312,15 @@ void PolkitPanel::doLayout(Renderer& renderer, float width, float height) {
 }
 
 void PolkitPanel::doUpdate(Renderer& renderer) {
+  if (showsAskpass()) {
+    if (m_icon != nullptr && m_fallbackIcon != nullptr) {
+      resolveIcon(renderer, PolkitRequest{});
+      // The polkit request queued behind this one resolves its own icon.
+      m_iconResolved = false;
+    }
+    updateAskpass();
+    return;
+  }
   PolkitAgent* agent = m_agentProvider != nullptr ? m_agentProvider() : nullptr;
   if (agent == nullptr
       || m_messageLabel == nullptr
@@ -330,10 +333,10 @@ void PolkitPanel::doUpdate(Renderer& renderer) {
     return;
   }
   const PolkitRequest request = agent->pendingRequest();
-  if (agent->hasPendingRequest()) {
-    m_trackedRequestCookie = request.cookie;
-    m_hasTrackedRequest = true;
+  if (m_titleLabel != nullptr) {
+    m_titleLabel->setText(i18n::tr("auth.polkit.title"));
   }
+  m_messageLabel->setMaxLines(6);
   const bool needsInput = agent->isResponseRequired();
   const std::string supplementaryRaw = agent->supplementaryMessage();
   const bool supplementaryError = agent->supplementaryIsError();
@@ -383,6 +386,42 @@ void PolkitPanel::doUpdate(Renderer& renderer) {
     m_iconResolved = true;
     resolveIcon(renderer, request);
   }
+}
+
+void PolkitPanel::updateAskpass() {
+  if (m_titleLabel == nullptr
+      || m_messageLabel == nullptr
+      || m_promptLabel == nullptr
+      || m_identityLabel == nullptr
+      || m_identitySelect == nullptr
+      || m_supplementaryLabel == nullptr
+      || m_submitButton == nullptr
+      || m_input == nullptr
+      || !m_askpass->hasPendingRequest()) {
+    return;
+  }
+  const AskpassRequest& request = m_askpass->pendingRequest();
+  m_titleLabel->setText(i18n::tr("auth.askpass.title"));
+  m_messageLabel->setText(wrapLongRuns(request.command));
+  m_messageLabel->setMaxLines(8);
+  m_promptLabel->setText(wrapLongRuns(
+      request.cwd.empty()
+          ? i18n::tr("auth.askpass.requested-by", "process", request.requester, "pid", std::to_string(request.requesterPid))
+          : i18n::tr("auth.askpass.requested-by-in", "process", request.requester, "pid",
+                     std::to_string(request.requesterPid), "cwd", request.cwd)
+  ));
+  m_promptLabel->setColor(colorSpecFromRole(ColorRole::Label2));
+  m_promptLabel->setVisible(true);
+  m_identityLabel->setVisible(false);
+  m_identitySelect->setVisible(false);
+  m_supplementaryLabel->setVisible(false);
+  if (m_faceGlyph != nullptr) {
+    m_faceGlyph->setVisible(false);
+  }
+  m_input->setVisible(true);
+  m_submitButton->setVisible(true);
+  m_submitButton->setText(i18n::tr("auth.polkit.authenticate"));
+  m_submitButton->setEnabled(!m_input->value().empty());
 }
 
 void PolkitPanel::updateIdentity(const PolkitRequest& request) {
@@ -450,6 +489,19 @@ void PolkitPanel::resolveIcon(Renderer& renderer, const PolkitRequest& request) 
 }
 
 void PolkitPanel::submit(std::string_view response) {
+  if (showsAskpass()) {
+    if (m_input == nullptr || !m_askpass->hasPendingRequest()) {
+      return;
+    }
+    std::string password = response.empty() ? m_input->value() : std::string(response);
+    if (password.empty()) {
+      return;
+    }
+    m_input->setValue("");
+    m_askpass->submitResponse(password);
+    util::secureWipe(password);
+    return;
+  }
   PolkitAgent* agent = m_agentProvider != nullptr ? m_agentProvider() : nullptr;
   if (agent == nullptr || m_input == nullptr) {
     return;

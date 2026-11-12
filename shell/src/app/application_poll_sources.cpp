@@ -79,6 +79,7 @@ std::vector<PollSource*> Application::currentPollSources() {
   }
   sources.push_back(&m_fileWatchPollSource);
   sources.push_back(&m_ipcPollSource);
+  sources.push_back(&m_askpassBroker);
   sources.push_back(&m_dmenuIpc);
   sources.push_back(&m_httpClientPollSource);
   sources.push_back(&m_locationPollSource);

@@ -137,6 +137,18 @@ void Application::initIpc() {
     kLog.warn("IPC disabled: could not bind socket");
   }
 
+  m_ipcService.setAskpassHandler([this](int fd, pid_t peerPid) {
+    // A polkit request without a prompt yet is not in the dialog state, so ask the agent too.
+    if (!m_authDialog.canBeginAskpass() || (m_polkitAgent != nullptr && m_polkitAgent->hasPendingRequest())) {
+      AskpassBroker::refuse(fd, "another password request is open");
+      return false;
+    }
+    return m_askpassBroker.begin(fd, peerPid);
+  });
+  m_askpassBroker.setStateCallback([this] {
+    handleAuthDialog(m_askpassBroker.hasPendingRequest() ? AuthDialogEvent::AskpassBegin : AuthDialogEvent::AskpassEnded);
+  });
+
   m_dmenuIpc.setLauncherPanel(m_launcherPanel);
   m_dmenuIpc.setPanelManager(&m_panelManager);
   m_dmenuIpc.start();

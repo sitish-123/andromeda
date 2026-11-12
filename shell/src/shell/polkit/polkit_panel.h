@@ -2,6 +2,7 @@
 
 #include "design_tokens.h"
 #include "shell/panel/panel.h"
+#include "shell/polkit/auth_dialog_state.h"
 #include "system/icon_resolver.h"
 
 #include <cstdint>
@@ -17,6 +18,7 @@ class Input;
 class InputArea;
 class Label;
 class Node;
+class AskpassBroker;
 class PolkitAgent;
 struct PolkitRequest;
 class Renderer;
@@ -25,11 +27,16 @@ class ConfigService;
 
 class PolkitPanel : public Panel {
 public:
-  PolkitPanel(ConfigService* config, std::function<PolkitAgent*()> agentProvider);
+  // `authMode` says which request the dialog shows; the panel reports opens, closes and cancels to `authEvent`.
+  PolkitPanel(
+      ConfigService* config, std::function<PolkitAgent*()> agentProvider, AskpassBroker* askpass,
+      std::function<AuthDialogMode()> authMode, std::function<void(AuthDialogEvent)> authEvent
+  );
 
   void create() override;
   void onOpen(std::string_view context) override;
   void onClose() override;
+  void clearInput();
 
   [[nodiscard]] float preferredWidth() const override { return scaled(Tokens::componentDialogWidth); }
   // Fits its content (the prompt grows when a password is needed); this is the maximum.
@@ -52,6 +59,8 @@ private:
   bool handleInputKeyEvent(std::uint32_t sym, std::uint32_t modifiers);
   void resolveIcon(Renderer& renderer, const PolkitRequest& request);
   void updateIdentity(const PolkitRequest& request);
+  void updateAskpass();
+  [[nodiscard]] bool showsAskpass() const { return m_authMode && m_authMode() == AuthDialogMode::Askpass; }
 
   ConfigService* m_config = nullptr;
   std::function<PolkitAgent*()> m_agentProvider;
@@ -76,6 +85,7 @@ private:
   std::string m_lastIconName;
   bool m_iconResolved = false;
   bool m_lastResponseRequired = false;
-  std::string m_trackedRequestCookie;
-  bool m_hasTrackedRequest = false;
+  AskpassBroker* m_askpass = nullptr;
+  std::function<AuthDialogMode()> m_authMode;
+  std::function<void(AuthDialogEvent)> m_authEvent;
 };

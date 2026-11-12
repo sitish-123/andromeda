@@ -278,7 +278,9 @@ package_andromeda-shell-git() {
   conflicts=(noctalia noctalia-desktop-git)
   replaces=(noctalia-desktop-git)
   backup=(etc/pam.d/andromeda-lock)
+  install=andromeda-shell.install
   meson install -C build-shell --destdir "$pkgdir"
+  install -Dm644 desktop/session/andromeda-askpass.sysusers "$pkgdir/usr/lib/sysusers.d/andromeda-askpass.conf"
   # Old /usr/bin/noctalia name for upgraded systems with old configs.
   ln -s andromeda-shell "$pkgdir/usr/bin/noctalia"
   install -Dm644 desktop/session/andromeda-shell.service "$pkgdir/usr/lib/systemd/user/andromeda-shell.service"

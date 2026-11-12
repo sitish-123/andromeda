@@ -626,6 +626,9 @@ _noctalia_sources = files(
   'src/shell/panel/plugin_panel.cpp',
   'src/shell/plugin_layer/plugin_layer.cpp',
   'src/shell/plugin_layer/plugin_layer_host.cpp',
+  'src/shell/polkit/askpass_broker.cpp',
+  'src/shell/polkit/askpass_request.cpp',
+  'src/shell/polkit/auth_dialog_state.cpp',
   'src/shell/polkit/polkit_panel.cpp',
   'src/shell/session/session_action_meta.cpp',
   'src/shell/session/session_action_runner.cpp',
@@ -1045,6 +1048,12 @@ noctalia_exe = executable('andromeda-shell',
   install: true,
 )
 
+askpass_exe = executable('andromeda-askpass',
+  sources: files('src/askpass/askpass_main.cpp'),
+  cpp_args: _noctalia_cpp_args,
+  install: true,
+)
+
 # libqalculate and its library tree load on the first calculator use, not at shell start.
 noctalia_calc_module = shared_module('noctalia-calc',
   sources: files('src/launcher/calc_engine.cpp'),
@@ -1201,6 +1210,8 @@ if build_tests
     'input_readline_shortcuts',
     'dmenu_exec',
     'ipc_service',
+    'askpass_request',
+    'auth_dialog_state',
     'plugin_permissions',
     'iwd_diagnostics',
     'jxl_decoder',
@@ -1323,6 +1334,13 @@ if build_tests
     endif
     test(test_name, test_exe, args: test_args, depends: test_name == 'math_provider' ? [noctalia_calc_module] : [])
   endforeach
+
+  askpass_client_test_exe = executable('askpass_client_test',
+    sources: files('tests/askpass_client_test.cpp'),
+    dependencies: noctalia_core_dep,
+    override_options: ['b_ndebug=false'],
+  )
+  test('askpass_client', askpass_client_test_exe, args: [askpass_exe], depends: [askpass_exe])
 
   lock_helper_test_exe = executable('lock_helper_test',
     sources: files('tests/lock_helper_test.cpp'),

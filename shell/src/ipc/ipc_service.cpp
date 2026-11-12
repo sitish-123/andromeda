@@ -201,7 +201,7 @@ void IpcService::dispatch() {
       ::close(connFd);
       continue;
     }
-    if (!handleConnection(connFd)) {
+    if (!handleConnection(connFd, peer.pid)) {
       ::close(connFd);
     }
   }
@@ -339,7 +339,7 @@ void IpcService::dropSubscriber(int fd) {
   }
 }
 
-bool IpcService::handleConnection(int connFd) {
+bool IpcService::handleConnection(int connFd, pid_t peerPid) {
   // Set receive timeout so a slow client doesn't stall the main loop
   timeval tv{};
   tv.tv_sec = 0;
@@ -356,6 +356,10 @@ bool IpcService::handleConnection(int connFd) {
     const auto n = ::read(connFd, buf, limit);
     if (n > 0) {
       command.append(buf, static_cast<std::size_t>(n));
+      // The askpass handshake keeps the write side open: its first line is the whole request.
+      if (command.starts_with("askpass") && command.find('\n') != std::string::npos) {
+        break;
+      }
       continue;
     }
     if (n == 0) {
@@ -398,6 +402,14 @@ bool IpcService::handleConnection(int connFd) {
   const bool json = line.starts_with(kJsonFlag);
   if (json) {
     line.erase(0, kJsonFlag.size());
+  }
+  // Any text after `askpass` is the client's and is ignored: the dialog reads the caller from /proc.
+  if (line == "askpass" || line.starts_with("askpass ")) {
+    if (!m_askpassHandler) {
+      sendAll(connFd, "error: askpass is not available\n");
+      return false;
+    }
+    return m_askpassHandler(connFd, peerPid);
   }
   if (line == "subscribe" || line.starts_with("subscribe ")) {
     return subscribe(connFd, line.size() > 9 ? line.substr(10) : std::string(), json);

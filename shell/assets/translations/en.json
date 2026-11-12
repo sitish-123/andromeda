@@ -163,6 +163,11 @@
     "user-you": "you"
   },
   "auth": {
+    "askpass": {
+      "requested-by": "Requested by {process} (pid {pid})",
+      "requested-by-in": "Requested by {process} (pid {pid}) in {cwd}",
+      "title": "Administrator Password"
+    },
     "finger": {
       "right-index-finger": "Right index finger",
       "left-index-finger": "Left index finger",

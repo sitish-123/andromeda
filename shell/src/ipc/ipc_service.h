@@ -9,6 +9,8 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <sys/types.h>
+#include <utility>
 #include <vector>
 
 enum class IpcActionEditorVisibility {
@@ -123,6 +125,11 @@ public:
   // The poll source saw POLLHUP or POLLERR on a subscriber fd: drops it, if it is still one.
   void subscriberClosed(int fd);
 
+  // Takes a connection that sent `askpass`: returns true when it keeps `fd`; on false the service closes it.
+  // `peerPid` comes from SO_PEERCRED.
+  using AskpassHandler = std::function<bool(int fd, pid_t peerPid)>;
+  void setAskpassHandler(AskpassHandler handler) { m_askpassHandler = std::move(handler); }
+
 private:
   struct HandlerEntry {
     Handler fn;
@@ -138,7 +145,7 @@ private:
   };
 
   // Returns true when it kept `connFd` as a subscriber.
-  bool handleConnection(int connFd);
+  bool handleConnection(int connFd, pid_t peerPid);
   bool subscribe(int connFd, const std::string& args, bool json);
   void dropSubscriber(int fd);
   std::string buildHelp() const;
@@ -146,6 +153,7 @@ private:
   [[nodiscard]] static std::string resolveSocketPath();
 
   int m_listenFd = -1;
+  AskpassHandler m_askpassHandler;
   std::string m_socketPath;
   mutable std::optional<std::string> m_callerCwd;
   mutable std::optional<IpcInvocationContext> m_invocationContext;

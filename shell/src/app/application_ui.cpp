@@ -959,9 +959,12 @@ void Application::initPanelManagerAndPanels() {
     }
   }, [this] { m_wallpaperWindow.close(); });
   m_panelManager.registerPanel("tray-drawer", std::make_unique<TrayDrawerPanel>(m_trayService.get(), &m_configService));
-  m_panelManager.registerPanel("polkit", std::make_unique<PolkitPanel>(&m_configService, [this] {
+  auto polkitPanel = std::make_unique<PolkitPanel>(&m_configService, [this] {
                                  return m_polkitAgent.get();
-                               }));
+                               }, &m_askpassBroker, [this] { return m_authDialog.mode(); },
+                               [this](AuthDialogEvent event) { handleAuthDialog(event); });
+  m_polkitPanel = polkitPanel.get();
+  m_panelManager.registerPanel("polkit", std::move(polkitPanel));
   auto setupWizard = std::make_unique<SetupWizardPanel>(&m_configService, &m_wayland, m_linkService.get(),
                                                         m_systemBus.get(), [this] { return softwareUpdateService(); });
   m_setupWizard = setupWizard.get();

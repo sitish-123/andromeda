@@ -562,11 +562,50 @@ bool Application::likelySupportsInSessionPolkit() const noexcept {
   return polkit_session::likelySupportsInSessionPolkitAgent(m_logindService != nullptr);
 }
 
+void Application::handleAuthDialog(AuthDialogEvent event) {
+  const AuthDialogActions actions = m_authDialog.handle(event);
+  if (actions.clearInput && m_polkitPanel != nullptr) {
+    m_polkitPanel->clearInput();
+  }
+  if ((actions.cancelAskpass || actions.refuseAskpass) && m_askpassBroker.hasPendingRequest()) {
+    m_askpassBroker.cancelRequest();
+  }
+  if (actions.cancelPolkit && m_polkitAgent != nullptr && m_polkitAgent->hasPendingRequest()) {
+    m_polkitAgent->cancelRequest();
+  }
+  if (actions.armIdleTimer) {
+    m_polkitIdleCloseTimer.start(std::chrono::milliseconds(150), [this] {
+      handleAuthDialog(AuthDialogEvent::IdleTimer);
+    });
+  }
+  if (actions.syncPanel) {
+    DeferredCall::callLater([this] { syncAuthPanel(); });
+  }
+}
+
+void Application::syncAuthPanel() {
+  const bool open = m_panelManager.isOpenPanel("polkit");
+  if (m_authDialog.mode() == AuthDialogMode::Closed) {
+    if (open) {
+      m_panelManager.close();
+    }
+  } else if (!open) {
+    wl_output* output = m_compositorPlatform.preferredInteractiveOutput(std::chrono::milliseconds(1200));
+    m_panelManager.openPanel("polkit", PanelOpenRequest{.output = output});
+  } else {
+    m_panelManager.refresh();
+  }
+}
+
+void Application::dropPolkitAgent() {
+  m_polkitPollSource.reset();
+  m_polkitAgent.reset();
+  handleAuthDialog(AuthDialogEvent::PolkitAgentRemoved);
+}
+
 void Application::syncPolkitAgent() {
-  m_polkitIdleCloseTimer.stop();
   if (m_systemBus == nullptr) {
-    m_polkitPollSource.reset();
-    m_polkitAgent.reset();
+    dropPolkitAgent();
     return;
   }
 
@@ -574,8 +613,7 @@ void Application::syncPolkitAgent() {
     if (m_polkitAgent != nullptr) {
       kLog.info("polkit agent disabled by config");
     }
-    m_polkitPollSource.reset();
-    m_polkitAgent.reset();
+    dropPolkitAgent();
     return;
   }
 
@@ -586,14 +624,12 @@ void Application::syncPolkitAgent() {
   try {
     if (!m_systemBus->nameHasOwner(kPolkitAuthorityBusName)) {
       kLog.warn("polkit agent disabled: {} is not running", kPolkitAuthorityBusName);
-      m_polkitPollSource.reset();
-      m_polkitAgent.reset();
+      dropPolkitAgent();
       return;
     }
   } catch (const std::exception& e) {
     kLog.warn("polkit agent disabled: failed to query {} owner: {}", kPolkitAuthorityBusName, e.what());
-    m_polkitPollSource.reset();
-    m_polkitAgent.reset();
+    dropPolkitAgent();
     return;
   }
 
@@ -608,8 +644,7 @@ void Application::syncPolkitAgent() {
               i18n::tr("notifications.internal.polkit-no-session")
           );
         }
-        m_polkitPollSource.reset();
-        m_polkitAgent.reset();
+        dropPolkitAgent();
       });
       return;
     }
@@ -620,30 +655,12 @@ void Application::syncPolkitAgent() {
       return;
     }
     if (!m_polkitAgent->hasPendingRequest()) {
-      // Defer close so a follow-up BeginAuthentication in the same burst
-      // (pkexec → systemd-enable, etc.) can reuse the panel instead of racing
-      // teardown.
-      if (m_panelManager.isOpenPanel("polkit")) {
-        m_polkitIdleCloseTimer.start(std::chrono::milliseconds(150), [this] {
-          if (m_polkitAgent != nullptr && !m_polkitAgent->hasPendingRequest() && m_panelManager.isOpenPanel("polkit")) {
-            m_panelManager.close();
-          }
-        });
-      }
+      handleAuthDialog(AuthDialogEvent::PolkitEnded);
       return;
     }
-    m_polkitIdleCloseTimer.stop();
     // BeginAuthentication alone has no prompt yet; show-info and request both do.
     const bool hasContent = m_polkitAgent->isResponseRequired() || !m_polkitAgent->supplementaryMessage().empty();
-    if (!hasContent && !m_panelManager.isOpenPanel("polkit")) {
-      return;
-    }
-    if (!m_panelManager.isOpenPanel("polkit")) {
-      wl_output* output = m_compositorPlatform.preferredInteractiveOutput(std::chrono::milliseconds(1200));
-      m_panelManager.openPanel("polkit", PanelOpenRequest{.output = output});
-    } else {
-      m_panelManager.refresh();
-    }
+    handleAuthDialog(hasContent ? AuthDialogEvent::PolkitReady : AuthDialogEvent::PolkitWaiting);
   });
   m_polkitPollSource = std::make_unique<PolkitPollSource>(*m_polkitAgent);
   m_polkitAgent->start();

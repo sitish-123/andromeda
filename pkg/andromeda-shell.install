@@ -1,0 +1,11 @@
+# The shell gives a password only to a peer with this gid. The package cannot carry the group: it does not
+# exist at build time. chgrp clears the setgid bit, so chmod comes after it.
+post_install() {
+  systemd-sysusers andromeda-askpass.conf &&
+    chgrp andromeda-askpass usr/bin/andromeda-askpass &&
+    chmod 2755 usr/bin/andromeda-askpass
+}
+
+post_upgrade() {
+  post_install
+}
