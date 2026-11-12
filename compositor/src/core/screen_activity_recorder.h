@@ -29,12 +29,16 @@ namespace andromeda {
     void setScreenOn(bool on);
     // Every input event; costs one clock read unless the user was idle.
     void inputActivity();
-    // The user left the input alone past ScreenActivityLog::kIdleAfter, or every screen is off.
-    bool idle() const { return m_idle || !m_screenOn; }
+    // An active idle inhibitor counts as user activity: it ends idle and holds it off; the countdown restarts when it ends.
+    void setInhibited(bool inhibited);
+    // The user left the input alone past ScreenActivityLog::kIdleAfter with no idle inhibitor, or every screen is off.
+    bool idle() const { return m_user == UserState::Idle || !m_screenOn; }
     // Runs when idle() changes.
     void setIdleListener(std::function<void(bool)> listener) { m_idleListener = std::move(listener); }
 
   private:
+    enum class UserState { Active, Idle, Inhibited };
+
     static int onIdleCheck(void* data);
     void write(bool force);
     void writeLog(std::int64_t now);
@@ -54,7 +58,7 @@ namespace andromeda {
     std::int64_t m_writtenAt = 0;
     bool m_persist = false;
     std::int64_t m_sleptSeconds = 0; // BOOTTIME - MONOTONIC at the last check
-    bool m_idle = false;
+    UserState m_user = UserState::Active;
     bool m_screenOn = true;
     bool m_reportedIdle = false;
     std::function<void(bool)> m_idleListener;

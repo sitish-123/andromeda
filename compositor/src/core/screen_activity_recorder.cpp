@@ -140,8 +140,8 @@ namespace andromeda {
       checkSleep(now);
     }
     m_lastInput = now;
-    if (m_idle) {
-      m_idle = false;
+    if (m_user == UserState::Idle) {
+      m_user = UserState::Active;
       m_log.setUserIdle(false, now);
       writeLog(now);
       write(false);
@@ -153,14 +153,26 @@ namespace andromeda {
     }
   }
 
+  void ScreenActivityRecorder::setInhibited(bool inhibited) {
+    if (inhibited == (m_user == UserState::Inhibited)) {
+      return;
+    }
+    inputActivity();
+    m_user = inhibited ? UserState::Inhibited : UserState::Active;
+  }
+
   int ScreenActivityRecorder::onIdleCheck(void* data) {
     auto* self = static_cast<ScreenActivityRecorder*>(data);
     const std::int64_t now = unixNow();
     self->checkSleep(now);
+    if (self->m_user == UserState::Inhibited) {
+      self->m_timerArmed = false;
+      return 0;
+    }
     const std::int64_t quiet = now - self->m_lastInput;
     if (quiet >= ScreenActivityLog::kIdleAfter) {
       // The pause began at the last input, so idle time starts there.
-      self->m_idle = true;
+      self->m_user = UserState::Idle;
       self->m_log.setUserIdle(true, self->m_lastInput);
       self->m_timerArmed = false;
       self->writeLog(now);

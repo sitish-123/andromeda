@@ -824,6 +824,9 @@ namespace andromeda {
     if (inhibited != m_idleInhibited) {
       m_idleInhibited = inhibited;
       kLog.debug("idle {}", inhibited ? "inhibited" : "no longer inhibited");
+      if (m_screenActivity != nullptr) {
+        m_screenActivity->setInhibited(inhibited);
+      }
     }
     wlr_idle_notifier_v1_set_inhibited(m_idleNotifier, inhibited);
     // Every map, unmap and inhibitor change passes here.
