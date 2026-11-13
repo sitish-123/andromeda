@@ -84,6 +84,9 @@ done
 reply=$("$ANDROMEDA" focused-window -j)
 jq -e --arg id "$id_b" '.id == $id' > /dev/null <<< "$reply" \
   || fail "seat takeover changed the answer: $reply"
+# The bar title and the window shadow follow .active: a panel must not deactivate the window.
+windows_json | jq -e --arg id "$id_b" 'any(.[]; .active and .id == $id)' > /dev/null \
+  || fail "seat takeover deactivated fw-b: $(windows_json)"
 
 kill "$layer_pid"
 wait "$layer_pid" || true

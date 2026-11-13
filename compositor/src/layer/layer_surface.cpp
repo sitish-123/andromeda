@@ -800,8 +800,7 @@ namespace andromeda {
 
     wlr_seat* seat = m_server->seat()->wlr();
     wlr_surface* surface = m_layerSurface->surface;
-    // Layers take the seat: drop every window's activated/border so none stay "focused".
-    m_server->deactivateViews(nullptr);
+    // The last window stays activated under a layer: panels and overlays do not change which window is active.
     if (seat->keyboard_state.focused_surface == surface) {
       return;
     }
@@ -823,7 +822,6 @@ namespace andromeda {
       return;
     }
 
-    m_server->deactivateViews(nullptr);
     // focus() would end the popup's keyboard grab, and wlroots answers that by dismissing the popup. Enter past it.
     m_server->notifyKeyboardEnter(m_layerSurface->surface, Server::KeyboardGrab::Bypass);
     m_server->refreshOutputPolicies();
