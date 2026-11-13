@@ -1,0 +1,12 @@
+#!/bin/sh
+# Run by udev on a devcoredump add ($1 = devcdN): copies the GPU dump to /var/log/andromeda/gpu-hangs and frees the
+# kernel slot, so the next hang also gets a dump. Keeps the newest 10.
+set -eu
+umask 077
+dir=/var/log/andromeda/gpu-hangs
+mkdir -p "$dir"
+file="$dir/$(date -u +%Y%m%dT%H%M%SZ)-$1.txt"
+cat "/sys/class/devcoredump/$1/data" > "$file"
+echo 1 > "/sys/class/devcoredump/$1/data"
+ls -1t "$dir" | tail -n +11 | while read -r old; do rm -f "$dir/$old"; done
+logger -t andromeda-devcoredump "GPU hang dump saved: $file"
