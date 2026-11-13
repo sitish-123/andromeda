@@ -127,10 +127,12 @@ meson_dir() {
     compositor | portal) echo "$1/build-debug" ;;
     greeter) echo greeter/build-release ;;
     files | player | viewer) echo "apps/$1/build" ;;
+    libdesk-app | indexer) echo "$1/build" ;;
+    andromeda-preview) echo andromeda-preview/build-debug ;;
     *) return 1 ;;
   esac
 }
-modules="compositor shell greeter portal files player viewer system link"
+modules="compositor shell greeter portal files player viewer libdesk-app andromeda-preview indexer system link"
 
 # build-step <label> <log> <module> [targets...]: builds the module (no targets = every target) into the log.
 build_step() {
@@ -233,6 +235,9 @@ module_dirs() {
     greeter) echo greeter libdesk-ui protocol ;;
     portal) echo portal protocol ;;
     files | player | viewer) echo "apps/$1" andromeda-preview libdesk-app libdesk-system libdesk-ui protocol ;;
+    libdesk-app) echo libdesk-app libdesk-system libdesk-ui protocol motion ;;
+    andromeda-preview) echo andromeda-preview libdesk-app libdesk-system libdesk-ui protocol motion ;;
+    indexer) echo indexer ;;
     system | link) echo "$1" ;;
     fake) echo "${QUIET_FAKE_SRC:?}" ;;
   esac
