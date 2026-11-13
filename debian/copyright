@@ -1,6 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: andromeda
-Source: https://github.com/sitish-123/andromeda
+Source: https://github.com/Andromeda-Desktop/desktop
 
 Files: *
 Copyright: sitish

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Installs Andromeda from the latest GitHub release on Arch Linux, Ubuntu 26.04, Debian testing/sid or Kali:
-#   curl -fsSL https://github.com/sitish-123/andromeda/releases/latest/download/install.sh | bash
+#   curl -fsSL https://github.com/Andromeda-Desktop/desktop/releases/latest/download/install.sh | bash
 set -euo pipefail
-REPO=https://github.com/sitish-123/andromeda/releases/latest/download
+REPO=https://github.com/Andromeda-Desktop/desktop/releases/latest/download
 # The release signing key; pacman and apt accept only packages it signed.
 KEY=97DD7B3B28BE58AC8787E32D11437B48C42663B5
 
@@ -51,7 +51,7 @@ case $ID in
         sudo sed -i -E '/^deb(-src)? /{/ contrib/!s/ main( |$)/ main contrib\1/}' /etc/apt/sources.list
       fi
     fi
-    apt_install https://github.com/sitish-123/andromeda/releases/download/debian
+    apt_install https://github.com/Andromeda-Desktop/desktop/releases/download/debian
     ;;
   *)
     echo "Andromeda supports Arch Linux, Ubuntu 26.04, Debian testing/sid and Kali (this is ${PRETTY_NAME:-$ID})." >&2

@@ -31,7 +31,7 @@ for all of them. Debian 13 (trixie) is not supported: it lacks libglycin-2.
 Run this one command. It detects your system, adds the Andromeda repository and installs the desktop:
 
 ```sh
-curl -fsSL https://github.com/sitish-123/andromeda/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/Andromeda-Desktop/desktop/releases/latest/download/install.sh | bash
 ```
 
 To read the script before you run it, download it with `curl -fsSLO` and run `bash install.sh`.
@@ -48,7 +48,7 @@ defaults and can upset some USB devices, so it is not installed by default.
 ## Build from source
 
 ```sh
-git clone --recursive https://github.com/sitish-123/andromeda.git
+git clone --recursive https://github.com/Andromeda-Desktop/desktop.git
 cd andromeda
 just build
 just dev-nested   # opens a test desktop in a window
@@ -58,7 +58,7 @@ just dev-nested   # opens a test desktop in a window
 
 ## Phone app
 
-Download `andromeda-link.apk` from the [latest release](https://github.com/sitish-123/andromeda/releases/latest) and
+Download `andromeda-link.apk` from the [latest release](https://github.com/Andromeda-Desktop/desktop/releases/latest) and
 install it on your phone (Android 10 or later). Open the control center, go to Devices, press Pair, and scan the code. The app is not on Google Play, because it needs clipboard, storage and accessibility access
 that Play does not allow.
 

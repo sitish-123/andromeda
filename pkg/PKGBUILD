@@ -16,7 +16,7 @@ makedepends=(git meson ninja wayland-protocols xorg-xwayland poppler-glib libzip
   curl fontconfig freetype2 glib2 harfbuzz libglvnd libical libjxl libpipewire libqalculate librsvg libsecret
   libsndfile libsodium libwebp libwireplumber libxml2 md4c pam polkit qrencode sdbus-cpp xdg-desktop-portal gtk4 cargo protobuf
   gstreamer gst-plugins-base-libs qt6-base qt6-declarative qt6-multimedia sqlite mpv ffmpeg)
-url=https://github.com/sitish-123/andromeda
+url=https://github.com/Andromeda-Desktop/desktop
 # `just package` and the release workflow build a local checkout; anyone else builds the published repository.
 # greetd base for andromeda-greetd; our patches are in desktop/session/greetd/patches.
 source=("desktop::git+${ANDROMEDA_SOURCE:-$url.git}"

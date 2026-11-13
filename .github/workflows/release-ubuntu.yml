@@ -66,7 +66,7 @@ jobs:
         run: |
           # Link's release of the same tag can still be building; wait up to 40 min for it.
           for _ in $(seq 40); do
-            gh release download "$TAG" -R sitish-123/andromeda-link -p '*_amd64.deb' -D "$RUNNER_TEMP/link" && exit 0
+            gh release download "$TAG" -R Andromeda-Desktop/link -p '*_amd64.deb' -D "$RUNNER_TEMP/link" && exit 0
             sleep 60
           done
           # Link is not critical: the release ships without its debs and the apt repo keeps the last Link.

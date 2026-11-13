@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: sitish <sitish@akintechnologies.com>
 Build-Depends: debhelper-compat (= 13), git, ca-certificates, glslang-tools, libvulkan-dev, liblcms2-dev, g++, meson, ninja-build, pkgconf, cmake, python3, cargo, rustc, libwayland-dev, wayland-protocols, libxkbcommon-dev, libinput-dev, libeis-dev, libpixman-1-dev, libdrm-dev, libdisplay-info-dev, libgbm-dev, libegl-dev, libgles-dev, libepoxy-dev, libudev-dev, libsystemd-dev, libseat-dev, hwdata, libliftoff-dev, xwayland, libxcb1-dev, libxcb-ewmh-dev, libxcb-icccm4-dev, libxcb-render0-dev, libxcb-shape0-dev, libxcb-composite0-dev, libxcb-res0-dev, libxcb-xfixes0-dev, libxcb-dri3-dev, libxcb-present-dev, libxcb-shm0-dev, libxcb-xinput-dev, libxcb-errors-dev, libxcb-render-util0-dev, libjemalloc-dev, libcairo2-dev, libpango1.0-dev, libfreetype-dev, libfontconfig-dev, libharfbuzz-dev, librsvg2-dev, libglib2.0-dev, libgtk-4-dev, libsdbus-c++-dev, libpipewire-0.3-dev, libwireplumber-0.5-dev, libgstreamer1.0-dev, libgstreamer-plugins-base1.0-dev, libavformat-dev, libavutil-dev, libcurl4-gnutls-dev, libstb-dev, libical-dev, libjxl-dev, libqalculate-dev, libqrencode-dev, libsecret-1-dev, libsodium-dev, libwebp-dev, libxml2-dev, libzip-dev, libvterm-dev, libmd4c-dev, libmpv-dev, nlohmann-json3-dev, libpolkit-agent-1-dev, libpolkit-gobject-1-dev, libpoppler-glib-dev, libsndfile1-dev, libsqlite3-dev, libtag-dev, libtomlplusplus-dev, libexiv2-dev, libcrypt-dev, libglycin-2-dev, libpam0g-dev, libdbus-1-dev, libssl-dev
 Standards-Version: 4.7.0
-Homepage: https://github.com/sitish-123/andromeda
+Homepage: https://github.com/Andromeda-Desktop/desktop
 Rules-Requires-Root: no
 
 Package: andromeda

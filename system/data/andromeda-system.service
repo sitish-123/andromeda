@@ -1,6 +1,6 @@
 [Unit]
 Description=Andromeda system state and policy (org.andromeda.System1)
-Documentation=https://github.com/sitish-123/andromeda/blob/main/docs/system-health.md
+Documentation=https://github.com/Andromeda-Desktop/desktop/blob/main/docs/system-health.md
 After=dbus.service
 
 [Service]
