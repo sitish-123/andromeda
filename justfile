@@ -115,7 +115,11 @@ e2e-run +scripts:
     if [ -s "$d/failed.txt" ]; then echo "still failing: $(tr '\n' ' ' < "$d/failed.txt")"; fi
     exit $bad
 
-check: test link system
+# Module boundaries: fails on a dependency that docs/modules.toml does not allow.
+modules:
+    @tools/module-check.py
+
+check: modules test link system
     cd compositor && just check
     just e2e
 

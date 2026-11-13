@@ -1,0 +1,28 @@
+# Module graph: each module may depend only on the modules in its `deps` list.
+# tools/module-check.py derives the real edges (tracked symlinks, ../ paths in meson.build, Cargo path deps)
+# and fails on an edge that is not listed here. A dir not listed here is not a module and fails the check too.
+# `meta = true`: harness or packaging that may reach every module (E2E, packages, dev tools, docs).
+
+[modules]
+protocol = { deps = [] }
+motion = { deps = [] }
+libdesk-ui = { deps = ["protocol", "motion"] }
+libdesk-system = { deps = ["libdesk-ui", "protocol"] }
+libdesk-app = { deps = ["libdesk-ui", "libdesk-system"] }
+andromeda-preview = { deps = ["libdesk-app", "libdesk-ui", "libdesk-system"] }
+apps = { deps = ["libdesk-app", "libdesk-ui", "libdesk-system", "andromeda-preview"] }
+shell = { deps = ["libdesk-ui", "libdesk-system", "protocol", "motion"] }
+greeter = { deps = ["libdesk-ui"] }
+# tools: the action IDL generator (tools/idl/gen.py).
+compositor = { deps = ["protocol", "motion", "tools"] }
+portal = { deps = [] }
+system = { deps = [] }
+indexer = { deps = [] }
+session = { deps = [] }
+link = { deps = [] }
+tests = { meta = true }
+tools = { meta = true }
+pkg = { meta = true }
+debian = { meta = true }
+bench = { meta = true }
+docs = { meta = true }
