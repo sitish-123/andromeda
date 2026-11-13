@@ -228,9 +228,8 @@ void SystemdUnitsService::setLive(bool live) {
     m_proxy->callMethodAsync("Unsubscribe").onInterface(kManagerInterface).uponReplyInvoke([](std::optional<sdbus::Error>) {});
     return;
   }
-  m_signalSlots.push_back(m_proxy->uponSignal("UnitNew").onInterface(kManagerInterface).call(
-      [this](const std::string& name, const sdbus::ObjectPath& path) { loadUnit(name, path); }, sdbus::return_slot
-  ));
+  // No UnitNew: systemd emits it each time a property read loads a garbage-collected unit, so
+  // reading on UnitNew loops forever. JobRemoved reports every start and stop.
   m_signalSlots.push_back(m_proxy->uponSignal("UnitRemoved").onInterface(kManagerInterface).call(
       [this](const std::string& name, const sdbus::ObjectPath& /*path*/) { removeUnit(name); }, sdbus::return_slot
   ));

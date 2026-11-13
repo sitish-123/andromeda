@@ -31,7 +31,7 @@ struct SystemdUnit {
 };
 
 // Client of one systemd manager (user manager on the session bus, system manager on the system bus).
-// Lists running units on refresh(); with setLive(true) it also follows UnitNew / UnitRemoved / JobRemoved.
+// Lists running units on refresh(); with setLive(true) it also follows UnitRemoved / JobRemoved.
 class SystemdUnitsService {
 public:
   enum class Manager : std::uint8_t { User, System };
