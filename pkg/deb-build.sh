@@ -22,8 +22,23 @@ arch-meson() {
 source "$root/pkg/PKGBUILD"
 cd "$srcdir"
 
+# ANDROMEDA_APP=files|player|viewer (app release CI): build and stage only that app and, for Files and Viewer, the
+# preview. dpkg-buildpackage still writes every package of debian/control; the other debs stay empty and unpublished.
+app_dirs=()
+if [[ -n ${ANDROMEDA_APP:-} ]]; then
+  [[ $ANDROMEDA_APP == player ]] || app_dirs=(preview)
+  app_dirs+=("$ANDROMEDA_APP")
+fi
+
 case ${1:-} in
   build)
+    if [[ -n ${ANDROMEDA_APP:-} ]]; then
+      [[ $ANDROMEDA_APP == player ]] ||
+        arch-meson desktop/andromeda-preview build-preview -Dcpp_std=c++23 -Db_lto=true -Dlibdesk-ui:dev_tokens=false
+      arch-meson "desktop/apps/$ANDROMEDA_APP" "build-$ANDROMEDA_APP" -Dcpp_std=c++23 -Db_lto=true -Dlibdesk-ui:dev_tokens=false
+      for dir in "${app_dirs[@]}"; do meson compile -C "build-$dir"; done
+      exit 0
+    fi
     # As PKGBUILD build(): the patched wlroots and libliftoff wraps.
     arch-meson desktop/compositor build-compositor -Dcpp_std=c++23 -Dtests=disabled -Db_lto=true \
       --force-fallback-for=wlroots-0.20,libliftoff \
@@ -59,7 +74,15 @@ case ${1:-} in
       [andromeda-power-git]=andromeda-power
       [andromeda-greeter-git]=andromeda-greeter
       [andromeda-greetd]=andromeda-greetd
+      [andromeda-preview-git]=andromeda-preview
+      [andromeda-files-git]=andromeda-files
+      [andromeda-player-git]=andromeda-player
+      [andromeda-viewer-git]=andromeda-viewer
     )
+    if [[ -n ${ANDROMEDA_APP:-} ]]; then
+      declare -A debs=([andromeda-$ANDROMEDA_APP-git]=andromeda-$ANDROMEDA_APP)
+      [[ $ANDROMEDA_APP == player ]] || debs[andromeda-preview-git]=andromeda-preview
+    fi
     for fn in "${!debs[@]}"; do
       pkgname=${debs[$fn]}
       pkgdir=$root/debian/$pkgname
@@ -68,6 +91,7 @@ case ${1:-} in
       # Debian keeps licences in debian/copyright.
       rm -rf "$pkgdir/usr/share/licenses"
     done
+    [[ -z ${ANDROMEDA_APP:-} ]] || exit 0
     # Debian PAM stacks: common-* replace Arch's system-login, system-local-login and system-auth.
     sed -Ei 's/^(account|password|session)\s+include\s+system-login$/@include common-\1/' "$root"/debian/*/etc/pam.d/*
     sed -Ei 's/^(auth|account|password|session)\s+include\s+system-(local-login|auth)$/@include common-\1/' \

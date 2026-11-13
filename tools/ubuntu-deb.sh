@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: [DEB_VERSION=x.y.z] tools/ubuntu-deb.sh [--clean] [ubuntu-version | debian-suite]
+# Usage: [DEB_VERSION=x.y.z] [ANDROMEDA_APP=files|player|viewer] tools/ubuntu-deb.sh [--clean] [ubuntu-version | debian-suite]
 # Builds the Ubuntu or Debian (a suite name, e.g. testing) .deb packages (debian/) from the working tree in a container, then installs them with apt to
 # prove their dependencies resolve. Incremental: the copied tree, the meson build dirs and the cargo target dir stay
 # in the output dir, so a rerun compiles only what changed. --clean builds from nothing (CI, releases).
@@ -63,7 +63,7 @@ status=0
 # -nc: no pre-clean, so debian/build (meson dirs) and system/target (cargo) survive; dh_prep still clears each
 # package's staging dir before the install step.
 # Host network: on the default bridge, DNS inside the container failed mid-build in three runs.
-docker run --rm --network host --cpus "${UBUNTU_BUILD_CPUS:-6}" -v "$OUT:/o" -v "$CCACHE:/ccache" -v "$CARGO_CACHE:/cargo" -e CCACHE_DIR=/ccache -e CARGO_HOME=/cargo -e CARGO_NET_RETRY=10 -w /o/src "$IMAGE" bash -c '
+docker run --rm --network host --cpus "${UBUNTU_BUILD_CPUS:-6}" -v "$OUT:/o" -v "$CCACHE:/ccache" -v "$CARGO_CACHE:/cargo" -e CCACHE_DIR=/ccache -e CARGO_HOME=/cargo -e CARGO_NET_RETRY=10 -e ANDROMEDA_APP="${ANDROMEDA_APP:-}" -w /o/src "$IMAGE" bash -c '
   # A kept build stamp would make dh skip the build step, and cargo with it.
   rm -f debian/debhelper-build-stamp
   set -o pipefail
@@ -73,9 +73,15 @@ docker run --rm --network host --cpus "${UBUNTU_BUILD_CPUS:-6}" -v "$OUT:/o" -v 
       [ $try = 3 ] && { echo "cargo fetch failed: $lock" | tee -a /o/build.log; exit 11; }; sleep 5; done
   done
   dpkg-buildpackage -b -nc -us -uc 2>&1 | tee /o/build.log || exit 11
-  # andromeda-link comes from the Link release, not this source; install every other package.
+  # andromeda-link comes from the Link release, not this source; install every other package. An app build installs
+  # only its app and preview: the other debs are empty.
   apt-get -o Acquire::Retries=5 update
-  apt-get install -y -qq $(ls /o/*.deb /o/extra/*.deb 2> /dev/null | grep -v "/andromeda_\|/andromeda-dbgsym_") 2>&1 | tee /o/install.log || exit 12
+  if [ -n "$ANDROMEDA_APP" ]; then
+    debs=$(ls /o/andromeda-"$ANDROMEDA_APP"_*.deb /o/andromeda-preview_*.deb 2> /dev/null)
+  else
+    debs=$(ls /o/*.deb /o/extra/*.deb 2> /dev/null | grep -v "/andromeda_\|/andromeda-dbgsym_")
+  fi
+  apt-get install -y -qq $debs 2>&1 | tee /o/install.log || exit 12
 ' || status=$?
 docker run --rm -v "$OUT:/o" -v "$CCACHE:/ccache" -v "$CARGO_CACHE:/cargo" "$BASE" chown -R "$(id -u):$(id -g)" /o /ccache /cargo
 case $status in

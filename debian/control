@@ -12,10 +12,10 @@ Architecture: amd64
 Depends: ${shlibs:Depends}, ${misc:Depends}, andromeda-compositor (= ${binary:Version}),
  andromeda-shell (= ${binary:Version}), xdg-desktop-portal-andromeda (= ${binary:Version}),
  andromeda-greeter (= ${binary:Version}), andromeda-system (= ${binary:Version}), andromeda-link,
- gnome-keyring, libpam-gnome-keyring, scrcpy, adb, gstreamer1.0-plugins-bad, gstreamer1.0-libav,
- pipewire-pulse, mpv, ffmpeg, glycin-loaders
+ andromeda-preview (>= ${binary:Version}), andromeda-files (>= ${binary:Version}),
+ andromeda-player (>= ${binary:Version}), andromeda-viewer (>= ${binary:Version}),
+ gnome-keyring, libpam-gnome-keyring, scrcpy, adb, pipewire-pulse
 Suggests: andromeda-power
-Conflicts: gnome-sushi
 Description: Andromeda desktop
  The Andromeda compositor, Noctalia shell, portal, greeter, system services and apps.
 
@@ -68,3 +68,39 @@ Conflicts: greetd
 Replaces: greetd
 Description: greetd with a GDM-style hand-off
  The greeter stays on screen until the user session took its own VT, so no console or black frame shows at login.
+
+# The apps and the preview release on their own (app tags); andromeda 0.2.8 and older shipped their files.
+Package: andromeda-preview
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, gstreamer1.0-plugins-bad, gstreamer1.0-libav, mpv, ffmpeg,
+ glycin-loaders
+Conflicts: gnome-sushi
+Replaces: andromeda (<= 0.2.8)
+Breaks: andromeda (<= 0.2.8)
+Description: Andromeda Quick Look
+ Previews, thumbnailers and the sandboxed media helper used by Files and Viewer.
+
+Package: andromeda-files
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, andromeda-preview (>= ${binary:Version})
+Suggests: gocryptfs, gvfs-backends, exfatprogs, dosfstools, ntfs-3g
+Replaces: andromeda (<= 0.2.8)
+Breaks: andromeda (<= 0.2.8)
+Description: Andromeda Files
+ File manager, file pickers and FileManager1.
+
+Package: andromeda-player
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, mpv, ffmpeg
+Replaces: andromeda (<= 0.2.8)
+Breaks: andromeda (<= 0.2.8)
+Description: Andromeda Player
+ Media player and library.
+
+Package: andromeda-viewer
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, andromeda-preview (>= ${binary:Version}), glycin-loaders
+Replaces: andromeda (<= 0.2.8)
+Breaks: andromeda (<= 0.2.8)
+Description: Andromeda Viewer
+ Image and PDF viewer.

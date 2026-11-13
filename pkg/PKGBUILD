@@ -1,11 +1,17 @@
 pkgbase=desktop-git
 pkgname=(andromeda andromeda-compositor-git andromeda-shell-git xdg-desktop-portal-andromeda-git andromeda-link-git
-  andromeda-power-git andromeda-greeter-git andromeda-system-git andromeda-greetd)
+  andromeda-power-git andromeda-greeter-git andromeda-system-git andromeda-greetd andromeda-preview-git
+  andromeda-files-git andromeda-player-git andromeda-viewer-git)
 # ANDROMEDA_NO_LINK=1 (release CI when the Link commit is not on its remote) builds everything but Link.
 [[ -z ${ANDROMEDA_NO_LINK:-} ]] || pkgname=(${pkgname[@]/andromeda-link-git})
+# ANDROMEDA_APP=files|player|viewer (app release CI) builds only that app and, for Files and Viewer, the preview.
+if [[ -n ${ANDROMEDA_APP:-} ]]; then
+  pkgname=(andromeda-$ANDROMEDA_APP-git)
+  [[ $ANDROMEDA_APP == player ]] || pkgname+=(andromeda-preview-git)
+fi
 # Epoch keeps the monorepo revision newer than the per-fork versions it replaces.
 epoch=1
-pkgver=r15438.ge89c643cf
+pkgver=r15702.g1bc0efe54
 pkgrel=1
 arch=(x86_64)
 license=(MIT)
@@ -29,6 +35,10 @@ pkgver() {
 }
 
 prepare() {
+  if [[ -n ${ANDROMEDA_APP:-} ]]; then
+    cargo fetch --locked --manifest-path desktop/andromeda-preview/helper/Cargo.toml
+    return
+  fi
   if [[ -z ${ANDROMEDA_NO_LINK:-} ]]; then
     git -C desktop submodule init link
     # A local build takes link from the local checkout, so an unpushed link commit still resolves.
@@ -59,6 +69,15 @@ build() {
   # Meson applies a wrap's diff_files only on download: drop the patched checkouts too, so new patches apply.
   [[ ! -f meson.stamp || $(<meson.stamp) == "$stamp" ]] || rm -rf build-* desktop/compositor/subprojects/{wlroots,libliftoff}
   arch-meson() { if [[ -f $2/build.ninja ]]; then command arch-meson "$@" --reconfigure; else command arch-meson "$@"; fi; }
+  if [[ -n ${ANDROMEDA_APP:-} ]]; then
+    if [[ $ANDROMEDA_APP != player ]]; then
+      arch-meson desktop/andromeda-preview build-preview -Dcpp_std=c++23 -Db_lto=true -Dlibdesk-ui:dev_tokens=false
+      meson compile -C build-preview
+    fi
+    arch-meson "desktop/apps/$ANDROMEDA_APP" "build-$ANDROMEDA_APP" -Dcpp_std=c++23 -Db_lto=true -Dlibdesk-ui:dev_tokens=false
+    meson compile -C "build-$ANDROMEDA_APP"
+    return
+  fi
   # The wlroots and libliftoff wraps carry our patches (compositor/subprojects/packagefiles). libliftoff is shared so
   # libwlroots' calls reach the andromeda executable's overrides (src/server/liftoff_deadline.cpp).
   # --wrap-mode overrides arch-meson's nodownload.
@@ -200,19 +219,11 @@ package_andromeda() {
   pkgdesc='Andromeda desktop: the Andromeda compositor, Noctalia shell, portal, and Link phone continuity'
   # Everything the desktop offers works out of the box; the power policy changes kernel defaults, so it stays opt-in.
   depends=(andromeda-compositor-git andromeda-shell-git xdg-desktop-portal-andromeda-git
-    andromeda-greeter-git gnome-keyring scrcpy android-tools gst-plugin-va gst-libav libpulse pipewire-pulse sqlite
+    andromeda-greeter-git andromeda-preview-git andromeda-files-git andromeda-player-git andromeda-viewer-git
+    gnome-keyring scrcpy android-tools gst-plugin-va gst-libav libpulse pipewire-pulse sqlite
     poppler-glib libzip libvterm exiv2 taglib glycin sdbus-cpp mpv ffmpeg)
   [[ -n ${ANDROMEDA_NO_LINK:-} ]] || depends+=(andromeda-link-git)
-  # Quick Look serves org.gnome.NautilusPreviewer, the bus name sushi owns.
-  conflicts=(sushi)
-  optdepends=('andromeda-power-git: laptop power saving (PCIe ASPM, runtime PM, USB autosuspend); can upset some devices'
-              'libreoffice-fresh: Quick Look for Office documents'
-              'gocryptfs: Files vaults'
-              'gvfs-mtp: Files phones over MTP'
-              'gvfs-gphoto2: Files cameras over PTP'
-              'exfatprogs: Files Erase Drive as ExFAT'
-              'dosfstools: Files Erase Drive as FAT32'
-              'ntfs-3g: Files Erase Drive as NTFS')
+  optdepends=('andromeda-power-git: laptop power saving (PCIe ASPM, runtime PM, USB autosuspend); can upset some devices')
   backup=(etc/mpv/mpv.conf)
   install -Dm644 desktop/session/mpv/mpv.conf "$pkgdir/etc/mpv/mpv.conf"
   install -Dm755 desktop/session/audio-park/andromeda-audio-park "$pkgdir/usr/bin/andromeda-audio-park"
@@ -222,16 +233,55 @@ package_andromeda() {
   ln -s ../andromeda-audio-park.service \
     "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/andromeda-audio-park.service"
   meson install -C build-indexer --destdir "$pkgdir"
-  meson install -C build-preview --destdir "$pkgdir"
-  # --skip-subprojects: the shared libdesk-* and preview subprojects are already installed from build-preview.
-  for app in files viewer player; do meson install -C build-$app --destdir "$pkgdir" --skip-subprojects; done
-  install -d "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants"
-  ln -sf ../andromeda-files-reconnect.service \
-    "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/andromeda-files-reconnect.service"
   install -Dm644 desktop/session/applications/andromeda-mimeapps.list "$pkgdir/usr/share/applications/andromeda-mimeapps.list"
   for unit in andromeda-index.socket andromeda-index.service; do
     ln -s ../$unit "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/$unit"
   done
+  _pin_depends
+}
+
+# The apps and the preview release on their own (app tags), so each package carries its own runtime libraries.
+_app_libs=(cairo pango fontconfig freetype2 glib2 harfbuzz libglvnd libjxl librsvg libwebp libxkbcommon sdbus-cpp wayland)
+
+package_andromeda-preview-git() {
+  pkgdesc='Andromeda Quick Look: previews, thumbnailers and the sandboxed media helper used by Files and Viewer'
+  depends=("${_app_libs[@]}" glycin gstreamer gst-plugin-va gst-libav libpulse poppler-glib libzip exiv2 taglib mpv
+    ffmpeg)
+  optdepends=('libreoffice-fresh: Quick Look for Office documents')
+  # Quick Look serves org.gnome.NautilusPreviewer, the bus name sushi owns.
+  conflicts=(sushi)
+  meson install -C build-preview --destdir "$pkgdir"
+  _pin_depends
+}
+
+# --skip-subprojects: libdesk-* install nothing and the preview ships in andromeda-preview-git.
+package_andromeda-files-git() {
+  pkgdesc='Andromeda Files: file manager, file pickers and FileManager1'
+  depends=("${_app_libs[@]}" andromeda-preview-git libvterm)
+  optdepends=('gocryptfs: Files vaults'
+              'gvfs-mtp: Files phones over MTP'
+              'gvfs-gphoto2: Files cameras over PTP'
+              'exfatprogs: Files Erase Drive as ExFAT'
+              'dosfstools: Files Erase Drive as FAT32'
+              'ntfs-3g: Files Erase Drive as NTFS')
+  meson install -C build-files --destdir "$pkgdir" --skip-subprojects
+  install -d "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants"
+  ln -s ../andromeda-files-reconnect.service \
+    "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/andromeda-files-reconnect.service"
+  _pin_depends
+}
+
+package_andromeda-player-git() {
+  pkgdesc='Andromeda Player: media player and library'
+  depends=("${_app_libs[@]}" mpv ffmpeg)
+  meson install -C build-player --destdir "$pkgdir" --skip-subprojects
+  _pin_depends
+}
+
+package_andromeda-viewer-git() {
+  pkgdesc='Andromeda Viewer: image and PDF viewer'
+  depends=("${_app_libs[@]}" andromeda-preview-git glycin)
+  meson install -C build-viewer --destdir "$pkgdir" --skip-subprojects
   _pin_depends
 }
 
