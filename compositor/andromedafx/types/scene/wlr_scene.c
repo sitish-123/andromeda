@@ -2383,10 +2383,34 @@ static void scene_buffer_handle_buffer_release(struct wl_listener* listener, voi
   wl_list_init(&scene_buffer->buffer_release.link);
 }
 
+static void scene_buffer_mark_mirror_lock(struct wlr_scene_buffer* scene_buffer, bool locked) {
+  struct wlr_client_buffer* client = scene_buffer->mirror && scene_buffer->own_buffer && scene_buffer->buffer != NULL
+                                         ? wlr_client_buffer_get(scene_buffer->buffer)
+                                         : NULL;
+  if (client == NULL) {
+    return;
+  }
+  if (locked) {
+    client->n_ignore_locks++;
+  } else if (client->n_ignore_locks > 0) {
+    client->n_ignore_locks--;
+  }
+}
+
+void wlr_scene_buffer_set_mirror(struct wlr_scene_buffer* scene_buffer, bool mirror) {
+  if (scene_buffer->mirror == mirror) {
+    return;
+  }
+  scene_buffer_mark_mirror_lock(scene_buffer, false);
+  scene_buffer->mirror = mirror;
+  scene_buffer_mark_mirror_lock(scene_buffer, true);
+}
+
 static void scene_buffer_set_buffer(struct wlr_scene_buffer* scene_buffer, struct wlr_buffer* buffer) {
   wl_list_remove(&scene_buffer->buffer_release.link);
   wl_list_init(&scene_buffer->buffer_release.link);
   if (scene_buffer->own_buffer) {
+    scene_buffer_mark_mirror_lock(scene_buffer, false);
     wlr_buffer_unlock(scene_buffer->buffer);
   }
   scene_buffer->buffer = NULL;
@@ -2400,6 +2424,7 @@ static void scene_buffer_set_buffer(struct wlr_scene_buffer* scene_buffer, struc
 
   scene_buffer->own_buffer = true;
   scene_buffer->buffer = wlr_buffer_lock(buffer);
+  scene_buffer_mark_mirror_lock(scene_buffer, true);
   scene_buffer->buffer_width = buffer->width;
   scene_buffer->buffer_height = buffer->height;
   scene_buffer->buffer_is_opaque = wlr_buffer_is_opaque(buffer);

@@ -356,6 +356,8 @@ struct wlr_scene_buffer {
     struct wlr_linux_dmabuf_feedback_v1_init_options prev_feedback_options;
 
     bool own_buffer;
+    // Shows a client buffer a second time: its lock does not block in-place texture updates.
+    bool mirror;
     int buffer_width, buffer_height;
     bool buffer_is_opaque;
     bool over_black;
@@ -1117,6 +1119,12 @@ struct wlr_scene_buffer* wlr_scene_buffer_create(struct wlr_scene_tree* parent, 
  * If the buffer is NULL, the buffer node will not be displayed.
  */
 void wlr_scene_buffer_set_buffer(struct wlr_scene_buffer* scene_buffer, struct wlr_buffer* buffer);
+
+/**
+ * Mark a node that shows a client buffer already shown by its surface node (overview, snap assist).
+ * Without the mark, each extra lock makes every commit of an shm client allocate and fill a new texture.
+ */
+void wlr_scene_buffer_set_mirror(struct wlr_scene_buffer* scene_buffer, bool mirror);
 
 /**
  * Sets the buffer's backing buffer with a custom damage region.

@@ -100,6 +100,7 @@ namespace andromeda {
       if (buffer == nullptr) {
         continue;
       }
+      wlr_scene_buffer_set_mirror(buffer, true);
       if (DskSurfaceManager* dsk = m_server->dskSurfaces()) {
         dsk->markMirror(buffer, source->surface);
       }

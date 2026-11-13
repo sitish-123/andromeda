@@ -94,6 +94,7 @@ namespace andromeda {
       if (copy == nullptr) {
         return;
       }
+      wlr_scene_buffer_set_mirror(copy, true);
       if (walk->dsk != nullptr && walk->dsk->secureTree(surface)) {
         walk->dsk->markSecureCopy(copy);
       }

@@ -113,6 +113,7 @@ namespace andromeda {
     if (buffer == nullptr) {
       return;
     }
+    wlr_scene_buffer_set_mirror(buffer, true);
     if (DskSurfaceManager* dsk = card->overview->m_server->dskSurfaces()) {
       dsk->markMirror(buffer, surface);
     }
@@ -286,6 +287,7 @@ namespace andromeda {
       if (copy == nullptr) {
         continue;
       }
+      wlr_scene_buffer_set_mirror(copy, true);
       if (dsk != nullptr && dsk->secureCopy(source)) {
         dsk->markSecureCopy(copy);
       }
