@@ -176,6 +176,16 @@ export ANDROMEDA_LOCK_CLIENT="$CLIENT_DIR/lock-client"
 export ANDROMEDA_SUBSURFACE_CLIENT="$CLIENT_DIR/subsurface-client"
 export ANDROMEDA_FRACTIONAL_CLIENT="$CLIENT_DIR/fractional-client"
 export ANDROMEDA_SYNCOBJ_CLIENT="$CLIENT_DIR/syncobj-client"
+# With vgem loaded (protocol/stalled_buffer_held), headless can pick its render node and fall back to llvmpipe, which
+# has no explicit sync. Pin the first node backed by a real GPU (one with a PCI vendor).
+if [[ -z "${WLR_RENDER_DRM_DEVICE:-}" ]]; then
+  for node in /dev/dri/renderD*; do
+    if [[ -e /sys/class/drm/${node##*/}/device/vendor ]]; then
+      export WLR_RENDER_DRM_DEVICE=$node
+      break
+    fi
+  done
+fi
 export ANDROMEDA_SECURITY_CONTEXT_CLIENT="$CLIENT_DIR/security-context-client"
 export ANDROMEDA_SEAT_LOG_CLIENT="$CLIENT_DIR/seat-log-client"
 export ANDROMEDA_COLOR_FEEDBACK_CLIENT="$CLIENT_DIR/color-feedback-client"

@@ -74,20 +74,26 @@ namespace andromeda {
       return 0;
     }
 
-    // A hold never outlasts a refresh: the client's next GPU work can wait for a buffer the screen releases only once a
-    // newer commit shows (direct scanout), and that commit would wait here forever. Then the buffer applies unready, as
-    // in wlroots, and KMS or the render waits on its fence.
-    constexpr int kMaxHoldMs = 20;
+    // A hold lasts until the client's GPU work finishes, as in mutter and KWin: shown earlier, the render and KMS wait
+    // on that fence, and a client job that hangs until a GPU reset freezes the whole screen, cursor included. Only a
+    // surface on direct scanout ends its hold after a refresh: the client's next GPU work can wait for a buffer the
+    // screen releases only once a newer commit shows, so the buffer applies unready, as in wlroots.
+    constexpr int kScanoutHoldMs = 20;
 
     int onHoldTimeout(void* data) {
-      releaseLock(static_cast<AcquireLock*>(data));
+      auto* lock = static_cast<AcquireLock*>(data);
+      if (g_scannedOut && g_scannedOut(lock->watch->surface)) {
+        releaseLock(lock);
+      } else {
+        wl_event_source_timer_update(lock->timeout, kScanoutHoldMs);
+      }
       return 0;
     }
 
     void armHoldTimeout(AcquireLock* lock) {
       lock->timeout = wl_event_loop_add_timer(lock->watch->loop, onHoldTimeout, lock);
       if (lock->timeout != nullptr) {
-        wl_event_source_timer_update(lock->timeout, kMaxHoldMs);
+        wl_event_source_timer_update(lock->timeout, kScanoutHoldMs);
       }
     }
 

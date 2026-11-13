@@ -1,6 +1,7 @@
 // Harness helper that maps a toplevel with one explicitly synchronized dmabuf, then waits for the compositor to signal
 // a linux-drm-syncobj release point.
-// Usage: syncobj-client role-destroy|unmap|superseded[-displayed|-shared-timeline|-locked|-reattached|-interleaved]
+// Usage: syncobj-client role-destroy|unmap|stalled-acquire|stalled-implicit
+//                       |superseded[-displayed|-shared-timeline|-locked|-reattached|-interleaved]
 //   role-destroy  destroys the xdg role before attaching NULL, the way Chromium hides a window for a tab drag, then
 //                 waits for the toplevel buffer's release
 //   unmap         attaches NULL and keeps the role, and waits for the toplevel buffer's release
@@ -16,6 +17,11 @@
 //                               not
 //   superseded-interleaved      queues A at point 1, B, A again at point 2, then C, one timeline per buffer: both A
 //                               points and B are released, C is not
+// The stalled modes commit a buffer whose GPU write (a vgem fence) has not finished, the way a hung video decode leaves
+// a frame, and expect it not shown until the fence signals:
+//   stalled-acquire   the acquire point carries the write fence
+//   stalled-implicit  no syncobj surface: the buffer's implicit write fence alone
+// They print "skip" when no vgem card is open to this user.
 // Prints "mapped" once the toplevel buffer has been shown. The NULL modes then print "released" once the release point
 // signals; the superseded modes print "ok" once every expectation holds. Exits 1 on the first one that does not.
 #include "linux-dmabuf-v1-client-protocol.h"
@@ -28,12 +34,16 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <drm/vgem_drm.h>
 #include <fcntl.h>
+#include <format>
+#include <linux/dma-buf.h>
 #include <gbm.h>
 #include <poll.h>
 #include <print>
 #include <string_view>
 #include <sys/eventfd.h>
+#include <sys/ioctl.h>
 #include <unistd.h>
 #include <wayland-client.h>
 #include <xf86drm.h>
@@ -164,7 +174,8 @@ namespace {
     return fd;
   }
 
-  wl_buffer* createBuffer(State& state, gbm_device* gbm) {
+  // fdOut, when set, receives a dmabuf fd of the buffer.
+  wl_buffer* createBuffer(State& state, gbm_device* gbm, int* fdOut = nullptr) {
     gbm_bo* bo = gbm_bo_create(gbm, kSize, kSize, GBM_FORMAT_XRGB8888, GBM_BO_USE_LINEAR | GBM_BO_USE_RENDERING);
     if (bo == nullptr) {
       return nullptr;
@@ -177,6 +188,10 @@ namespace {
         static_cast<uint32_t>(modifier & 0xFFFFFFFFU)
     );
     wl_buffer* buffer = zwp_linux_buffer_params_v1_create_immed(params, kSize, kSize, GBM_FORMAT_XRGB8888, 0);
+    if (fdOut != nullptr) {
+      *fdOut = boFd;
+      return buffer;
+    }
     close(boFd);
     return buffer;
   }
@@ -375,6 +390,105 @@ namespace {
     return 0;
   }
 
+  int openVgem() {
+    for (int i = 0; i < 16; ++i) {
+      const int fd = open(std::format("/dev/dri/card{}", i).c_str(), O_RDWR | O_CLOEXEC);
+      if (fd < 0) {
+        continue;
+      }
+      drmVersion* version = drmGetVersion(fd);
+      const bool vgem = version != nullptr && std::string_view(version->name) == "vgem";
+      drmFreeVersion(version);
+      if (vgem) {
+        return fd;
+      }
+      close(fd);
+    }
+    return -1;
+  }
+
+  // Dispatches Wayland events until `done` or the timeout passes.
+  bool waitUntil(wl_display* display, const bool& done, std::chrono::milliseconds timeout) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (!done) {
+      wl_display_dispatch_pending(display);
+      wl_display_flush(display);
+      if (done) {
+        break;
+      }
+      const auto remaining =
+          std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
+      if (remaining <= 0) {
+        return false;
+      }
+      pollfd pfd{.fd = wl_display_get_fd(display), .events = POLLIN, .revents = 0};
+      if (poll(&pfd, 1, static_cast<int>(remaining)) < 0 && errno != EINTR) {
+        return false;
+      }
+      if ((pfd.revents & POLLIN) != 0 && wl_display_dispatch(display) < 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  int runStalled(
+      std::string_view mode, wl_display* display, State& state, int drmFd, gbm_device* gbm, wl_surface* surface,
+      wp_linux_drm_syncobj_surface_v1* syncSurface, uint32_t acquire, wp_linux_drm_syncobj_timeline_v1* acquireTimeline,
+      wp_linux_drm_syncobj_timeline_v1* releaseTimeline
+  ) {
+    const int vgem = openVgem();
+    if (vgem < 0) {
+      std::println("skip");
+      return 0;
+    }
+    int bufferFd = -1;
+    wl_buffer* buffer = createBuffer(state, gbm, &bufferFd);
+    drm_vgem_fence_attach attach{.handle = 0, .flags = VGEM_FENCE_WRITE, .out_fence = 0, .pad = 0};
+    if (buffer == nullptr
+        || drmPrimeFDToHandle(vgem, bufferFd, &attach.handle) != 0
+        || drmIoctl(vgem, DRM_IOCTL_VGEM_FENCE_ATTACH, &attach) != 0) {
+      std::println(stderr, "syncobj-client: cannot attach a vgem write fence: {}", std::strerror(errno));
+      return 1;
+    }
+    if (mode == "stalled-implicit") {
+      wp_linux_drm_syncobj_surface_v1_destroy(syncSurface);
+    } else {
+      dma_buf_export_sync_file exported{.flags = DMA_BUF_SYNC_READ, .fd = -1};
+      uint32_t binary = 0;
+      if (ioctl(bufferFd, DMA_BUF_IOCTL_EXPORT_SYNC_FILE, &exported) != 0
+          || drmSyncobjCreate(drmFd, 0, &binary) != 0
+          || drmSyncobjImportSyncFile(drmFd, binary, exported.fd) != 0
+          || drmSyncobjTransfer(drmFd, acquire, 2, binary, 0, 0) != 0) {
+        std::println(stderr, "syncobj-client: cannot put the write fence on the acquire point: {}", std::strerror(errno));
+        return 1;
+      }
+      close(exported.fd);
+      wp_linux_drm_syncobj_surface_v1_set_acquire_point(syncSurface, acquireTimeline, 0, 2);
+      wp_linux_drm_syncobj_surface_v1_set_release_point(syncSurface, releaseTimeline, 0, 2);
+    }
+    state.frameDone = false;
+    wl_surface_attach(surface, buffer, 0, 0);
+    wl_surface_damage_buffer(surface, 0, 0, kSize, kSize);
+    wl_callback_add_listener(wl_surface_frame(surface), &kFrameListener, &state);
+    wl_surface_commit(surface);
+    if (waitUntil(display, state.frameDone, kHoldTime)) {
+      std::println(stderr, "syncobj-client: the buffer was shown before its GPU write finished");
+      return 1;
+    }
+    drm_vgem_fence_signal signal{.fence = attach.out_fence, .flags = 0};
+    if (drmIoctl(vgem, DRM_IOCTL_VGEM_FENCE_SIGNAL, &signal) != 0) {
+      std::println(stderr, "syncobj-client: cannot signal the vgem fence: {}", std::strerror(errno));
+      return 1;
+    }
+    if (!waitUntil(display, state.frameDone, kReleaseTimeout)) {
+      std::println(stderr, "syncobj-client: the buffer was not shown within {}s of its GPU write finishing", kReleaseTimeout.count());
+      return 1;
+    }
+    std::println("ok");
+    return 0;
+  }
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -385,11 +499,12 @@ int main(int argc, char** argv) {
       || mode == "superseded-locked"
       || mode == "superseded-reattached"
       || mode == "superseded-interleaved";
-  if (mode != "role-destroy" && mode != "unmap" && !superseded) {
+  const bool stalled = mode == "stalled-acquire" || mode == "stalled-implicit";
+  if (mode != "role-destroy" && mode != "unmap" && !superseded && !stalled) {
     std::println(
         stderr,
         "usage: syncobj-client "
-        "role-destroy|unmap|superseded[-displayed|-shared-timeline|-locked|-reattached|-interleaved]"
+        "role-destroy|unmap|stalled-acquire|stalled-implicit|superseded[-displayed|-shared-timeline|-locked|-reattached|-interleaved]"
     );
     return 2;
   }
@@ -473,6 +588,11 @@ int main(int argc, char** argv) {
 
   if (superseded) {
     return runSuperseded(mode, display, state, drmFd, gbm, surface);
+  }
+  if (stalled) {
+    return runStalled(
+        mode, display, state, drmFd, gbm, surface, syncSurface, acquire, acquireTimeline, releaseTimeline
+    );
   }
 
   if (mode == "role-destroy") {
