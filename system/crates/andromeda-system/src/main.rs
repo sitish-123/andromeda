@@ -5,6 +5,7 @@ mod battery;
 mod bus;
 mod crash;
 mod crashes;
+mod diagnostics;
 mod display;
 mod drives;
 mod engine;
@@ -62,6 +63,7 @@ async fn main() -> Result<()> {
         .serve_at(storage::PATH, drives::Drives)
         .serve_at(thermal::PATH, thermal::Thermal::default())
         .serve_at(display::PATH, display::Display::default())
+        .serve_at(diagnostics::PATH, diagnostics::Diagnostics::default())
         .serve_at(knobs::PATH, knobs::Knobs { policy: policy.clone() })
         .serve_at(explain::PATH, explain::Explain { policy: policy.clone() })
         .name(NAME)

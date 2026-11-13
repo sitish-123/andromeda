@@ -127,7 +127,7 @@ until_has 10 'i 3' get "$KBD" KbdBacklight Brightness
 "${B[@]}" call org.andromeda.System1 /org/andromeda/System1/Storage org.freedesktop.DBus.Properties Get ss \
   org.andromeda.System1.Storage Mounts | grep -q '"/"' || fail "Storage lacks /"
 # The API matches the committed contract; UPDATE_CONTRACT=1 rewrites it after a deliberate change.
-for path in / /Power /Memory /Network /Storage /Thermal /Display /Knobs /Explain /Login /Battery/battery_BAT0 /KbdBacklight/kbd_backlight; do
+for path in / /Power /Memory /Network /Storage /Thermal /Display /Diagnostics /Knobs /Explain /Login /Battery/battery_BAT0 /KbdBacklight/kbd_backlight; do
   "${B[@]}" --xml-interface introspect org.andromeda.System1 "/org/andromeda/System1${path%/}" >"$OUT/introspect${path//\//_}.xml"
 done
 python3 "$ROOT/system/tests/contract.py" "$OUT"/introspect*.xml >"$OUT/contract.xml"
