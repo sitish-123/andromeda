@@ -1858,7 +1858,10 @@ namespace andromeda {
     return 0;
   }
 
-  void Server::run() { wl_display_run(m_display); }
+  void Server::run() {
+    StallProbe::setDeveloper(config().general.developerDiagnostics);
+    wl_display_run(m_display);
+  }
 
   void Server::stop() {
     if (!m_stopping && m_xdgSessions != nullptr) {

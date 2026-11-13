@@ -310,6 +310,7 @@ namespace andromeda {
               registry::Case::Fold
           ),
           boolean("xwayland", &G::xwayland),
+          boolean("developer_diagnostics", &G::developerDiagnostics),
           boolean("xwayland_native_resolution", &G::xwaylandNativeResolution),
           boolean("xwayland_xsettings", &G::xwaylandXsettings),
           boolean("focus_on_activate", &G::focusOnActivate),

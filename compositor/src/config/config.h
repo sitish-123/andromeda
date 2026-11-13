@@ -1113,6 +1113,8 @@ namespace andromeda {
       bool attachModalDialogs = true;
       // Honor maximized state restored by a client while its window opens.
       bool honorRestoredMaximize = false;
+      // Slow frames write a stall report with the main thread's stack and the GPU tasks' kernel stacks.
+      bool developerDiagnostics = false;
       // Let app units with no mapped window freeze when hidden long on battery (docs/qos.md §3, T3).
       bool freezeBackgroundApps = false;
       // In power saver on battery, freeze every app hidden long (T3), not only windowless ones (docs/qos.md §3).

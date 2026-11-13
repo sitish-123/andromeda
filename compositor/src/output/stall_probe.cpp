@@ -1,6 +1,7 @@
 #include "output/stall_probe.h"
 
 #include <andromedafx/render/frame_stats.h>
+#include "protocols/stall_watch.h"
 
 #include <atomic>
 #include <charconv>
@@ -14,6 +15,7 @@
 #include <string_view>
 #include <sys/timerfd.h>
 #include <thread>
+#include <utility>
 #include <unistd.h>
 
 namespace andromeda {
@@ -91,135 +93,12 @@ namespace andromeda {
       return std::format("+{}{}", (after - before) / divisor, unit);
     }
 
-    std::string firstToken(const std::string& text) {
-      return text.substr(0, text.find_first_of(" \n"));
-    }
+#ifdef ANDROMEDA_TEST_IPC
+    int gTestStallMs = 0;
+#endif
 
-    // Samples the main thread's kernel state while a frame runs past 200 ms, every 200 ms, at most 10 times. The thread
-    // blocks on a one-shot timerfd that each frame arms and disarms, so it wakes only for a slow frame.
-    class Watchdog {
-    public:
-      static constexpr uint64_t kPeriodNs = 200'000'000;
-      static constexpr int kMaxSamples = 10;
-
-      Watchdog()
-          : m_task(std::format("/proc/self/task/{}/", gettid())),
-            m_timer(timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC)) {
-        if (m_timer < 0) {
-          return;
-        }
-        sigset_t all;
-        sigset_t previous;
-        sigfillset(&all);
-        pthread_sigmask(SIG_BLOCK, &all, &previous);
-        m_thread = std::thread([this] { loop(); });
-        pthread_sigmask(SIG_SETMASK, &previous, nullptr);
-      }
-
-      ~Watchdog() {
-        if (m_thread.joinable()) {
-          m_stop.store(true);
-          // An absolute deadline in the past fires at once.
-          setTimer(1);
-          m_thread.join();
-        }
-        if (m_timer >= 0) {
-          close(m_timer);
-        }
-      }
-
-      void arm(uint64_t startNs) {
-        m_frameStartNs.store(startNs);
-        setTimer(startNs + kPeriodNs);
-      }
-
-      void disarm() {
-        m_frameStartNs.store(0);
-        setTimer(0);
-      }
-
-      // The samples taken during the frame that started at `startNs`.
-      std::string take(uint64_t startNs) {
-        const std::lock_guard lock(m_mutex);
-        std::string samples = m_samplesStartNs == startNs ? std::move(m_samples) : std::string();
-        m_samples.clear();
-        return samples;
-      }
-
-    private:
-      // An absolute CLOCK_MONOTONIC deadline; 0 disarms.
-      void setTimer(uint64_t deadlineNs) const {
-        if (m_timer < 0) {
-          return;
-        }
-        itimerspec spec{};
-        spec.it_value.tv_sec = static_cast<time_t>(deadlineNs / 1'000'000'000);
-        spec.it_value.tv_nsec = static_cast<long>(deadlineNs % 1'000'000'000);
-        timerfd_settime(m_timer, TFD_TIMER_ABSTIME, &spec, nullptr);
-      }
-
-      void loop() {
-        pthread_setname_np(pthread_self(), "andromeda-stall");
-        for (;;) {
-          uint64_t expirations = 0;
-          if (read(m_timer, &expirations, sizeof(expirations)) < 0 && errno != EINTR) {
-            return;
-          }
-          if (m_stop.load()) {
-            return;
-          }
-          const uint64_t start = m_frameStartNs.load();
-          if (start == 0) {
-            continue;
-          }
-          const uint64_t now = monotonicNs();
-          // A late re-arm for an earlier frame can replace this frame's deadline: put it back.
-          if (now < start + kPeriodNs) {
-            setTimer(start + kPeriodNs);
-            continue;
-          }
-          const std::string sample = this->sample((now - start) / 1'000'000);
-          int count = 0;
-          {
-            const std::lock_guard lock(m_mutex);
-            if (m_samplesStartNs != start) {
-              m_samplesStartNs = start;
-              m_sampleCount = 0;
-              m_samples.clear();
-            }
-            m_samples += m_samples.empty() ? sample : ";" + sample;
-            count = ++m_sampleCount;
-          }
-          if (count < kMaxSamples && m_frameStartNs.load() == start) {
-            setTimer(start + kPeriodNs * static_cast<uint64_t>(count + 1));
-          }
-        }
-      }
-
-      std::string sample(uint64_t atMs) const {
-        const std::string stat = readSmallFile((m_task + "stat").c_str());
-        const size_t paren = stat.rfind(')');
-        const char state = paren != std::string::npos && paren + 2 < stat.size() ? stat[paren + 2] : '?';
-        const std::string wchan = readSmallFile((m_task + "wchan").c_str());
-        return std::format(
-            "{}ms:state={},wchan={},syscall={}", atMs, state, wchan.empty() ? "?" : wchan,
-            firstToken(readSmallFile((m_task + "syscall").c_str()))
-        );
-      }
-
-      const std::string m_task;
-      const int m_timer;
-      std::atomic<uint64_t> m_frameStartNs{0};
-      std::atomic<bool> m_stop{false};
-      std::mutex m_mutex;
-      uint64_t m_samplesStartNs = 0;
-      int m_sampleCount = 0;
-      std::string m_samples;
-      std::thread m_thread;
-    };
-
-    Watchdog& watchdog() {
-      static Watchdog instance;
+    stall::Watch& watchdog() {
+      static stall::Watch instance("andromeda");
       return instance;
     }
 
@@ -247,7 +126,24 @@ namespace andromeda {
       m_baseline = readTotals();
     }
     watchdog().arm(m_startNs);
+#ifdef ANDROMEDA_TEST_IPC
+    // The stack signal of developer diagnostics ends a sleep early: sleep to the deadline.
+    for (const uint64_t until = m_startNs + static_cast<uint64_t>(std::exchange(gTestStallMs, 0)) * 1'000'000;
+         monotonicNs() < until;) {
+      usleep(static_cast<useconds_t>((until - monotonicNs()) / 1000));
+    }
+#endif
   }
+
+  void StallProbe::setDeveloper(bool on) {
+    watchdog().setDeveloper(on);
+  }
+
+#ifdef ANDROMEDA_TEST_IPC
+  void StallProbe::stallNextFrame(int ms) {
+    gTestStallMs = ms;
+  }
+#endif
 
   void StallProbe::mark(Mark mark) {
     m_marks[static_cast<size_t>(mark)] = monotonicNs();

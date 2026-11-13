@@ -15,6 +15,12 @@ namespace andromeda {
   public:
     enum class Mark : uint8_t { BuildStart, BuildEnd, CommitEnd, Count };
 
+    // Developer diagnostics: slow frames also write a stall report with stacks (protocols/stall_watch.h).
+    static void setDeveloper(bool on);
+#ifdef ANDROMEDA_TEST_IPC
+    // Harness: the next frame sleeps `ms` on the main thread after the probe arms.
+    static void stallNextFrame(int ms);
+#endif
     void frameStart();
     void mark(Mark mark);
     // The log fields of a frame that took at least `thresholdMs`, or nothing for a fast frame.

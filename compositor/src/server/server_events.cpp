@@ -18,6 +18,7 @@
 #include "layout/scrolling.h"
 #include "lock/session_lock.h"
 #include "output/display_store.h"
+#include "output/stall_probe.h"
 #include "output/identity.h"
 #include "output/mirror.h"
 #include "output/output.h"
@@ -296,6 +297,9 @@ namespace andromeda {
 
   void Server::handleConfigReload(const ConfigReloadResult& result) {
     cancelModifierTap();
+    if (result.success) {
+      StallProbe::setDeveloper(config().general.developerDiagnostics);
+    }
     // A reload that changed nothing (the watcher seeing the compositor's own settings write) wakes no client.
     if (result.success && !result.change.any() && !result.effects.any()) {
       kLog.info("config reloaded (sections: none; effects: none)");
