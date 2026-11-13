@@ -1,5 +1,23 @@
 #include "render/core/image_encoder.h"
 
+#include <cstdlib>
+#include <zlib.h>
+
+namespace {
+  // stb's own deflate takes ~0.5 s for a 1080p screenshot; zlib level 3 is several times faster.
+  unsigned char* zlibCompress(unsigned char* data, int dataLen, int* outLen, int /*quality*/) {
+    uLongf size = compressBound(static_cast<uLong>(dataLen));
+    auto* out = static_cast<unsigned char*>(std::malloc(size));
+    if (out == nullptr || compress2(out, &size, data, static_cast<uLong>(dataLen), 3) != Z_OK) {
+      std::free(out);
+      return nullptr;
+    }
+    *outLen = static_cast<int>(size);
+    return out;
+  }
+} // namespace
+
+#define STBIW_ZLIB_COMPRESS zlibCompress
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb/stb_image_write.h"
 
@@ -16,6 +34,9 @@
 #include <webp/encode.h>
 
 namespace {
+
+  // Paeth on every row: stb's default tries all 5 filters per row, about 5x the filter cost for a few % of size.
+  [[maybe_unused]] const bool kPngFilterForced = (stbi_write_force_png_filter = 4, true);
 
   constexpr int kLosslessQuality = 100;
   // JPEG stores dimensions as 16-bit fields.

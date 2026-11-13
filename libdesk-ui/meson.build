@@ -76,6 +76,7 @@ _system_deps = [
   dependency('libwebpdemux'),
   dependency('libjxl'),
   dependency('libjxl_threads'),
+  dependency('zlib'),
   cpp.find_library('dl', required: false),
 ]
 
