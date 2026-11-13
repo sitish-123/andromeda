@@ -149,7 +149,10 @@ jobs:
             cp "$deb" "apt/${name//:/.}"
           done
           cd apt
-          gh release download "$target" -R "$GITHUB_REPOSITORY" -p Packages -O ../Packages.old
+          if ! gh release download "$target" -R "$GITHUB_REPOSITORY" -p Packages -O ../Packages.old; then
+            echo "::error::release $target has no apt index (Packages): publish a v* release with the $BASE repository first"
+            exit 1
+          fi
           # --multiversion keeps the older entries; apt installs the highest version.
           { cat ../Packages.old; echo; dpkg-scanpackages --multiversion . /dev/null; } | cat -s > Packages
           gzip -k9 Packages
