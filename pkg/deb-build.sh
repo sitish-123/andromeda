@@ -42,7 +42,7 @@ case ${1:-} in
     # As PKGBUILD build(): the patched wlroots and libliftoff wraps.
     arch-meson desktop/compositor build-compositor -Dcpp_std=c++23 -Dtests=disabled -Db_lto=true \
       --force-fallback-for=wlroots-0.20,libliftoff \
-      -Dwlroots:libliftoff=enabled -Dlibliftoff:default_library=static -Dlibliftoff:werror=false
+      -Dwlroots:libliftoff=enabled -Dlibliftoff:default_library=shared -Dlibliftoff:werror=false
     arch-meson desktop/shell build-shell -Dcpp_std=c++23 -Dtests=disabled -Db_lto=true -Dlibdesk-ui:dev_tokens=false
     arch-meson desktop/portal build-portal -Dcpp_std=c++23
     arch-meson desktop/greeter build-greeter -Dcpp_std=c++23 -Db_lto=true -Dlibdesk-ui:dev_tokens=false
