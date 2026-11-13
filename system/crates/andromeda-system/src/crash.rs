@@ -3,10 +3,10 @@
 //! system service writes to `$STATE_DIRECTORY/crashes`; a user process to `$XDG_STATE_HOME/andromeda/crashes`.
 
 use std::fmt::Write as _;
-use std::panic::PanicHookInfo;
-use std::path::PathBuf;
 use std::io::Write as _;
 use std::os::unix::fs::MetadataExt as _;
+use std::panic::PanicHookInfo;
+use std::path::PathBuf;
 use std::sync::{Mutex, TryLockError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -64,13 +64,8 @@ impl log::Log for RingLogger {
 /// blocks on the ring: a line logged while another thread holds it is dropped from the ring.
 fn record_line(level: log::Level, target: &str, args: std::fmt::Arguments<'_>) {
     let secs = now_secs() % 86400;
-    let line = format!(
-        "{:02}:{:02}:{:02} {} [{target}] {args}",
-        secs / 3600,
-        secs / 60 % 60,
-        secs % 60,
-        &level.as_str()[..1]
-    );
+    let line =
+        format!("{:02}:{:02}:{:02} {} [{target}] {args}", secs / 3600, secs / 60 % 60, secs % 60, &level.as_str()[..1]);
     if let Ok(mut ring) = RING.try_lock() {
         ring.push(&line);
     }
@@ -136,7 +131,8 @@ fn write_report(component: &str, info: &PanicHookInfo<'_>) {
         .map(|s| (*s).to_owned())
         .or_else(|| info.payload().downcast_ref::<String>().cloned())
         .unwrap_or_else(|| "<non-string panic payload>".to_owned());
-    let location = info.location().map_or_else(|| "?".to_owned(), |l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
+    let location =
+        info.location().map_or_else(|| "?".to_owned(), |l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
     let time = now_secs();
     let pid = std::process::id();
     let path = dir.join(format!("{component}-{}-{pid}.txt", iso_time(time, true)));
@@ -224,7 +220,8 @@ mod tests {
             message: "index out of bounds\nsecond line",
             location: "src/battery.rs:10:5",
         };
-        let text = report.format("   0: andromeda_system::battery::run\n   1: main", &["10:00:00 W [battery] low".to_owned()]);
+        let text =
+            report.format("   0: andromeda_system::battery::run\n   1: main", &["10:00:00 W [battery] low".to_owned()]);
         assert_eq!(
             text,
             "component: andromeda-system\nversion: 1.2.3\npid: 42\nsignal: panic\ntime: 2026-11-12T10:15:00Z\n\

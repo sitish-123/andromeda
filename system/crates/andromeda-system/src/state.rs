@@ -279,7 +279,8 @@ mod tests {
     /// The lowest `display.refresh_cap_hz` the shipped power rules hold once this state has lasted 10 min.
     fn shipped_refresh_cap(on_battery: bool, profile: &str) -> Option<i64> {
         use crate::expr::Value;
-        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/rules/power.toml")).unwrap();
+        let text =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/rules/power.toml")).unwrap();
         let state = At(std::collections::HashMap::from([
             ("power.on_battery", Value::Bool(on_battery)),
             ("power.profile", Value::Str(profile.to_owned())),

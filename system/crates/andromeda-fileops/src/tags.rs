@@ -145,8 +145,10 @@ mod tests {
     #[test]
     fn tags_round_trip_and_undo_restores_the_old_value() {
         // tmpfs takes user xattrs since Linux 6.6; a home folder test dir does too.
-        let root = tempfile::tempdir_in(std::env::var_os("CARGO_TARGET_TMPDIR").map_or_else(std::env::temp_dir, PathBuf::from))
-            .expect("tmp");
+        let root = tempfile::tempdir_in(
+            std::env::var_os("CARGO_TARGET_TMPDIR").map_or_else(std::env::temp_dir, PathBuf::from),
+        )
+        .expect("tmp");
         let file = root.path().join("a.txt");
         std::fs::write(&file, "x").expect("write");
         if write_raw(&file, Some(b"Work")).is_err() {

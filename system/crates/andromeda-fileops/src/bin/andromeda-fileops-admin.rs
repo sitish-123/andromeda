@@ -5,7 +5,7 @@
 //! andromeda-fileops-admin chmod <mode octal> <mask octal> <0|1 recursive> <path>...
 //! Prints "done <count>" and exits 0, or prints the error and exits 1.
 
-use rustix::fs::{chmodat, fstat, openat, AtFlags, Dir, FileType, Mode, OFlags, CWD};
+use rustix::fs::{AtFlags, CWD, Dir, FileType, Mode, OFlags, chmodat, fstat, openat};
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
@@ -55,8 +55,9 @@ fn open_parent(path: &Path) -> Result<(OwnedFd, std::ffi::OsString), String> {
         .map_err(|e| format!("/: {e}"))?;
     for part in path.parent().unwrap_or(Path::new("/")).components() {
         let Component::Normal(part) = part else { continue };
-        dir = openat(&dir, part, OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::RDONLY | OFlags::CLOEXEC, Mode::empty())
-            .map_err(|e| format!("{}: {e}", path.display()))?;
+        dir =
+            openat(&dir, part, OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::RDONLY | OFlags::CLOEXEC, Mode::empty())
+                .map_err(|e| format!("{}: {e}", path.display()))?;
     }
     Ok((dir, name))
 }
@@ -68,7 +69,14 @@ fn apply(path: &Path, change: &Change, recursive: bool, count: &mut u64) -> Resu
 
 /// Every step is relative to an open folder and never follows a link (fstatat, fchmodat with AT_SYMLINK_NOFOLLOW,
 /// openat with O_NOFOLLOW), and a folder is entered only if it is still the one that was stat'ed.
-fn apply_at(dir: &OwnedFd, name: &std::ffi::OsStr, shown: &Path, change: &Change, recursive: bool, count: &mut u64) -> Result<(), String> {
+fn apply_at(
+    dir: &OwnedFd,
+    name: &std::ffi::OsStr,
+    shown: &Path,
+    change: &Change,
+    recursive: bool,
+    count: &mut u64,
+) -> Result<(), String> {
     let err = |e: rustix::io::Errno| format!("{}: {e}", shown.display());
     // O_PATH + NOFOLLOW pins the inode; a symlink swapped in later cannot redirect the chmod.
     let pinned = openat(dir, name, OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC, Mode::empty()).map_err(err)?;
@@ -87,8 +95,9 @@ fn apply_at(dir: &OwnedFd, name: &std::ffi::OsStr, shown: &Path, change: &Change
     }
     *count += 1;
     if recursive && is_dir {
-        let child = openat(dir, name, OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::RDONLY | OFlags::CLOEXEC, Mode::empty())
-            .map_err(err)?;
+        let child =
+            openat(dir, name, OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::RDONLY | OFlags::CLOEXEC, Mode::empty())
+                .map_err(err)?;
         let now = fstat(&child).map_err(err)?;
         if now.st_ino != st.st_ino || now.st_dev != st.st_dev {
             return Err(format!("{}: changed while it was being changed", shown.display()));

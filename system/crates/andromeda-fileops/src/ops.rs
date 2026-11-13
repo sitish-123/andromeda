@@ -192,7 +192,9 @@ pub fn folder_clash(source: &Path, target: &Path) -> Option<FolderClash> {
             let there = fs::symlink_metadata(target.join(&name));
             if here.is_dir() {
                 match there {
-                    Ok(there) if there.is_dir() => walk(&entry.path(), &target.join(&name), &inner.join(&name), clash, seen),
+                    Ok(there) if there.is_dir() => {
+                        walk(&entry.path(), &target.join(&name), &inner.join(&name), clash, seen)
+                    }
                     // A folder that is new here brings all its files as new.
                     Err(_) => clash.new += measure(&[entry.path()]).0.saturating_sub(1),
                     Ok(there) => {
@@ -222,7 +224,8 @@ pub fn folder_clash(source: &Path, target: &Path) -> Option<FolderClash> {
             }
         }
     }
-    let both = fs::symlink_metadata(source).is_ok_and(|m| m.is_dir()) && fs::symlink_metadata(target).is_ok_and(|m| m.is_dir());
+    let both = fs::symlink_metadata(source).is_ok_and(|m| m.is_dir())
+        && fs::symlink_metadata(target).is_ok_and(|m| m.is_dir());
     if !both {
         return None;
     }

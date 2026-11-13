@@ -1,8 +1,8 @@
 //! The freedesktop.org Trash specification 1.0: home trash, per-device `$topdir/.Trash/$uid` and `.Trash-$uid`.
 
+use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
-use std::ffi::OsString;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Component, Path, PathBuf};
@@ -13,8 +13,21 @@ use rustix::fs::{CWD, RenameFlags, renameat_with};
 
 // RFC 2396 path escaping, as the spec asks: keep '/' and unreserved characters.
 const PATH_SET: &AsciiSet = &CONTROLS
-    .add(b' ').add(b'"').add(b'#').add(b'%').add(b'<').add(b'>').add(b'?').add(b'[').add(b'\\').add(b']')
-    .add(b'^').add(b'`').add(b'{').add(b'|').add(b'}');
+    .add(b' ')
+    .add(b'"')
+    .add(b'#')
+    .add(b'%')
+    .add(b'<')
+    .add(b'>')
+    .add(b'?')
+    .add(b'[')
+    .add(b'\\')
+    .add(b']')
+    .add(b'^')
+    .add(b'`')
+    .add(b'{')
+    .add(b'|')
+    .add(b'}');
 
 /// One trashed item: where it went and where it came from.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -166,8 +179,11 @@ pub fn trash(path: &Path) -> io::Result<Trashed> {
 pub fn restore(entry: &Trashed) -> io::Result<PathBuf> {
     let parent = entry.original.parent().unwrap_or(Path::new("/"));
     fs::create_dir_all(parent)?;
-    let target =
-        if fs::symlink_metadata(&entry.original).is_ok() { crate::ops::free_name(&entry.original) } else { entry.original.clone() };
+    let target = if fs::symlink_metadata(&entry.original).is_ok() {
+        crate::ops::free_name(&entry.original)
+    } else {
+        entry.original.clone()
+    };
     renameat_with(CWD, entry.file(), CWD, &target, RenameFlags::NOREPLACE)?;
     fs::remove_file(entry.info())?;
     Ok(target)

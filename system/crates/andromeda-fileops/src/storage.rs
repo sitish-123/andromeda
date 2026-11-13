@@ -36,8 +36,16 @@ pub enum Category {
 }
 
 impl Category {
-    pub const ALL: [Self; 8] =
-        [Self::Apps, Self::Documents, Self::Pictures, Self::Videos, Self::Music, Self::Archives, Self::Caches, Self::Other];
+    pub const ALL: [Self; 8] = [
+        Self::Apps,
+        Self::Documents,
+        Self::Pictures,
+        Self::Videos,
+        Self::Music,
+        Self::Archives,
+        Self::Caches,
+        Self::Other,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -67,13 +75,15 @@ pub fn category(path: &Path, home: &Path) -> Category {
     }
     let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     match ext.as_str() {
-        "pdf" | "doc" | "docx" | "odt" | "ods" | "odp" | "xls" | "xlsx" | "ppt" | "pptx" | "txt" | "md" | "rtf" | "epub"
-        | "csv" | "tex" => Category::Documents,
-        "jpg" | "jpeg" | "png" | "gif" | "webp" | "heic" | "heif" | "avif" | "jxl" | "tif" | "tiff" | "bmp" | "svg" | "raw"
-        | "cr2" | "nef" | "arw" | "dng" => Category::Pictures,
+        "pdf" | "doc" | "docx" | "odt" | "ods" | "odp" | "xls" | "xlsx" | "ppt" | "pptx" | "txt" | "md" | "rtf"
+        | "epub" | "csv" | "tex" => Category::Documents,
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "heic" | "heif" | "avif" | "jxl" | "tif" | "tiff" | "bmp" | "svg"
+        | "raw" | "cr2" | "nef" | "arw" | "dng" => Category::Pictures,
         "mp4" | "mkv" | "mov" | "webm" | "avi" | "m4v" | "wmv" | "flv" | "mpg" | "mpeg" => Category::Videos,
         "mp3" | "flac" | "ogg" | "opus" | "m4a" | "wav" | "aac" | "wma" | "aiff" => Category::Music,
-        "zip" | "7z" | "tar" | "gz" | "xz" | "zst" | "bz2" | "rar" | "iso" | "img" | "deb" | "rpm" => Category::Archives,
+        "zip" | "7z" | "tar" | "gz" | "xz" | "zst" | "bz2" | "rar" | "iso" | "img" | "deb" | "rpm" => {
+            Category::Archives
+        }
         _ => Category::Other,
     }
 }
@@ -349,7 +359,8 @@ fn scan_rooted(root: &Path, home: &Path, ctl: &dyn Control) -> OpResult<Summary>
 /// restart while a fresh walk runs.
 fn saved_path(root: &Path) -> PathBuf {
     let base = std::env::var_os("XDG_CACHE_HOME").map_or_else(|| home().join(".cache"), PathBuf::from);
-    let name: String = root.to_string_lossy().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+    let name: String =
+        root.to_string_lossy().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
     base.join("andromeda/storage").join(format!("{name}.json"))
 }
 
@@ -388,7 +399,9 @@ fn largest(root: &Path, dirs: &HashMap<PathBuf, u64>) -> Vec<(PathBuf, u64)> {
     let mut out = Vec::new();
     for (child, size) in children(root, dirs) {
         let (mut at, mut at_size) = (child.clone(), size);
-        while let Some((big, big_size)) = by_parent.get(at.as_path()).and_then(|kids| kids.iter().max_by_key(|k| k.1)).copied() {
+        while let Some((big, big_size)) =
+            by_parent.get(at.as_path()).and_then(|kids| kids.iter().max_by_key(|k| k.1)).copied()
+        {
             #[allow(clippy::cast_precision_loss)]
             if at_size == 0 || (big_size as f64) < DOMINANT * at_size as f64 {
                 break;
@@ -412,7 +425,8 @@ pub fn folder(dir: &Path) -> std::io::Result<Vec<(PathBuf, u64, bool)>> {
         .find(|c| dir.starts_with(&c.summary.root))
         .map(|c| &c.dirs)
         .ok_or_else(|| std::io::Error::other("no storage scan covers this folder"))?;
-    let mut out: Vec<(PathBuf, u64, bool)> = children(dir, dirs).into_iter().map(|(p, s)| (p.clone(), s, true)).collect();
+    let mut out: Vec<(PathBuf, u64, bool)> =
+        children(dir, dirs).into_iter().map(|(p, s)| (p.clone(), s, true)).collect();
     drop(cache);
     for entry in fs::read_dir(dir)?.flatten() {
         if let Ok(meta) = entry.metadata()
@@ -476,7 +490,9 @@ mod tests {
     fn largest_folders_descend_into_a_dominant_subfolder() {
         let mut dirs = HashMap::new();
         let r = PathBuf::from("/h");
-        for (p, s) in [("/h", 100), ("/h/.local", 70), ("/h/.local/share", 65), ("/h/.local/share/Steam", 60), ("/h/Videos", 30)] {
+        for (p, s) in
+            [("/h", 100), ("/h/.local", 70), ("/h/.local/share", 65), ("/h/.local/share/Steam", 60), ("/h/Videos", 30)]
+        {
             dirs.insert(PathBuf::from(p), s);
         }
         let out = largest(&r, &dirs);

@@ -36,7 +36,10 @@ pub async fn check(system: &Connection) -> Result<Vec<Update>> {
         Err(zbus::Error::FDO(_)) => return Ok(Vec::new()),
         Err(zbus::Error::MethodError(name, _, _))
             if name.as_str().starts_with("org.freedesktop.DBus.Error")
-                || matches!(name.as_str(), "org.freedesktop.fwupd.NothingToDo" | "org.freedesktop.fwupd.NotSupported") =>
+                || matches!(
+                    name.as_str(),
+                    "org.freedesktop.fwupd.NothingToDo" | "org.freedesktop.fwupd.NotSupported"
+                ) =>
         {
             return Ok(Vec::new());
         }

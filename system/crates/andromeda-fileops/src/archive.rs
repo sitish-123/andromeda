@@ -533,9 +533,9 @@ fn tar_stream(path: &Path, codec: Codec) -> Result<Box<dyn Read>, ArchiveError> 
         Codec::Plain => Box::new(file),
         Codec::Gz => Box::new(flate2::read::MultiGzDecoder::new(file)),
         Codec::Xz => Box::new(lzma_rust2::XzReader::new_mem_limit(file, true, DECODER_MEMORY_KIB)),
-        Codec::Zst => Box::new(
-            ruzstd::decoding::StreamingDecoder::new(file).map_err(|e| ArchiveError::Corrupt(e.to_string()))?,
-        ),
+        Codec::Zst => {
+            Box::new(ruzstd::decoding::StreamingDecoder::new(file).map_err(|e| ArchiveError::Corrupt(e.to_string()))?)
+        }
         Codec::Bz2 => Box::new(bzip2::read::MultiBzDecoder::new(file)),
     })
 }
@@ -738,7 +738,11 @@ impl Writer<'_> {
         for (rel, target) in std::mem::take(&mut self.links) {
             self.check()?;
             if !self.link_stays_inside(&rel, &target, separate) {
-                log::warn!("archive link {} -> {} leaves the folder; left out", rel.display(), String::from_utf8_lossy(&target));
+                log::warn!(
+                    "archive link {} -> {} leaves the folder; left out",
+                    rel.display(),
+                    String::from_utf8_lossy(&target)
+                );
                 continue;
             }
             let slot = self.slot(&rel)?;
@@ -820,7 +824,13 @@ fn to_op(path: &Path, e: ArchiveError, ctl: &dyn Control) -> OpError {
 /// Extracts `inner` (all when empty) into the folder `dest`. All: one top-level item lands as it is, more go into a
 /// folder named after the archive. Picked items land by their own name. Name clashes ask like a copy; undo removes
 /// what was made.
-pub fn extract(archive: &Path, inner: &[PathBuf], dest: &Path, password: &str, ctl: &dyn Control) -> (Vec<UndoStep>, OpResult<()>) {
+pub fn extract(
+    archive: &Path,
+    inner: &[PathBuf],
+    dest: &Path,
+    password: &str,
+    ctl: &dyn Control,
+) -> (Vec<UndoStep>, OpResult<()>) {
     let n = STAGING.fetch_add(1, Ordering::Relaxed);
     let staging = dest.join(format!(".andromeda-extract-{}-{n}", std::process::id()));
     if let Err(e) = fs::create_dir(&staging) {
@@ -876,7 +886,9 @@ pub fn extract(archive: &Path, inner: &[PathBuf], dest: &Path, password: &str, c
         // Top-level items move on their own unless several go into the folder named after the archive.
         let mut tops: std::collections::BTreeSet<std::ffi::OsString> =
             fs::read_dir(&root)?.flatten().map(|e| e.file_name()).collect();
-        tops.extend(writer.links.iter().filter_map(|(rel, _)| rel.components().next()).map(|c| c.as_os_str().to_owned()));
+        tops.extend(
+            writer.links.iter().filter_map(|(rel, _)| rel.components().next()).map(|c| c.as_os_str().to_owned()),
+        );
         writer.make_links(!all || tops.len() == 1)
     });
     if let Err(e) = result {
@@ -1015,7 +1027,8 @@ pub fn compress(
             OutFormat::TarZst => {
                 let tar_part = part.with_extension("tar");
                 // create_new: never follows or truncates a file someone placed at the name; the guard owns it only after.
-                let plain = BufWriter::new(OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tar_part)?);
+                let plain =
+                    BufWriter::new(OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tar_part)?);
                 let tar_guard = Staging(tar_part.clone());
                 write_tar(plain, &items, ctl, &bytes)?.flush()?;
                 let mut source = Quiet { inner: BufReader::new(File::open(&tar_guard.0)?), error: None };
@@ -1043,7 +1056,8 @@ pub fn compress(
         let staged: Vec<PathBuf> = std::iter::once(part.clone()).chain(volumes.iter().map(|v| v.0.clone())).collect();
         let name = destination.file_name().unwrap_or_default();
         for attempt in 0..100 {
-            let base = if attempt == 0 { destination.to_path_buf() } else { parent.join(free_pick_name(name, attempt)) };
+            let base =
+                if attempt == 0 { destination.to_path_buf() } else { parent.join(free_pick_name(name, attempt)) };
             let finals: Vec<PathBuf> = (1..=staged.len()).map(|k| volume_name(&base, k)).collect();
             match rename_all(&staged, &finals) {
                 Ok(()) => {
@@ -1061,7 +1075,13 @@ pub fn compress(
     // NOREPLACE: a file made at the target meanwhile is never replaced; the archive takes the next free name.
     let mut target = destination.to_path_buf();
     for _ in 0..100 {
-        match rustix::fs::renameat_with(rustix::fs::CWD, &part, rustix::fs::CWD, &target, rustix::fs::RenameFlags::NOREPLACE) {
+        match rustix::fs::renameat_with(
+            rustix::fs::CWD,
+            &part,
+            rustix::fs::CWD,
+            &target,
+            rustix::fs::RenameFlags::NOREPLACE,
+        ) {
             Ok(()) => break,
             Err(rustix::io::Errno::EXIST) => target = ops::free_name(destination),
             Err(e) => return (Vec::new(), Err(OpError::Io(target, e.into()))),
@@ -1200,7 +1220,12 @@ fn write_7z<W: Write + io::Seek>(
     sz.finish()?.flush()
 }
 
-fn write_tar<W: Write>(out: W, items: &[(PathBuf, String, fs::Metadata)], ctl: &dyn Control, bytes: &Cell<u64>) -> io::Result<W> {
+fn write_tar<W: Write>(
+    out: W,
+    items: &[(PathBuf, String, fs::Metadata)],
+    ctl: &dyn Control,
+    bytes: &Cell<u64>,
+) -> io::Result<W> {
     let mut tar = tar::Builder::new(out);
     tar.follow_symlinks(false);
     for (i, (path, name, meta)) in items.iter().enumerate() {
@@ -1451,7 +1476,8 @@ mod tests {
             fs::write(src.join("one.txt"), "1").expect("write");
             fs::write(src.join("two.txt"), "2").expect("write");
             let archive = root.path().join(name);
-            let (_, result) = compress(&[src.join("one.txt"), src.join("two.txt")], &archive, OutFormat::TarGz, "", 0, &Quietly);
+            let (_, result) =
+                compress(&[src.join("one.txt"), src.join("two.txt")], &archive, OutFormat::TarGz, "", 0, &Quietly);
             result.expect("compress");
             let dest = root.path().join("out");
             fs::create_dir(&dest).expect("mkdir");
@@ -1551,7 +1577,12 @@ mod tests {
             if let Ok(real) = fs::canonicalize(&path) {
                 assert!(real.starts_with(&dest_real), "{} resolves outside: {}", path.display(), real.display());
             }
-            assert_ne!(fs::read_to_string(&path).ok().as_deref(), Some("top secret"), "{} leaks the file", path.display());
+            assert_ne!(
+                fs::read_to_string(&path).ok().as_deref(),
+                Some("top secret"),
+                "{} leaks the file",
+                path.display()
+            );
         }
     }
 
@@ -1605,7 +1636,9 @@ mod tests {
         zip.finish().expect("finish");
         let dest = root.path().join("out");
         fs::create_dir(&dest).expect("mkdir");
-        extract(&zip_path, &[PathBuf::from("a/x.txt"), PathBuf::from("b/x.txt")], &dest, "", &Quietly).1.expect("extract");
+        extract(&zip_path, &[PathBuf::from("a/x.txt"), PathBuf::from("b/x.txt")], &dest, "", &Quietly)
+            .1
+            .expect("extract");
         assert_eq!(fs::read_to_string(dest.join("x.txt")).expect("first"), "from a");
         assert_eq!(fs::read_to_string(dest.join("x (copy).txt")).expect("second"), "from b");
     }
@@ -1644,15 +1677,33 @@ mod tests {
             let (undo, result) = compress(&[src.clone()], &archive, format, password, 0, &Quietly);
             result.unwrap_or_else(|e| panic!("{ext}: {e}"));
             assert!(matches!(&undo[..], [UndoStep::Created(p)] if *p == archive));
-            let mut names: Vec<_> = list(&archive).unwrap_or_else(|e| panic!("{ext}: {e}")).into_iter().map(|e| e.path).collect();
+            let mut names: Vec<_> =
+                list(&archive).unwrap_or_else(|e| panic!("{ext}: {e}")).into_iter().map(|e| e.path).collect();
             names.sort();
-            assert_eq!(names, vec![PathBuf::from("project"), "project/lib".into(), "project/lib/code.rs".into(), "project/readme.txt".into()], "{ext}");
+            assert_eq!(
+                names,
+                vec![
+                    PathBuf::from("project"),
+                    "project/lib".into(),
+                    "project/lib/code.rs".into(),
+                    "project/readme.txt".into()
+                ],
+                "{ext}"
+            );
             let dest = root.path().join(format!("out-{ext}"));
             fs::create_dir(&dest).expect("mkdir");
             extract(&archive, &[], &dest, password, &Quietly).1.unwrap_or_else(|e| panic!("{ext}: {e}"));
             assert_eq!(fs::read_to_string(dest.join("project/lib/code.rs")).expect("code"), "fn main() {}", "{ext}");
         }
-        assert_eq!(fs::read_dir(root.path()).expect("ls").flatten().filter(|e| e.file_name().as_bytes().starts_with(b".")).count(), 0, "no part file is left");
+        assert_eq!(
+            fs::read_dir(root.path())
+                .expect("ls")
+                .flatten()
+                .filter(|e| e.file_name().as_bytes().starts_with(b"."))
+                .count(),
+            0,
+            "no part file is left"
+        );
     }
 
     #[test]
@@ -1671,7 +1722,9 @@ mod tests {
             })
             .collect();
         fs::write(src.join("noise.bin"), &data).expect("write");
-        for (format, ext, password) in [(OutFormat::Zip, "zip", "pw"), (OutFormat::SevenZ, "7z", "pw"), (OutFormat::TarZst, "tar.zst", "")] {
+        for (format, ext, password) in
+            [(OutFormat::Zip, "zip", "pw"), (OutFormat::SevenZ, "7z", "pw"), (OutFormat::TarZst, "tar.zst", "")]
+        {
             let archive = root.path().join(format!("big.{ext}"));
             fs::write(volume_name(&archive, 1), "taken").expect("write");
             let (undo, result) = compress(&[src.clone()], &archive, format, password, 100_000, &Quietly);
@@ -1679,13 +1732,27 @@ mod tests {
             let taken = root.path().join(free_pick_name(archive.file_name().expect("name"), 1));
             let volumes: Vec<PathBuf> = (1..=undo.len()).map(|k| volume_name(&taken, k)).collect();
             assert!(undo.len() >= 3, "{ext}: {} volumes", undo.len());
-            assert!(undo.iter().zip(&volumes).all(|(step, path)| matches!(step, UndoStep::Created(p) if p == path)), "{ext}");
-            assert!(volumes[..volumes.len() - 1].iter().all(|v| fs::metadata(v).expect("vol").len() == 100_000), "{ext}");
+            assert!(
+                undo.iter().zip(&volumes).all(|(step, path)| matches!(step, UndoStep::Created(p) if p == path)),
+                "{ext}"
+            );
+            assert!(
+                volumes[..volumes.len() - 1].iter().all(|v| fs::metadata(v).expect("vol").len() == 100_000),
+                "{ext}"
+            );
             let dest = root.path().join(format!("out-{ext}"));
             fs::create_dir(&dest).expect("mkdir");
             extract(&volumes[0], &[], &dest, password, &Quietly).1.unwrap_or_else(|e| panic!("{ext}: {e}"));
             assert!(fs::read(dest.join("big/noise.bin")).expect("noise") == data, "{ext}");
         }
-        assert_eq!(fs::read_dir(root.path()).expect("ls").flatten().filter(|e| e.file_name().as_bytes().starts_with(b".")).count(), 0, "no part file is left");
+        assert_eq!(
+            fs::read_dir(root.path())
+                .expect("ls")
+                .flatten()
+                .filter(|e| e.file_name().as_bytes().starts_with(b"."))
+                .count(),
+            0,
+            "no part file is left"
+        );
     }
 }

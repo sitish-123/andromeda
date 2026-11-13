@@ -36,11 +36,7 @@ async fn main() -> Result<()> {
     let last_call = Arc::new(AtomicU64::new(0));
     let started = Instant::now();
     let helper = helper::Helper { state_dir, running: running.clone(), last_call: last_call.clone(), started };
-    let _conn = zbus::connection::Builder::system()
-        .serve_at(helper::PATH, helper)
-        .name(NAME)
-        .build()
-        .await?;
+    let _conn = zbus::connection::Builder::system().serve_at(helper::PATH, helper).name(NAME).build().await?;
     log::info!("serving {NAME}");
     let mut tick = tokio::time::interval(Duration::from_secs(30));
     loop {

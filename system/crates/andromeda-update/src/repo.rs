@@ -29,4 +29,3 @@ pub fn apt_names(lists: &Path) -> HashSet<String> {
     };
     std::fs::read_to_string(lists.join(file)).map(|t| apt_package_names(&t)).unwrap_or_default()
 }
-

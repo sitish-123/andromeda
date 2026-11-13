@@ -497,10 +497,9 @@ holds = [{ knob = "power.profile", value = "power-saver" }]
     fn turning_off_user_saver_also_turns_off_the_refresh_cap_split_from_it() {
         let off = parse_settings("[\"power.user_saver\"]\nenabled = false\n").unwrap();
         assert!(!off["power.saver_refresh_cap"].enabled);
-        let own = parse_settings(
-            "[\"power.user_saver\"]\nenabled = false\n[\"power.saver_refresh_cap\"]\nenabled = true\n",
-        )
-        .unwrap();
+        let own =
+            parse_settings("[\"power.user_saver\"]\nenabled = false\n[\"power.saver_refresh_cap\"]\nenabled = true\n")
+                .unwrap();
         assert!(own["power.saver_refresh_cap"].enabled, "the rule's own setting wins");
         let on = parse_settings("[\"power.user_saver\"]\nenabled = true\n").unwrap();
         assert!(!on.contains_key("power.saver_refresh_cap"));

@@ -254,6 +254,7 @@ enabled = true
 softness = 48
 offset_x = 0
 offset_y = 18
+dim_unfocused = false
 ```
 
 | Key        | Default | Description                                     |
@@ -262,6 +263,7 @@ offset_y = 18
 | `softness` | `48`    | Blur softness from 0 to 200.                    |
 | `offset_x` | `0`     | Horizontal offset from -200 to 200.             |
 | `offset_y` | `18`    | Vertical offset from -200 to 200.               |
+| `dim_unfocused` | `false` | Draw unfocused windows with half the shadow strength. |
 
 A window's shadow falls on everything below it, including other floating, pinned, or scratchpad windows it overlaps. Tiled windows never shadow each other. Shadows are hidden for fullscreen windows. During a [custom window animation](animation.md#custom-effects), the shadow follows the visible shape produced by the shader. A [window rule](window-rules.md#decoration) can turn the shadow on or off for the windows it matches.
 

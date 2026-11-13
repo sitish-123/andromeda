@@ -211,7 +211,9 @@ pub fn upgrade(
         Err(_) if !crate::helper::consented(&questions, accepted) => {
             Ok(Outcome { targets: Vec::new(), questions, committed: false })
         }
-        Err(e) if !dry_run && scope == Scope::All => Err(e.context("the package databases were refreshed, nothing was upgraded")),
+        Err(e) if !dry_run && scope == Scope::All => {
+            Err(e.context("the package databases were refreshed, nothing was upgraded"))
+        }
         other => other,
     }
 }

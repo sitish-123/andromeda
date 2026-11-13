@@ -72,7 +72,8 @@ pub fn parse(xml: &str) -> Result<Vec<Item>> {
                 {
                     trim(&mut item.title);
                     trim(&mut item.link);
-                    item.published = chrono::DateTime::parse_from_rfc2822(item.date.trim()).map_or(0, |d| d.timestamp());
+                    item.published =
+                        chrono::DateTime::parse_from_rfc2822(item.date.trim()).map_or(0, |d| d.timestamp());
                     items.push(item);
                     if items.len() == MAX_ITEMS {
                         break;

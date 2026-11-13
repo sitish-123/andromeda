@@ -71,7 +71,10 @@ mod tests {
     fn rows_with_sizes() {
         let rows = parse("org.gimp.GIMP\t2.10.38\t120.5\u{a0}MB\norg.freedesktop.Platform\t\t980 bytes\n\n");
         assert_eq!(rows.len(), 2);
-        assert_eq!((rows[0].id.as_str(), rows[0].version.as_str(), rows[0].size), ("org.gimp.GIMP", "2.10.38", 120_500_000));
+        assert_eq!(
+            (rows[0].id.as_str(), rows[0].version.as_str(), rows[0].size),
+            ("org.gimp.GIMP", "2.10.38", 120_500_000)
+        );
         assert_eq!(rows[1].size, 980);
     }
 }

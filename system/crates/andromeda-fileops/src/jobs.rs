@@ -13,9 +13,9 @@ use tokio::sync::Notify;
 use zbus::object_server::InterfaceRef;
 use zbus::{Connection, ObjectPath, OwnedObjectPath, interface};
 
-use crate::ops::{self, Control, OpError, Resolution, UndoStep};
 use crate::archive;
 use crate::info;
+use crate::ops::{self, Control, OpError, Resolution, UndoStep};
 use crate::storage;
 use crate::tags;
 use crate::trash;
@@ -51,10 +51,9 @@ fn checked_inner_paths(raw: Vec<Vec<u8>>) -> zbus::fdo::Result<Vec<PathBuf>> {
             if p.last() == Some(&0) {
                 p.pop();
             }
-            archive::checked_path(&p)
-                .ok()
-                .flatten()
-                .ok_or_else(|| zbus::fdo::Error::InvalidArgs(format!("bad inner path '{}'", String::from_utf8_lossy(&p))))
+            archive::checked_path(&p).ok().flatten().ok_or_else(|| {
+                zbus::fdo::Error::InvalidArgs(format!("bad inner path '{}'", String::from_utf8_lossy(&p)))
+            })
         })
         .collect()
 }
@@ -184,7 +183,9 @@ impl Control for Shared {
         let clash = ops::folder_clash(source, target);
         let index = self.conflict_index.fetch_add(1, Ordering::Relaxed) + 1;
         // A count made at start can fall short (files appear while the job runs): never show k of fewer than k.
-        self.conflict_total.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |t| (t != 0 && t < index).then_some(index)).ok();
+        self.conflict_total
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |t| (t != 0 && t < index).then_some(index))
+            .ok();
         *lock(&self.answer) = Some(tx);
         {
             let mut status = lock(&self.status);
@@ -327,7 +328,8 @@ impl Job {
     fn resolve_conflict(&self, resolution: &str, apply_to_all: bool) -> zbus::fdo::Result<()> {
         let resolution = Resolution::parse(resolution)
             .ok_or_else(|| zbus::fdo::Error::InvalidArgs(format!("unknown resolution '{resolution}'")))?;
-        let tx = lock(&self.shared.answer).take().ok_or_else(|| zbus::fdo::Error::Failed("no conflict waits".into()))?;
+        let tx =
+            lock(&self.shared.answer).take().ok_or_else(|| zbus::fdo::Error::Failed("no conflict waits".into()))?;
         let _ = tx.send(Some((resolution, apply_to_all)));
         Ok(())
     }
@@ -378,7 +380,11 @@ fn paths(raw: Vec<Vec<u8>>) -> zbus::fdo::Result<Vec<PathBuf>> {
                 return Err(zbus::fdo::Error::InvalidArgs("NUL inside a path".into()));
             }
             let path = PathBuf::from(OsString::from_vec(p));
-            if path.is_absolute() { Ok(path) } else { Err(zbus::fdo::Error::InvalidArgs("paths must be absolute".into())) }
+            if path.is_absolute() {
+                Ok(path)
+            } else {
+                Err(zbus::fdo::Error::InvalidArgs("paths must be absolute".into()))
+            }
         })
         .collect()
 }
@@ -402,8 +408,10 @@ fn run(request: Request, shared: &Shared) {
         }
         Request::Compress(sources, path, format, password, volume) => {
             archive::compress(&sources, &path, format, &password, volume, shared)
-        },
-        Request::SetPermissions(paths, mode, mask, recursive) => info::set_permissions(&paths, mode, mask, recursive, shared),
+        }
+        Request::SetPermissions(paths, mode, mask, recursive) => {
+            info::set_permissions(&paths, mode, mask, recursive, shared)
+        }
         Request::Checksum(path, algorithm) => match info::checksum(&path, &algorithm, shared) {
             Ok(hex) => {
                 lock(&shared.status).result = hex;
@@ -480,11 +488,17 @@ impl Manager {
         Self { jobs: Vec::new(), next: AtomicU32::new(0), activity }
     }
 
-    async fn start(&mut self, conn: &Connection, kind: &'static str, request: Request) -> zbus::fdo::Result<OwnedObjectPath> {
+    async fn start(
+        &mut self,
+        conn: &Connection,
+        kind: &'static str,
+        request: Request,
+    ) -> zbus::fdo::Result<OwnedObjectPath> {
         let (total_files, total_bytes) = match &request {
-            Request::Copy(sources, _) | Request::Move(sources, _) | Request::Trash(sources) | Request::Delete(sources) => {
-                ops::measure(sources)
-            }
+            Request::Copy(sources, _)
+            | Request::Move(sources, _)
+            | Request::Trash(sources)
+            | Request::Delete(sources) => ops::measure(sources),
             Request::Undo(steps, _) => (steps.len() as u64, 0),
             Request::Link(sources, _) => (sources.len() as u64, 0),
             Request::Rename(..) | Request::NewFolder(..) => (1, 0),
@@ -497,11 +511,15 @@ impl Manager {
             Request::SetTags(paths, ..) => (paths.len() as u64, 0),
         };
         let conflict_total = match &request {
-            Request::Copy(sources, dir) | Request::Move(sources, dir) => ops::count_conflicts(sources, dir).unwrap_or(0),
+            Request::Copy(sources, dir) | Request::Move(sources, dir) => {
+                ops::count_conflicts(sources, dir).unwrap_or(0)
+            }
             _ => 0,
         };
         let destination = match &request {
-            Request::Copy(_, dir) | Request::Move(_, dir) | Request::Link(_, dir) | Request::Extract(_, _, dir, _) => dir.clone(),
+            Request::Copy(_, dir) | Request::Move(_, dir) | Request::Link(_, dir) | Request::Extract(_, _, dir, _) => {
+                dir.clone()
+            }
             _ => PathBuf::new(),
         };
         let shared = Arc::new(Shared {
@@ -529,7 +547,8 @@ impl Manager {
             changed: Notify::new(),
         });
         let n = self.next.fetch_add(1, Ordering::Relaxed);
-        let path = OwnedObjectPath::try_from(format!("{PATH}/Job/{n}")).map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+        let path = OwnedObjectPath::try_from(format!("{PATH}/Job/{n}"))
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
         conn.object_server().at(&path, Job { shared: shared.clone() }).await?;
         lock(&self.activity).0 += 1;
         tokio::spawn(publish(conn.clone(), path.clone(), shared.clone(), self.activity.clone()));
@@ -725,7 +744,8 @@ impl Manager {
         if paths.is_empty() || mask & !0o7777 != 0 {
             return Err(zbus::fdo::Error::InvalidArgs("no paths, or a mask beyond 0o7777".into()));
         }
-        let job = self.start(conn, "permissions", Request::SetPermissions(paths, mode & 0o7777, mask, recursive)).await?;
+        let job =
+            self.start(conn, "permissions", Request::SetPermissions(paths, mode & 0o7777, mask, recursive)).await?;
         self.jobs_changed(&emitter).await?;
         Ok(job)
     }
@@ -756,7 +776,8 @@ impl Manager {
         #[zbus(connection)] conn: &Connection,
         #[zbus(signal_emitter)] emitter: zbus::object_server::SignalEmitter<'_>,
     ) -> zbus::fdo::Result<OwnedObjectPath> {
-        let mode = tags::Mode::parse(&mode).ok_or_else(|| zbus::fdo::Error::InvalidArgs(format!("unknown mode '{mode}'")))?;
+        let mode =
+            tags::Mode::parse(&mode).ok_or_else(|| zbus::fdo::Error::InvalidArgs(format!("unknown mode '{mode}'")))?;
         if let Some(bad) = tags.iter().find(|t| !tags::valid_tag(t)) {
             return Err(zbus::fdo::Error::InvalidArgs(format!("bad tag '{bad}'")));
         }
@@ -856,7 +877,8 @@ impl Manager {
             return Err(zbus::fdo::Error::InvalidArgs("nothing to compress".into()));
         }
         let target = paths(vec![destination])?.remove(0);
-        let job = self.start(conn, "compress", Request::Compress(sources, target, format, password, volume_size)).await?;
+        let job =
+            self.start(conn, "compress", Request::Compress(sources, target, format, password, volume_size)).await?;
         self.jobs_changed(&emitter).await?;
         Ok(job)
     }

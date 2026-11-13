@@ -31,7 +31,13 @@ pub fn new_mode(old: u32, mode: u32, mask: u32, is_dir: bool) -> u32 {
 
 /// Changes the permission bits of `paths` (and everything under them when `recursive`). Links are never changed
 /// or followed: chmod would change their target.
-pub fn set_permissions(paths: &[PathBuf], mode: u32, mask: u32, recursive: bool, ctl: &dyn Control) -> (Vec<UndoStep>, OpResult<()>) {
+pub fn set_permissions(
+    paths: &[PathBuf],
+    mode: u32,
+    mask: u32,
+    recursive: bool,
+    ctl: &dyn Control,
+) -> (Vec<UndoStep>, OpResult<()>) {
     let mut undo = Vec::new();
     let mut done = 0u64;
     let mut todo: Vec<(PathBuf, bool)> = paths.iter().rev().map(|p| (p.clone(), true)).collect();
@@ -177,8 +183,14 @@ mod tests {
     fn checksum_of_a_fifo_fails_at_once() {
         let root = tempfile::tempdir().expect("tmp");
         let fifo = root.path().join("pipe");
-        rustix::fs::mknodat(rustix::fs::CWD, &fifo, rustix::fs::FileType::Fifo, rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR, 0)
-            .expect("mkfifo");
+        rustix::fs::mknodat(
+            rustix::fs::CWD,
+            &fifo,
+            rustix::fs::FileType::Fifo,
+            rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+            0,
+        )
+        .expect("mkfifo");
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let _ = tx.send(checksum(&fifo, "sha256", &Quietly).is_err());

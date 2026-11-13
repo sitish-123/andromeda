@@ -82,7 +82,8 @@ fn snap_pac_takes_root() -> bool {
     for line in ini.lines().map(str::trim) {
         if line.starts_with('[') {
             in_root = line == "[root]";
-        } else if in_root && let Some((key, value)) = line.split_once('=')
+        } else if in_root
+            && let Some((key, value)) = line.split_once('=')
             && key.trim() == "snapshot"
         {
             return !matches!(value.trim().to_ascii_lowercase().as_str(), "no" | "false" | "0");
@@ -101,10 +102,7 @@ pub async fn pre(conn: &Connection) -> zbus::Result<Option<Pre>> {
     let configs = match snapper.list_configs().await {
         // Snapper not installed: no snapshots. Any other error (snapperd crashed, timed out) stops the upgrade.
         Err(zbus::Error::FDO(e))
-            if matches!(
-                *e,
-                zbus::fdo::Error::ServiceUnknown(_) | zbus::fdo::Error::NameHasNoOwner(_)
-            ) =>
+            if matches!(*e, zbus::fdo::Error::ServiceUnknown(_) | zbus::fdo::Error::NameHasNoOwner(_)) =>
         {
             return Ok(None);
         }

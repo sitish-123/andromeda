@@ -24,11 +24,7 @@ async fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let activity = Arc::new(Mutex::new((0usize, Some(Instant::now()))));
     let manager = jobs::Manager::new(activity.clone());
-    let _conn = zbus::connection::Builder::session()
-        .serve_at(jobs::PATH, manager)
-        .name(NAME)
-        .build()
-        .await?;
+    let _conn = zbus::connection::Builder::session().serve_at(jobs::PATH, manager).name(NAME).build().await?;
     log::info!("serving {NAME}");
 
     let mut term = signal(SignalKind::terminate())?;
