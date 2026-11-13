@@ -1,4 +1,4 @@
-# A tag v* adds the signed Android app from Link's release of the same tag.
+# A tag v* adds install.sh and the release key. Link releases the Android app from its own repo.
 # Each release workflow runs on its own and adds its assets to the GitHub release of the tag, which the first one to
 # finish creates. Run it by hand with a tag to rebuild only that part. The assets also serve as a pacman and an apt
 # repository at releases/latest/download (see README.md).
@@ -29,20 +29,9 @@ jobs:
             andromeda-release.asc
           sparse-checkout-cone-mode: false
           path: src
-      # Link's own release signs the app (its repo holds the keystore secrets); this release reuses that APK.
-      # Link's release of the same tag can still be building; wait up to 40 min for it.
-      - name: Link app
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          for _ in $(seq 40); do
-            gh release download "$TAG" -R Andromeda-Desktop/link -p '*.apk' -O andromeda-link.apk && exit 0
-            sleep 60
-          done
-          exit 1
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes || gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber andromeda-link.apk src/install.sh src/andromeda-release.asc
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber src/install.sh src/andromeda-release.asc

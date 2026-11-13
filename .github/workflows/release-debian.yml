@@ -1,5 +1,5 @@
-# A tag v* builds the Debian testing debs and signs a rolling apt repository, with Link's deb from Link's release of
-# the same tag. Debian testing also serves sid and Kali; Debian 13 lacks libglycin-2.
+# A tag v* builds the Debian testing debs and signs a rolling apt repository, with the deb of Link's latest release.
+# Debian testing also serves sid and Kali; Debian 13 lacks libglycin-2.
 # The assets go to the "debian" GitHub release (releases/download/debian/); see README.md.
 name: release-debian
 
@@ -45,12 +45,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          for _ in $(seq 40); do
-            gh release download "$TAG" -R Andromeda-Desktop/link -p '*_amd64.deb' -D "$RUNNER_TEMP/link" && exit 0
-            sleep 60
-          done
-          # Link is not critical: the release ships without its debs and the apt repo keeps the last Link.
-          echo "::warning::no Link debs for $TAG: this release ships without them"
+          # Link releases on its own tags; the repository carries its latest release.
+          gh release download -R Andromeda-Desktop/link -p '*_amd64.deb' -D "$RUNNER_TEMP/link" && exit 0
+          echo "::warning::no Link release: this release ships without Link's debs"
       - name: Repository
         env:
           RELEASE_GPG_KEY: ${{ secrets.RELEASE_GPG_KEY }}

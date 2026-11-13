@@ -1,4 +1,4 @@
-# A tag v* builds the Ubuntu 26.04 debs and signs an apt repository, with Link's deb from Link's release of the same tag.
+# A tag v* builds the Ubuntu 26.04 debs and signs an apt repository, with the deb of Link's latest release.
 # Each release workflow runs on its own and adds its assets to the GitHub release of the tag, which the first one to
 # finish creates. Run it by hand with a tag to rebuild only that part. The assets also serve as a pacman and an apt
 # repository at releases/latest/download (see README.md).
@@ -64,13 +64,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Link's release of the same tag can still be building; wait up to 40 min for it.
-          for _ in $(seq 40); do
-            gh release download "$TAG" -R Andromeda-Desktop/link -p '*_amd64.deb' -D "$RUNNER_TEMP/link" && exit 0
-            sleep 60
-          done
-          # Link is not critical: the release ships without its debs and the apt repo keeps the last Link.
-          echo "::warning::no Link debs for $TAG: this release ships without them"
+          # Link releases on its own tags; the repository carries its latest release.
+          gh release download -R Andromeda-Desktop/link -p '*_amd64.deb' -D "$RUNNER_TEMP/link" && exit 0
+          echo "::warning::no Link release: this release ships without Link's debs"
       - name: Repository
         env:
           RELEASE_GPG_KEY: ${{ secrets.RELEASE_GPG_KEY }}
