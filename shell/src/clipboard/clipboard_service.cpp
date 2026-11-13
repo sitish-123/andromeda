@@ -4,6 +4,8 @@
 #include "config/config_limits.h"
 #include "core/log.h"
 #include "core/shared_worker.h"
+#include "render/core/image_encoder.h"
+#include "render/core/image_file_loader.h"
 #include "ext-data-control-v1-client-protocol.h"
 #include "security/encrypted_file_store.h"
 #include "util/file_utils.h"
@@ -756,6 +758,26 @@ namespace {
     );
     return source;
   }
+
+  // Views hash and copy this URI on every layout; a full-size payload can be tens of MB.
+  constexpr std::size_t kImageUriMaxBytes = 256U * 1024U;
+  constexpr int kImageUriMaxEdge = 1024;
+
+  std::optional<std::string> imageDataUri(const std::vector<std::uint8_t>& data) {
+    auto full = toDataUri(data);
+    if (!full.has_value() || full->size() <= kImageUriMaxBytes) {
+      return full;
+    }
+    const auto image = loadImageFile(*full, kImageUriMaxEdge);
+    if (!image.has_value()) {
+      return std::nullopt;
+    }
+    const auto bytes = encodeWebp(image->rgba.data(), image->width, image->height, 90);
+    if (bytes.empty()) {
+      return std::nullopt;
+    }
+    return toDataUri(bytes);
+  }
 } // namespace
 
 void ClipboardService::imageDataUriAsync(
@@ -770,7 +792,7 @@ void ClipboardService::imageDataUriAsync(
   }
   std::function<std::optional<std::string>()> work;
   if (entry->payloadLoaded) {
-    work = [data = entry->data] { return toDataUri(data); };
+    work = [data = entry->data] { return imageDataUri(data); };
   } else if (m_dataKey != nullptr && isValidStorageId(storageId)) {
     work = [path = payloadPathForId(storageId), key = m_dataKey, storageId, byteSize = entry->byteSize,
             limit = maxEntryBytesFor(entry->dataMimeType)]() -> std::optional<std::string> {
@@ -781,7 +803,7 @@ void ClipboardService::imageDataUriAsync(
       if (!result.succeeded() || result.plaintext.size() != byteSize) {
         return std::nullopt;
       }
-      return toDataUri(result.plaintext);
+      return imageDataUri(result.plaintext);
     };
   } else {
     done(std::nullopt);
