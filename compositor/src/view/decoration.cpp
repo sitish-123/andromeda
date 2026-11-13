@@ -86,7 +86,7 @@ namespace andromeda {
   }
 
   void ViewDecoration::setBorderColor(bool focused, float alpha) {
-    if (const float scale = focused ? 1.0F : kInactiveShadow; scale != m_shadowFocusScale) {
+    if (const float scale = focused || !config().appearance.shadow.dimUnfocused ? 1.0F : kInactiveShadow; scale != m_shadowFocusScale) {
       m_shadowFocusScale = scale;
       m_shadow.setAlpha(m_decorationAlpha * m_shadowFocusScale);
     }

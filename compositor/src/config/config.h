@@ -780,6 +780,8 @@ namespace andromeda {
         int softness = 48;
         int offsetX = 0;
         int offsetY = 18;
+        // On: unfocused windows draw half the shadow, so a focus change visibly swaps two shadows.
+        bool dimUnfocused = false;
         bool operator==(const Shadow&) const = default;
       } shadow;
       // The strip a tabbed column draws across one edge.

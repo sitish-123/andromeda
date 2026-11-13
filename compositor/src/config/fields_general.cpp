@@ -127,6 +127,7 @@ namespace andromeda {
           integer("softness", 0, 200, &A::Shadow::softness),
           integer("offset_x", -200, 200, &A::Shadow::offsetX),
           integer("offset_y", -200, 200, &A::Shadow::offsetY),
+          boolean("dim_unfocused", &A::Shadow::dimUnfocused),
       };
       static const registry::Fields<A::TabBar> tabBar{
           registry::choice(
