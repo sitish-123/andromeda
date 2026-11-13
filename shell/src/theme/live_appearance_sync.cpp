@@ -50,6 +50,7 @@ LiveAppearance readLiveAppearance(const std::function<std::string(std::string_vi
       .animationEnabled = value("animation.enabled") != "false",
       .animationSpeed = speed,
       .blurEnabled = value("appearance.blur.enabled") == "true",
+      .developerDiagnostics = value("general.developer_diagnostics") == "true",
   };
 }
 

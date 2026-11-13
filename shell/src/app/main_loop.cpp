@@ -6,6 +6,7 @@
 #include "core/log.h"
 #include "wayland/surface.h"
 #include "wayland/wayland_connection.h"
+#include "protocols/stall_watch.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -310,6 +311,20 @@ namespace {
 MainLoop::MainLoop(WaylandConnection& wayland, PollSourcesProvider sourcesProvider, std::function<void()> closeSurfaces)
     : m_wayland(wayland), m_sourcesProvider(std::move(sourcesProvider)), m_closeSurfaces(std::move(closeSurfaces)) {}
 
+namespace {
+  // Created on the first enable, so a shell with diagnostics off runs no watch thread.
+  std::unique_ptr<andromeda::stall::Watch> gStallWatch;
+} // namespace
+
+void MainLoop::setDeveloperDiagnostics(bool on) {
+  if (on && gStallWatch == nullptr) {
+    gStallWatch = std::make_unique<andromeda::stall::Watch>("andromeda-shell");
+  }
+  if (gStallWatch != nullptr) {
+    gStallWatch->setDeveloper(on);
+  }
+}
+
 void MainLoop::run() {
   if (idleProfileEnabled()) {
     kLog.info(
@@ -505,7 +520,13 @@ void MainLoop::run() {
 
     const auto pollStart = std::chrono::steady_clock::now();
     opStart = pollStart;
+    if (gStallWatch != nullptr) {
+      gStallWatch->disarm();
+    }
     const int pollResult = ::poll(pollFds.data(), pollFds.size(), pollTimeout);
+    if (gStallWatch != nullptr && gStallWatch->developer()) {
+      gStallWatch->arm(andromeda::stall::monotonicNs());
+    }
     ms = elapsedSince(pollStart);
     if (idleProfileEnabled()) {
       auto& profile = idleProfile();

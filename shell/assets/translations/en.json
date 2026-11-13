@@ -2605,6 +2605,7 @@
         "background": "Background",
         "battery": "Battery",
         "background-apps": "Background Apps",
+        "diagnostics": "Diagnostics",
         "behavior": "Behavior",
         "bluetooth": "Bluetooth",
         "borders": "Borders",
@@ -5464,6 +5465,10 @@
         "general-freeze-hidden-apps": {
           "label": "Freeze Hidden Apps in Power Saver",
           "description": "On battery in Power Saver, pause apps hidden for 3 minutes; they resume when you reach for them"
+        },
+        "general-developer-diagnostics": {
+          "label": "Developer Diagnostics",
+          "description": "When the desktop freezes for a quarter second or more, save a report with stack traces to ~/.local/state/andromeda/stalls"
         },
         "hot-corners-top-left-enabled": {
           "label": "Top Left Corner",

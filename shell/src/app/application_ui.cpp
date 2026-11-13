@@ -1502,6 +1502,7 @@ void Application::initWidgetControllersAndCallbacks() {
         appearance.accent
     );
     Style::setGlass(appearance.glass, appearance.reduceTransparency, appearance.blurEnabled);
+    MainLoop::setDeveloperDiagnostics(appearance.developerDiagnostics);
     applyLiveMotion(appearance);
     m_themeService.setLiveAppearance(appearance.accent, appearance.increaseContrast);
     if (m_settingsPortal != nullptr) {

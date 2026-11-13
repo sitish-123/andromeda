@@ -17,6 +17,10 @@ public:
 
   void run();
 
+  // Developer diagnostics: a main-loop pass of 250 ms or more writes a stall report (protocols/stall_watch.h). Off,
+  // the loop arms nothing. Call on the main thread.
+  static void setDeveloperDiagnostics(bool on);
+
 private:
   WaylandConnection& m_wayland;
   PollSourcesProvider m_sourcesProvider;

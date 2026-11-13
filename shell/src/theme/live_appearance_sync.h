@@ -22,6 +22,8 @@ struct LiveAppearance {
   float animationSpeed = 1.0F;
   // appearance.blur.enabled: with it the compositor draws the glass tints the shell sends (dsk_surface_v1 v9 tint).
   bool blurEnabled = false;
+  // general.developer_diagnostics: slow main-loop passes write stall reports.
+  bool developerDiagnostics = false;
 
   bool operator==(const LiveAppearance&) const = default;
 };

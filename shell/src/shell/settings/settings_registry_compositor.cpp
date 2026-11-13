@@ -278,6 +278,7 @@ namespace settings {
       toggle(Power, "background-apps", "general.optimize_background_apps", "optimize background apps priority efficiency cores battery");
       toggle(Power, "background-apps", "general.freeze_background_apps", "freeze background services battery energy");
       toggle(Power, "background-apps", "general.freeze_hidden_apps", "freeze hidden apps power saver battery energy");
+      toggle(System, "diagnostics", "general.developer_diagnostics", "developer diagnostics freeze stall report debug trace");
 
       choice(Shortcuts, "modifier", "general.mod_key", {"Super", "Alt", "Ctrl", "Shift"}, true, "mod key modifier");
 

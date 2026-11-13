@@ -93,6 +93,7 @@ xwayland = true
 xwayland_native_resolution = false
 xwayland_xsettings = true
 focus_on_activate = false
+developer_diagnostics = false
 attach_modal_dialogs = true
 honor_restored_maximize = false
 ```
@@ -105,6 +106,7 @@ honor_restored_maximize = false
 | `xwayland_native_resolution` | bool         | `false`                   | Show outputs to X11 applications at their physical resolution, so they render sharp on scaled outputs. Changes require a restart.                                                    |
 | `xwayland_xsettings`         | bool         | `true`                    | Announce the interface scale and cursor theme to X11 applications through XSETTINGS. Turn it off to run your own XSETTINGS manager, such as `xsettingsd`. Changes require a restart. |
 | `focus_on_activate`          | bool         | `false`                   | Let application activation requests focus and reveal their target.                                                                                                                   |
+| `developer_diagnostics`      | bool         | `false`                   | When a frame or a shell main-loop pass blocks 250 ms or more, write a report to `~/.local/state/andromeda/stalls/`: thread samples, the main thread's stack, and the kernel stacks of GPU tasks. At most 6 reports per hour. |
 | `attach_modal_dialogs`       | bool         | `true`                    | Attach a modal dialog to its parent, so it follows the parent and holds its input. See [Dialogs](layout.md#dialogs).                                                                 |
 | `honor_restored_maximize`    | bool         | `false`                   | Honor maximize requests an application makes while its window opens, until it acknowledges its opening layout.                                                                       |
 
