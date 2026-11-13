@@ -134,10 +134,10 @@ impl Update {
             async move { this.run_check(conn, guard).await }
         });
         tokio::spawn(async move {
-            if task.await.is_err() {
-                if let Ok(iface) = conn.object_server().interface::<_, Self>(PATH).await {
-                    Self::emit_all(&iface).await;
-                }
+            if task.await.is_err()
+                && let Ok(iface) = conn.object_server().interface::<_, Self>(PATH).await
+            {
+                Self::emit_all(&iface).await;
             }
         });
     }
@@ -341,7 +341,9 @@ mod tests {
     #[test]
     fn check_after_panicked_check_is_accepted() {
         let state = Arc::new(Mutex::new(State::default()));
-        let guard = CheckGuard::begin(&state, true).unwrap();
+        let Some(guard) = CheckGuard::begin(&state, true) else {
+            panic!("the first check must begin");
+        };
         assert!(CheckGuard::begin(&state, false).is_none());
         let panicked = std::thread::spawn(move || {
             let _guard = guard;
