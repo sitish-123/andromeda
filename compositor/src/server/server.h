@@ -15,6 +15,7 @@
 #include "scene/effect_selection.h"
 #include "scene/surface_shadow.h"
 #include "server/focus.h"
+#include "server/sleep_watch.h"
 #include "server/xdg_session_state.h"
 #include "view/registry.h"
 
@@ -1083,6 +1084,7 @@ namespace andromeda {
     wl_event_source* m_restartLockEscape = nullptr;
     bool m_lockFileManaged = false;
     wl_event_source* m_watchdogTimer = nullptr;
+    std::unique_ptr<SleepWatch> m_sleepWatch;
     int m_watchdogIntervalMs = 0;
     std::string m_notifySocket;
     // Non-null while a windows-event idle callback is pending. The idle source

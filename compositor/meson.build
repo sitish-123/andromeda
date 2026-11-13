@@ -983,6 +983,7 @@ core_sources = files(
   'src/qos/actuator.cpp',
   'src/qos/controller.cpp',
   'src/qos/on_battery_watch.cpp',
+  'src/server/sleep_watch.cpp',
   'src/server/apps_bus.cpp',
   'src/scene/effect_registry.cpp',
   'src/core/fdlimit.cpp',

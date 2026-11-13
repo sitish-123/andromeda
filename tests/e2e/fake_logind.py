@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """A minimal org.freedesktop.login1 for tests: Inhibit returns a pipe fd and prints "INHIBIT <what> <mode>";
-a line "sleep" on stdin emits PrepareForSleep(true)."""
+a line "sleep" or "wake" on stdin emits PrepareForSleep(true) or (false); "OWNED" means clients can call it."""
 import os
 import sys
 
@@ -31,14 +31,15 @@ def on_bus(conn, name):
         line = sys.stdin.readline()
         if not line:
             return False
-        if line.strip() == "sleep":
+        if line.strip() in ("sleep", "wake"):
             conn.emit_signal(None, "/org/freedesktop/login1", "org.freedesktop.login1.Manager", "PrepareForSleep",
-                             GLib.Variant("(b)", (True,)))
-            print("SLEEP sent", flush=True)
+                             GLib.Variant("(b)", (line.strip() == "sleep",)))
+            print(f"{line.strip().upper()} sent", flush=True)
         return True
 
     GLib.io_add_watch(sys.stdin.fileno(), GLib.IO_IN | GLib.IO_HUP, on_stdin)
 
 
-Gio.bus_own_name(Gio.BusType.SYSTEM, "org.freedesktop.login1", Gio.BusNameOwnerFlags.NONE, on_bus, None, None)
+Gio.bus_own_name(Gio.BusType.SYSTEM, "org.freedesktop.login1", Gio.BusNameOwnerFlags.NONE, on_bus,
+                 lambda conn, name: print("OWNED", flush=True), None)
 GLib.MainLoop().run()

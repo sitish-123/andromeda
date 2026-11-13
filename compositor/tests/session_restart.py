@@ -33,6 +33,7 @@ def own_unit():
 
 
 O_CLOEXEC = 0o2000000
+E2E = Path(__file__).resolve().parents[2] / "tests" / "e2e"
 
 
 def wl_sync(sock):
@@ -132,14 +133,39 @@ def main(binary, mode):
 
         processes = []
         clients = []
+        bus = logind = None
         with (root / "compositor.log").open("w+") as log:
             try:
+                if mode == "socket":
+                    # A private bus stands in for the system bus, with a fake logind that announces sleep.
+                    bus = subprocess.run(["dbus-daemon", f"--config-file={E2E / 'private-bus.conf'}", "--fork",
+                                          "--print-address=1", "--print-pid=1"],
+                                         capture_output=True, text=True, check=True).stdout.split()
+                    environment["DBUS_SYSTEM_BUS_ADDRESS"] = bus[0]
+                    logind_log = root / "logind.log"
+                    logind = subprocess.Popen([sys.executable, "-I", str(E2E / "fake_logind.py")], text=True,
+                                              stdin=subprocess.PIPE, stdout=logind_log.open("w"),
+                                              stderr=subprocess.STDOUT, env=environment)
+                    await_line(logind_log, "OWNED", 5)
                 processes.append(start(log))
                 await_notify(notify, b"READY=1", 10)
                 if mode == "socket":
                     # Two pings inside one WATCHDOG_USEC (0.4 s): the timer re-arms at half the interval.
                     await_notify(notify, b"WATCHDOG=1", 1)
                     await_notify(notify, b"WATCHDOG=1", 0.4)
+                    # systemd-sleep freezes the compositor, not the user manager: the watchdog pauses across sleep.
+                    await_line(logind_log, "INHIBIT sleep delay", 5)
+                    logind.stdin.write("sleep\n")
+                    logind.stdin.flush()
+                    await_notify(notify, b"WATCHDOG_USEC=0", 2)
+                    logind.stdin.write("wake\n")
+                    logind.stdin.flush()
+                    await_notify(notify, b"WATCHDOG_USEC=400000", 2)
+                    await_notify(notify, b"WATCHDOG=1", 0.4)
+                    deadline = time.monotonic() + 5
+                    while logind_log.read_text().count("INHIBIT sleep delay") < 2:
+                        assert time.monotonic() < deadline, "no new sleep delay lock after resume"
+                        time.sleep(0.02)
                     first = processes[0].pid
                     flags = int(next(line.split()[1] for line in open(f"/proc/{first}/fdinfo/3")
                                      if line.startswith("flags:")), 8)
@@ -282,6 +308,11 @@ def main(binary, mode):
                 print(log.read()[-6000:], file=sys.stderr)
                 raise
             finally:
+                if logind is not None:
+                    logind.kill()
+                    logind.wait(timeout=5)
+                if bus is not None:
+                    os.kill(int(bus[1]), signal.SIGTERM)
                 for c in clients:
                     if c.poll() is None:
                         c.kill()

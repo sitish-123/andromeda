@@ -70,6 +70,7 @@ extern "C" {
 }
 
 #include <algorithm>
+#include <format>
 #include <array>
 #include <cerrno>
 #include <chrono>
@@ -1257,6 +1258,7 @@ namespace andromeda {
       wl_event_source_remove(m_startupRulesTimer);
       m_startupRulesTimer = nullptr;
     }
+    m_sleepWatch.reset();
     if (m_watchdogTimer != nullptr) {
       wl_event_source_remove(m_watchdogTimer);
       m_watchdogTimer = nullptr;
@@ -1407,6 +1409,13 @@ namespace andromeda {
         this
     );
     wl_event_source_timer_update(m_watchdogTimer, m_watchdogIntervalMs);
+    // systemd-sleep freezes this process but not the user manager, which then kills it at resume.
+    m_sleepWatch = std::make_unique<SleepWatch>(wl_display_get_event_loop(m_display), [this, interval](bool sleeping) {
+      (void)notifyService(m_notifySocket, sleeping ? "WATCHDOG_USEC=0" : std::format("WATCHDOG_USEC={}", interval));
+      if (!sleeping) {
+        (void)notifyService(m_notifySocket, "WATCHDOG=1");
+      }
+    });
   }
 
   void Server::loadRestorePlacements(const std::filesystem::path& crashList) {
