@@ -93,7 +93,7 @@ stdenv.mkDerivation {
   meta = with lib; {
     description = "A Wayland compositor built on wlroots";
     homepage = "https://github.com/noctalia-dev/andromeda";
-    license = licenses.mit;
+    license = licenses.gpl3Plus;
     platforms = platforms.linux;
     mainProgram = "andromeda";
   };

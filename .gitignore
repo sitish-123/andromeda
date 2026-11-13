@@ -1,5 +1,6 @@
 artifacts/
 *.md
 !README.md
+!CLA.md
 __pycache__/
 .wraplock

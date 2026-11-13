@@ -14,7 +14,7 @@ epoch=1
 pkgver=r15702.g1bc0efe54
 pkgrel=1
 arch=(x86_64)
-license=(MIT)
+license=(GPL-3.0-or-later MIT)
 # Arch's default makepkg.conf adds a debug package of every binary's symbols, several times the desktop's size.
 options=(!debug)
 makedepends=(git meson ninja wayland-protocols xorg-xwayland poppler-glib libzip libvterm exiv2 taglib nlohmann-json stb
@@ -317,6 +317,7 @@ package_andromeda-compositor-git() {
       "$pkgdir/usr/lib/systemd/system/$slice.d/andromeda-ui-memory.conf"
   done
   install -Dm644 desktop/compositor/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 desktop/NOTICE "$pkgdir/usr/share/licenses/$pkgname/NOTICE"
   _pin_depends
 }
 
@@ -356,6 +357,7 @@ package_andromeda-shell-git() {
   ln -s ../andromeda-shell.service "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/andromeda-shell.service"
   ln -s ../andromeda-lock.service "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/andromeda-lock.service"
   install -Dm644 desktop/shell/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 desktop/NOTICE "$pkgdir/usr/share/licenses/$pkgname/NOTICE"
   _pin_depends
 }
 
@@ -367,6 +369,7 @@ package_xdg-desktop-portal-andromeda-git() {
   replaces=(xdg-desktop-portal-umbriel-git)
   meson install -C build-portal --destdir "$pkgdir"
   install -Dm644 desktop/portal/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 desktop/NOTICE "$pkgdir/usr/share/licenses/$pkgname/NOTICE"
   _pin_depends
 }
 
@@ -449,6 +452,7 @@ package_andromeda-greeter-git() {
   install -Dm644 desktop/session/greetd/andromeda-login-fallback.service \
     "$pkgdir/usr/lib/systemd/system/andromeda-login-fallback.service"
   install -Dm644 desktop/greeter/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 desktop/NOTICE "$pkgdir/usr/share/licenses/$pkgname/NOTICE"
   install -Dm644 desktop/greeter/assets/fonts/outfit-license.txt "$pkgdir/usr/share/licenses/$pkgname/OFL-Outfit.txt"
   _pin_depends
 }

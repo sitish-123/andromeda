@@ -68,7 +68,9 @@ Run `just --list` to see every build, test and dev command.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+GPL-3.0-or-later. See [LICENSE](LICENSE) and [NOTICE](NOTICE). Releases up to and including v0.2.8 are MIT.
 
 Andromeda began as a fork of the [Noctalia](https://github.com/noctalia-dev) projects (MIT). Their copyright notices
 stay in the `LICENSE` file of each forked directory: `compositor/`, `shell/`, `greeter/` and `portal/`.
+
+Contributions need a signed [Contributor License Agreement](CLA.md): sign it with one comment on your first pull request.

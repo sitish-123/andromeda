@@ -135,7 +135,7 @@ lib.warnIf cudaSupport
   meta = with lib; {
     description = "A sleek, customizable desktop shell crafted for Wayland.";
     homepage = "https://github.com/noctalia-dev/noctalia";
-    license = licenses.mit;
+    license = licenses.gpl3Plus;
     platforms = platforms.linux;
     mainProgram = "andromeda-shell";
   };

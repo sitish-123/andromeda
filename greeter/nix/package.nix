@@ -97,7 +97,7 @@ in
     meta = with lib; {
       description = "Noctalia Greeter - A minimal login greeter for greetd that matches the look and feel of Noctalia Shell";
       homepage = "https://github.com/noctalia-dev/noctalia-greeter";
-      license = licenses.mit;
+      license = licenses.gpl3Plus;
       platforms = platforms.linux;
       mainProgram = "andromeda-greeter";
     };

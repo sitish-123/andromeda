@@ -64,4 +64,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contributor guidance.
 
 ## License
 
-Distributed under the MIT License. See [LICENSE](LICENSE) for details.
+GPL-3.0-or-later; the upstream Noctalia MIT notice stays in [LICENSE](LICENSE). See [NOTICE](../NOTICE).

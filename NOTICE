@@ -1,0 +1,17 @@
+Andromeda desktop
+Copyright (C) 2026 The Andromeda authors
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public
+License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later
+version. It is distributed WITHOUT ANY WARRANTY; see LICENSE for the full text.
+
+Releases up to and including v0.2.8 were published under the MIT license and keep it.
+
+compositor/, shell/, greeter/ and portal/ began as forks of Noctalia projects (MIT). Their LICENSE files keep the
+upstream MIT notices. The Andromeda changes in those directories are under GPL-3.0-or-later.
+
+Third-party code keeps its own license: compositor/andromedafx (MIT, from scenefx), libdesk-ui/third_party and
+greeter/third_party (fzy MIT; wuffs Apache-2.0 OR MIT), shell/third_party (luau MIT; material_color_utilities
+Apache-2.0), and the LGPL-2.1-or-later interface files in portal/data/interfaces and compositor/protocols/kde-appmenu.xml.
+
+Contributions need a signed Contributor License Agreement: see CLA.md.

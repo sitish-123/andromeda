@@ -53,7 +53,7 @@ stdenv.mkDerivation {
 
   meta = with lib; {
     description = "xdg-desktop-portal backend for the Andromeda compositor";
-    license = licenses.mit;
+    license = licenses.gpl3Plus;
     platforms = platforms.linux;
   };
 }

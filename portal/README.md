@@ -133,4 +133,4 @@ choice.
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+GPL-3.0-or-later; the upstream Noctalia MIT notice stays in [LICENSE](LICENSE). See [NOTICE](../NOTICE).
