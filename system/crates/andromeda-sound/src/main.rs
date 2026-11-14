@@ -7,7 +7,8 @@ use anyhow::{Context, Result, bail};
 
 const USAGE: &str = "usage: andromeda-sound import-dolby [--xml FILE | --windows DIR] [-o FILE]
        andromeda-sound apply [--profile NAME] [--tuning FILE] [--dsp FILE] [--target SINK] [--loudness DB] [--bass 0-10] [-o FILE]
-       andromeda-sound off";
+       andromeda-sound off
+       andromeda-sound status";
 /// Defaults that make laptop speakers sound fuller and louder than the flat Dolby curve.
 const DEFAULT_LOUDNESS_DB: f32 = 4.0;
 const DEFAULT_BASS: f32 = 5.0;
@@ -24,12 +25,14 @@ fn main() -> Result<()> {
                 pactl(&["set-sink-volume", &speaker, &vol])?;
                 pactl(&["set-default-sink", &speaker])?;
             }
+            // The config stays as `.off`: `status` reads the last settings from it.
             let conf = conf_path()?;
             if conf.exists() {
-                fs::remove_file(&conf)?;
+                fs::rename(&conf, conf.with_extension("conf.off"))?;
             }
             systemctl(&["restart", "filter-chain.service"])
         }
+        Some("status") => status(),
         _ => bail!(USAGE),
     }
 }
@@ -87,6 +90,7 @@ fn apply(mut args: impl Iterator<Item = String>) -> Result<()> {
     // and the hardware stays at 100 %. On a profile switch the chain already holds it.
     let vol = sink_volume(chain::SINK_NAME).or_else(|| sink_volume(&target)).unwrap_or_else(|| "50%".to_owned());
     fs::write(&path, conf)?;
+    let _ = fs::remove_file(path.with_extension("conf.off"));
     systemctl(&["enable", "filter-chain.service"])?;
     systemctl(&["restart", "filter-chain.service"])?;
     wait_sink(chain::SINK_NAME)?;
@@ -94,6 +98,48 @@ fn apply(mut args: impl Iterator<Item = String>) -> Result<()> {
     pactl(&["set-default-sink", chain::SINK_NAME])?;
     pactl(&["set-sink-volume", &target, "100%"])?;
     println!("{}", path.display());
+    Ok(())
+}
+
+/// One `key=value` per line for the Settings card: enabled, source (`basic` or the vendor),
+/// profile, loudness, bass, profiles (comma list from the imported tuning), windows (an NTFS
+/// partition exists), speakers (an internal speaker sink exists).
+fn status() -> Result<()> {
+    let conf = conf_path()?;
+    let enabled = conf.exists();
+    let text =
+        fs::read_to_string(&conf).or_else(|_| fs::read_to_string(conf.with_extension("conf.off"))).unwrap_or_default();
+    let header = text.lines().next().unwrap_or_default();
+    let field = |key: &str| {
+        header
+            .split_once(&format!("{key} "))
+            .and_then(|(_, r)| r.split([' ', ';']).next())
+            .map(|v| v.trim_matches('"').to_owned())
+    };
+    let profile = field("profile").unwrap_or_else(|| "music".to_owned());
+    let tuning = codec_stem().ok().and_then(|stem| {
+        let path = data_dir().ok()?.join(format!("{}.toml", stem.rsplit('_').next().unwrap_or_default()));
+        toml::from_str::<andromeda_sound::Tuning>(&fs::read_to_string(path).ok()?).ok()
+    });
+    let names =
+        tuning.as_ref().and_then(|t| t.endpoints.iter().find(|e| e.kind == "internal_speaker")).map(|e| &e.profiles);
+    // The styles a user picks; vendor files also hold "off", user slots and niche variants.
+    let profiles: Vec<&str> = ["music", "movie", "voice", "game", "dynamic"]
+        .into_iter()
+        .filter(|p| names.is_some_and(|n| n.contains_key(*p)))
+        .collect();
+    let windows = Command::new("lsblk")
+        .args(["-rno", "FSTYPE"])
+        .output()
+        .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).lines().any(|l| l == "ntfs"));
+    println!("enabled={}", u8::from(enabled));
+    println!("source={}", if tuning.is_some() { "Dolby" } else { "basic" });
+    println!("profile={profile}");
+    println!("loudness={}", field("loudness").unwrap_or_else(|| DEFAULT_LOUDNESS_DB.to_string()));
+    println!("bass={}", field("bass").unwrap_or_else(|| DEFAULT_BASS.to_string()));
+    println!("profiles={}", profiles.join(","));
+    println!("windows={}", u8::from(windows));
+    println!("speakers={}", u8::from(speaker_sink().is_ok()));
     Ok(())
 }
 

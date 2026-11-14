@@ -1,6 +1,6 @@
 //! Turns one imported profile into a `PipeWire` filter-chain config:
 //! speaker EQ (`param_eq`) → bass → leveler → limiter (andromeda-dsp); without
-//! an imported profile only bass → limiter.
+//! an imported profile our basic EQ → bass → limiter.
 
 use std::f64::consts::PI;
 use std::fmt::Write as _;
@@ -34,8 +34,39 @@ pub struct Band {
     pub gain_db: f64,
 }
 
-/// Profile name written for a speaker with no imported tuning: bass, loudness and limiter only.
+/// Profile name written for a speaker with no imported tuning: basic EQ, bass, loudness and limiter.
 pub const GENERIC: &str = "generic";
+
+/// Our mild curve for speakers with no imported tuning: less low-mid box, more presence and air.
+fn basic_eq() -> Vec<Band> {
+    vec![
+        Band { kind: "bq_peaking", freq: 300.0, q: 1.0, gain_db: -3.0 },
+        Band { kind: "bq_peaking", freq: 3000.0, q: 1.0, gain_db: 2.0 },
+        Band { kind: "bq_highshelf", freq: 8000.0, q: 0.7, gain_db: 3.0 },
+    ]
+}
+
+fn eq_node(channels: &[Vec<Band>; 2]) -> Node {
+    let mut eq = String::new();
+    for (ch, bands) in channels.iter().enumerate() {
+        let _ = write!(eq, "\n              filters{} = [", ch + 1);
+        for b in bands {
+            let _ = write!(
+                eq,
+                "\n                {{ type = {} freq = {:.1} q = {:.4} gain = {:.3} }}",
+                b.kind, b.freq, b.q, b.gain_db
+            );
+        }
+        eq.push_str("\n              ]");
+    }
+    Node {
+        name: "eq",
+        text: format!(
+            "{{ type = builtin name = eq label = param_eq\n            config = {{{eq}\n            }}\n          }}"
+        ),
+        ports: ("1", "2"),
+    }
+}
 
 /// One chain node: its config text and its stereo input/output port names.
 struct Node {
@@ -62,34 +93,16 @@ pub fn filter_chain_conf(t: Option<&Tuning>, s: &Settings) -> Result<String> {
         format!(" \"Input gain\" = {:.1} \"Ceiling\" = -1.0 \"Release\" = 80.0 \"Split\" = 200.0", s.loudness_db),
     );
     let (source, nodes) = match t {
-        None => (GENERIC.to_owned(), vec![bass, limiter]),
+        None => (GENERIC.to_owned(), vec![eq_node(&[basic_eq(), basic_eq()]), bass, limiter]),
         Some(t) => {
             let ep =
                 t.endpoints.iter().find(|e| e.kind == "internal_speaker").context("no internal_speaker endpoint")?;
             let p = ep.profiles.get(s.profile).with_context(|| format!("no profile {:?}", s.profile))?;
-            let mut eq = String::new();
-            for ch in 0..2 {
-                let _ = write!(eq, "\n              filters{} = [", ch + 1);
-                for b in channel_eq(t, p, ch) {
-                    let _ = write!(
-                        eq,
-                        "\n                {{ type = {} freq = {:.1} q = {:.4} gain = {:.3} }}",
-                        b.kind, b.freq, b.q, b.gain_db
-                    );
-                }
-                eq.push_str("\n              ]");
-            }
+            let eq = eq_node(&[channel_eq(t, p, 0), channel_eq(t, p, 1)]);
             let cp = |k: &str| p.cp.get(k).and_then(|v| v.first()).copied().unwrap_or(0.0);
             let leveler_amount = if cp("volume-leveler-enable") > 0.0 { cp("volume-leveler-amount") } else { 0.0 };
             let leveler_target =
                 p.cp.get("volume-leveler-in-target").and_then(|v| v.first()).map_or(-20.0, |v| v / DAX);
-            let eq = Node {
-                name: "eq",
-                text: format!(
-                    "{{ type = builtin name = eq label = param_eq\n            config = {{{eq}\n            }}\n          }}"
-                ),
-                ports: ("1", "2"),
-            };
             let lev = ladspa(
                 "lev",
                 "leveler",
