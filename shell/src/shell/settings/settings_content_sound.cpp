@@ -182,7 +182,7 @@ namespace settings {
           },
       }));
 
-      if (!s.basic() && !s.profiles.empty()) {
+      if (!s.basic() && s.profiles.size() > 1) {
         std::vector<std::string> names;
         std::size_t current = 0;
         for (std::size_t i = 0; i < s.profiles.size(); ++i) {
