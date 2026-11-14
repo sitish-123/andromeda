@@ -102,6 +102,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "andromeda-sound"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "quick-xml",
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "andromeda-system"
 version = "0.1.0"
 dependencies = [
