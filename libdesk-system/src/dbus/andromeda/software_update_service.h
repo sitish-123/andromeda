@@ -1,10 +1,12 @@
 #pragma once
 
 #include "core/timer_manager.h"
+#include "dbus/andromeda/update_run.h"
 
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,7 +37,7 @@ struct SoftwareUpdateNews {
 // the upgrade itself, polkit-gated). docs/system.md §1.
 class SoftwareUpdateService {
 public:
-  enum class RunState : std::uint8_t { Idle, Running, Done, NeedsChoice, Failed };
+  using RunState = UpdateRunState;
 
   SoftwareUpdateService(SessionBus& session, SystemBus* system);
   ~SoftwareUpdateService();
@@ -52,7 +54,7 @@ public:
   // One line per source that failed in the last check.
   [[nodiscard]] const std::vector<std::string>& errors() const noexcept { return m_errors; }
 
-  [[nodiscard]] RunState runState() const noexcept { return m_runState; }
+  [[nodiscard]] RunState runState() const noexcept { return m_run.state(); }
   [[nodiscard]] const std::string& stage() const noexcept { return m_stage; }
   [[nodiscard]] const std::string& stagePackage() const noexcept { return m_stagePackage; }
   // 0-100 within the current stage.
@@ -71,7 +73,7 @@ public:
   [[nodiscard]] bool canInstall() const noexcept { return m_helper != nullptr; }
   // Marks news up to the newest unread item as read, in the session service and in the helper (polkit).
   void markNewsRead();
-  // System (helper, root) and Apps (flatpak, as the user) together.
+  // System (helper, root) and Apps (flatpak, as the user) together. While a run goes on, a request waits for it.
   void upgrade();
   // Only the Andromeda repository packages (helper, root); not gated by the Arch news.
   void upgradeAndromeda();
@@ -82,7 +84,7 @@ public:
   void acceptAndUpgrade();
   // The last run was an Andromeda-only update that needs newer system packages first.
   [[nodiscard]] bool needsSystemFirst() const noexcept {
-    return m_runState == RunState::Failed && m_resultMessage.starts_with("needs a system update first");
+    return m_run.state() == RunState::Failed && m_resultMessage.starts_with("needs a system update first");
   }
   // Update lock: `then(waited)` runs at once when no system update runs, else after it finishes (at most 60 min).
   // `waiting` runs when the wait starts. One pending action: a later call replaces it. Does not start the helper.
@@ -116,7 +118,7 @@ private:
   bool m_checking = false;
   std::vector<std::string> m_errors;
 
-  RunState m_runState = RunState::Idle;
+  UpdateRun m_run;
   std::string m_stage;
   std::string m_stagePackage;
   int m_percent = 0;
@@ -138,6 +140,5 @@ private:
   std::string m_appsError;
 
   void upgradeApps();
-  // `accepted` with questions: UpgradeAccepting with them, in their scope.
-  void startHelper(const char* method, bool withDryRun, Choice accepted);
+  void startHelper(std::optional<UpdateRequest> request);
 };

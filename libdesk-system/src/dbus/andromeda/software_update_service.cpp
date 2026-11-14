@@ -64,8 +64,8 @@ SoftwareUpdateService::SoftwareUpdateService(SessionBus& session, SystemBus* sys
         .onInterface("org.freedesktop.DBus")
         .call([this](const std::string& name, const std::string& /*old*/, const std::string& owner) {
           // The helper exited (crash, kill) while our upgrade ran: no Finished will come.
-          if (name == kHelperName && owner.empty() && m_runState == RunState::Running) {
-            m_runState = RunState::Failed;
+          if (name == kHelperName && owner.empty() && m_run.state() == RunState::Running) {
+            m_run.stopped(false);
             m_resultMessage = "the update service stopped";
             notify();
           }
@@ -76,7 +76,7 @@ SoftwareUpdateService::SoftwareUpdateService(SessionBus& session, SystemBus* sys
     m_helper->uponSignal("Progress")
         .onInterface(kHelperName)
         .call([this](const std::string& stage, int percent, const std::string& package) {
-          m_runState = RunState::Running;
+          m_run.runSeen();
           m_stage = stage;
           m_percent = std::clamp(percent, 0, 100);
           m_stagePackage = package;
@@ -87,20 +87,25 @@ SoftwareUpdateService::SoftwareUpdateService(SessionBus& session, SystemBus* sys
         .call([this](bool ok, const std::string& message, const std::vector<std::string>& targets,
                      const std::vector<std::string>& questions, bool andromeda) {
           // Tonight's run may be refused before any Progress: its Finished still carries the reason.
-          if (m_runState != RunState::Running && !m_tonight) {
+          if (m_run.state() != RunState::Running && !m_tonight) {
             return;
           }
           m_tonight = false;
-          releaseWaiters();
           m_resultMessage = message;
           m_choice = Choice{.questions = questions, .andromeda = andromeda};
           m_lastAndromeda = andromeda;
-          m_runState = ok ? RunState::Done : (questions.empty() ? RunState::Failed : RunState::NeedsChoice);
+          m_run.runSeen();
+          auto next = m_run.finished(ok, !questions.empty());
           // Debian packages write /run/reboot-required from their maintainer scripts; Arch has no such file.
           if (ok &&
               (std::ranges::any_of(targets, needsRestart) || std::filesystem::exists("/run/reboot-required"))) {
             m_restartNeeded = true;
           }
+          if (next) {
+            startHelper(std::move(next));
+            return;
+          }
+          releaseWaiters();
           notify();
           if (ok) {
             check();
@@ -136,8 +141,8 @@ void SoftwareUpdateService::refresh() {
             m_tonight = !m_tonight;
             notify();
           }
-          if (running && m_runState != RunState::Running) {
-            m_runState = RunState::Running;
+          if (running && m_run.state() != RunState::Running) {
+            m_run.runSeen();
             m_stage.clear();
             notify();
           }
@@ -209,8 +214,8 @@ void SoftwareUpdateService::check() {
 }
 
 void SoftwareUpdateService::checkNow() {
-  if (m_runState == RunState::NeedsChoice || (m_runState == RunState::Failed && !needsSystemFirst())) {
-    m_runState = RunState::Idle;
+  if (m_run.state() == RunState::NeedsChoice || (m_run.state() == RunState::Failed && !needsSystemFirst())) {
+    m_run.dismiss();
     m_resultMessage.clear();
     m_choice = {};
     notify();
@@ -310,27 +315,33 @@ void SoftwareUpdateService::upgradeApps() {
 }
 
 void SoftwareUpdateService::upgrade() {
+  if (m_helper == nullptr) {
+    return;
+  }
   upgradeApps();
-  m_lastAndromeda = false;
-  startHelper("Upgrade", true, {});
+  startHelper(m_run.request({.scope = UpdateScope::All}));
 }
 
 void SoftwareUpdateService::upgradeAndromeda() {
-  m_lastAndromeda = true;
-  startHelper("UpgradeAndromeda", false, {});
+  if (m_helper == nullptr) {
+    return;
+  }
+  startHelper(m_run.request({.scope = UpdateScope::Andromeda}));
 }
 
 void SoftwareUpdateService::acceptAndUpgrade() {
-  if (m_runState == RunState::NeedsChoice) {
-    startHelper("UpgradeAccepting", false, m_choice);
+  if (m_helper != nullptr && m_run.state() == RunState::NeedsChoice) {
+    startHelper(m_run.request(
+        {.scope = m_choice.andromeda ? UpdateScope::Andromeda : UpdateScope::All, .accepted = m_choice.questions}
+    ));
   }
 }
 
-void SoftwareUpdateService::startHelper(const char* method, bool withDryRun, Choice accepted) {
-  if (m_helper == nullptr || m_runState == RunState::Running) {
+void SoftwareUpdateService::startHelper(std::optional<UpdateRequest> request) {
+  if (!request) {
     return;
   }
-  m_runState = RunState::Running;
+  m_lastAndromeda = request->scope == UpdateScope::Andromeda;
   m_stage.clear();
   m_stagePackage.clear();
   m_percent = 0;
@@ -340,12 +351,15 @@ void SoftwareUpdateService::startHelper(const char* method, bool withDryRun, Cho
   const std::weak_ptr<int> alive = m_lifetimeToken;
   try {
     // The reply comes after the polkit prompt; progress and the result follow as signals.
+    const bool andromeda = request->scope == UpdateScope::Andromeda;
+    const char* method =
+        !request->accepted.empty() ? "UpgradeAccepting" : (andromeda ? "UpgradeAndromeda" : "Upgrade");
     auto call = m_helper->callMethodAsync(method);
     call.onInterface(kHelperName);
-    if (withDryRun) {
+    if (!request->accepted.empty()) {
+      call.withArguments(andromeda, request->accepted);
+    } else if (!andromeda) {
       call.withArguments(false);
-    } else if (!accepted.questions.empty()) {
-      call.withArguments(accepted.andromeda, accepted.questions);
     }
     call.withTimeout(std::chrono::minutes(5))
         .uponReplyInvoke([this, alive](std::optional<sdbus::Error> error) {
@@ -353,12 +367,12 @@ void SoftwareUpdateService::startHelper(const char* method, bool withDryRun, Cho
             return;
           }
           const bool cancelled = error->getName() == "org.freedesktop.DBus.Error.AccessDenied";
-          m_runState = cancelled ? RunState::Idle : RunState::Failed;
+          m_run.stopped(cancelled);
           m_resultMessage = cancelled ? std::string() : error->getMessage();
           notify();
         });
   } catch (const sdbus::Error& e) {
-    m_runState = RunState::Failed;
+    m_run.stopped(false);
     m_resultMessage = e.getMessage();
     notify();
   }
@@ -408,7 +422,7 @@ void SoftwareUpdateService::afterSystemUpdate(std::function<void(bool waited)> t
             then(false);
             return;
           }
-          m_runState = RunState::Running;
+          m_run.runSeen();
           m_updateWaiter = then;
           // A hung transaction must not keep the session from ending forever.
           m_updateWaitCap.start(std::chrono::minutes(60), [this] { releaseWaiters(); });

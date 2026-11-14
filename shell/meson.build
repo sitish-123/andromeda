@@ -1117,6 +1117,7 @@ if build_tests
     'crash_records',
     'bar_island_aside',
     'damage_region',
+    'update_run',
     'dconf_read',
     'accent_pick',
     'accessible_tree',
