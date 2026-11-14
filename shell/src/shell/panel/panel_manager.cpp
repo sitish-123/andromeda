@@ -2945,8 +2945,9 @@ void PanelManager::driveContentMorph(float target, bool open) {
       [this, open](float v) {
         m_morphProgress = v;
         applyContentMorph();
-        // Return: in the last 10 % of the close travel the shape is the island; it fades out on fade_out (7.4).
-        if (!open && !m_returnFaded && v <= 0.1F && m_dsk != nullptr) {
+        // Return: the shape fades out while it shrinks (7.4 exits overlap); left opaque to the end, the shrinking
+        // sheet read as a small box over the island.
+        if (!open && !m_returnFaded && v <= 0.6F && m_dsk != nullptr) {
           m_returnFaded = true;
           m_dsk->animate(DskSurfaceClient::Property::Opacity, DskSurfaceClient::Curve::SpringEffectsFast, {0.0, 0.0, 0.0, 0.0});
         }
