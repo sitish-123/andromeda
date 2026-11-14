@@ -1,7 +1,8 @@
-//! Imports a speaker tuning from the user's own Windows install (a Dolby DAX3 driver file or an
-//! Equalizer APO config) into a profile that the `PipeWire` filter-chain generator reads.
+//! Imports a speaker tuning from the user's own Windows install (a Dolby DAX3 driver file, an HP
+//! Sonitude preset archive or an Equalizer APO config) into a profile that the `PipeWire` filter-chain generator reads.
 
 pub mod chain;
+pub mod sonitude;
 
 use std::collections::BTreeMap;
 
@@ -15,13 +16,13 @@ pub const MAX_XML_BYTES: usize = 4 << 20;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Tuning {
-    /// Where the tuning came from, shown in Settings: `Dolby` or `Equalizer APO`.
+    /// Where the tuning came from, shown in Settings: `Dolby`, `Sonitude` or `Equalizer APO`.
     #[serde(default = "dolby")]
     pub source: String,
     /// HDA codec subsystem id, upper-case hex, for example `10431A63`.
     pub subsystem: String,
     pub tuning_date: String,
-    /// Centre frequencies of the 20 Dolby bands at 48 kHz.
+    /// Band centres of the per-channel curve: 20 Dolby bands at 48 kHz, or a Sonitude 1/3-octave grid.
     pub band_freqs_hz: Vec<f64>,
     pub endpoints: Vec<Endpoint>,
 }

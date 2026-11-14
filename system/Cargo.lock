@@ -113,7 +113,9 @@ dependencies = [
  "quick-xml",
  "rustix",
  "serde",
+ "tempfile",
  "toml",
+ "zip",
 ]
 
 [[package]]

@@ -13,7 +13,7 @@ pub const SINK_NAME: &str = "andromeda_speakers";
 /// Above the internal speaker sink (1009 on SOF/UCM), below headphones and HDMI picked by the user.
 pub const SINK_PRIORITY: u32 = 1010;
 const FS: f64 = 48_000.0;
-const DAX: f64 = 16.0;
+pub(crate) const DAX: f64 = 16.0;
 
 pub struct Settings<'a> {
     pub profile: &'a str,
@@ -166,9 +166,9 @@ context.modules = [
     ))
 }
 
-/// Target curve in dB at the 20 band centres for one channel.
-pub fn channel_curve(p: &Profile, ch: usize) -> Vec<f64> {
-    let mut curve = vec![0.0; 20];
+/// Target curve in dB at the `bands` band centres for one channel.
+pub fn channel_curve(p: &Profile, ch: usize, bands: usize) -> Vec<f64> {
+    let mut curve = vec![0.0; bands];
     let mut add = |map: &std::collections::BTreeMap<String, Vec<f64>>, enable: &str, key: &str| {
         if map.get(enable).and_then(|v| v.first()).is_some_and(|&e| e > 0.0)
             && let Some(v) = map.get(key)
@@ -192,8 +192,8 @@ pub fn channel_eq(t: &Tuning, p: &Profile, ch: usize) -> Vec<Band> {
     if t.band_freqs_hz.is_empty() {
         return peq.collect();
     }
-    let curve = channel_curve(p, ch);
     let centres = &t.band_freqs_hz;
+    let curve = channel_curve(p, ch, centres.len());
     // Fit bands at the centres and their geometric midpoints: a sum of smooth bells
     // cannot follow the curve's kinks with the 20 centres alone.
     let freqs: Vec<f64> = centres

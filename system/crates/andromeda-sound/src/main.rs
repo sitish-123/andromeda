@@ -303,10 +303,13 @@ fn import(mut args: impl Iterator<Item = String>) -> Result<PathBuf> {
         let bytes = fs::read(&p).with_context(|| format!("read {}", p.display()))?;
         andromeda_sound::parse(std::str::from_utf8(&bytes).context("tuning file is not UTF-8")?)?
     } else {
-        let stem = codec_stem()?;
-        let found = with_windows(windows, |roots| roots.iter().find_map(|r| find_tuning(r, &stem)));
+        let (vendor, subsys) = codec_ids()?;
+        let stem = andromeda_sound::driver_file_stem(vendor, subsys);
+        let found = with_windows(windows, |roots| roots.iter().find_map(|r| find_tuning(r, &stem, vendor)));
         found.with_context(|| {
-            format!("no Windows partition with a speaker tuning (Dolby {stem}*.xml or Equalizer APO config)")
+            format!(
+                "no Windows partition with a speaker tuning (Dolby {stem}*.xml, Sonitude archive or Equalizer APO config)"
+            )
         })??
     };
     write_tuning(&tuning, args_out(out))
@@ -349,14 +352,17 @@ fn with_windows<T>(given: Option<PathBuf>, f: impl Fn(&[PathBuf]) -> Option<T>) 
     found
 }
 
-/// The Dolby driver file for this codec, else the Equalizer APO config, parsed.
-fn find_tuning(root: &Path, stem: &str) -> Option<Result<andromeda_sound::Tuning>> {
+/// The Dolby driver file for this codec, else a Sonitude preset, else the Equalizer APO config, parsed.
+fn find_tuning(root: &Path, stem: &str, vendor_id: u32) -> Option<Result<andromeda_sound::Tuning>> {
     if let Some(f) = find_driver_file(root, stem) {
         return Some(
             fs::read(&f)
                 .with_context(|| format!("read {}", f.display()))
                 .and_then(|b| andromeda_sound::parse(std::str::from_utf8(&b).context("tuning file is not UTF-8")?)),
         );
+    }
+    if let Some(found) = find_sonitude(root, vendor_id, &subsystem_of(stem)) {
+        return Some(found);
     }
     let eqapo = root.join("Program Files/EqualizerAPO/config/config.txt");
     eqapo.is_file().then(|| eqapo_file(&eqapo, Some(root), &subsystem_of(stem)))
@@ -391,9 +397,9 @@ fn subsystem_of(stem: &str) -> String {
 /// Lists what a Windows install holds for audio tuning, for formats we do not read yet:
 /// vendor packages in the driver store and known vendor folders, with file sizes.
 fn probe(mut args: impl Iterator<Item = String>) -> Result<()> {
-    const VENDORS: [&str; 14] = [
+    const VENDORS: [&str; 15] = [
         "dax", "dolby", "dts", "waves", "maxx", "nahimic", "sonic", "realtek", "rtk", "hdx", "cirrus", "tas2",
-        "smartamp", "bang",
+        "smartamp", "bang", "snapo",
     ];
     let windows = match (args.next().as_deref(), args.next()) {
         (Some("--windows"), Some(w)) => Some(PathBuf::from(w)),
@@ -452,7 +458,7 @@ fn list_tuning_files(dir: &Path, depth: u32, out: &mut Vec<(PathBuf, u64)>) {
         if p.is_dir() && depth < 3 {
             list_tuning_files(&p, depth + 1, out);
         } else if p.extension().is_some_and(|x| {
-            ["xml", "ini", "dat", "bin", "json", "cfg", "txt", "preset", "wvs", "xmc"]
+            ["xml", "ini", "dat", "bin", "json", "cfg", "txt", "preset", "wvs", "xmc", "zip"]
                 .iter()
                 .any(|k| x.eq_ignore_ascii_case(k))
         }) {
@@ -476,8 +482,13 @@ fn mount_ntfs_ro() -> Vec<(String, PathBuf)> {
         .collect()
 }
 
-/// The analog codec: Intel (0x8086) entries are HDMI.
 fn codec_stem() -> Result<String> {
+    let (vendor, subsys) = codec_ids()?;
+    Ok(andromeda_sound::driver_file_stem(vendor, subsys))
+}
+
+/// The analog codec's vendor and subsystem IDs: Intel (0x8086) entries are HDMI.
+fn codec_ids() -> Result<(u32, u32)> {
     for dev in fs::read_dir("/sys/bus/hdaudio/devices")?.flatten() {
         let read = |f: &str| {
             fs::read_to_string(dev.path().join(f))
@@ -487,7 +498,7 @@ fn codec_stem() -> Result<String> {
         if let (Some(vendor), Some(subsys)) = (read("vendor_id"), read("subsystem_id"))
             && vendor >> 16 != 0x8086
         {
-            return Ok(andromeda_sound::driver_file_stem(vendor, subsys));
+            return Ok((vendor, subsys));
         }
     }
     bail!("no analog HDA codec in /sys/bus/hdaudio/devices")
@@ -500,6 +511,71 @@ fn mounted_windows_roots() -> Vec<PathBuf> {
         .map(|(_, at)| PathBuf::from(at))
         .filter(|p| !p.as_os_str().is_empty() && p.join("Windows").is_dir())
         .collect()
+}
+
+/// The newest Sonitude package's preset for this codec; an archive that fails to read is
+/// reported only when no other archive names this subsystem.
+fn find_sonitude(root: &Path, vendor_id: u32, subsystem: &str) -> Option<Result<andromeda_sound::Tuning>> {
+    let store = root.join("Windows/System32/DriverStore/FileRepository");
+    let mut packages: Vec<PathBuf> = fs::read_dir(store)
+        .ok()?
+        .flatten()
+        .filter(|d| d.file_name().to_string_lossy().to_ascii_lowercase().starts_with("snapo64ext.inf_amd64_"))
+        .map(|d| d.path())
+        .collect();
+    packages.sort_by_cached_key(|p| std::cmp::Reverse(driver_version(p)));
+    // Windows binds the INTELAUDIO archive behind Intel's audio DSP driver (SOF), HDAUDIO otherwise.
+    let buses =
+        if Path::new("/sys/module/snd_sof").exists() { ["INTELAUDIO", "HDAUDIO"] } else { ["HDAUDIO", "INTELAUDIO"] };
+    let mut failed = None;
+    for pkg in packages {
+        let files: Vec<PathBuf> = fs::read_dir(&pkg).into_iter().flatten().flatten().map(|d| d.path()).collect();
+        for bus in buses {
+            let want = andromeda_sound::sonitude::archive_name(bus, vendor_id);
+            let Some(archive) =
+                files.iter().find(|f| f.file_name().is_some_and(|n| n.to_string_lossy().to_ascii_uppercase() == want))
+            else {
+                continue;
+            };
+            match andromeda_sound::sonitude::read_archive(archive, subsystem) {
+                Ok(Some(t)) => return Some(Ok(t)),
+                Ok(None) => {}
+                Err(e) => failed = failed.or(Some(e)),
+            }
+        }
+    }
+    failed.map(Err)
+}
+
+/// The `DriverVer` date in a package's INF as (year, month, day); zero when there is none.
+fn driver_version(pkg: &Path) -> (u32, u32, u32) {
+    let text = fs::read_dir(pkg)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|d| d.path())
+        .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("inf")))
+        .filter_map(|p| fs::read(p).ok())
+        .map(|b| match b.as_slice() {
+            [0xff, 0xfe, rest @ ..] => String::from_utf16_lossy(
+                &rest.as_chunks::<2>().0.iter().map(|&c| u16::from_le_bytes(c)).collect::<Vec<_>>(),
+            ),
+            _ => String::from_utf8_lossy(&b).into_owned(),
+        })
+        .next()
+        .unwrap_or_default();
+    text.lines()
+        .find_map(|l| {
+            let (key, value) = l.split_once('=')?;
+            if !key.trim().eq_ignore_ascii_case("DriverVer") {
+                return None;
+            }
+            let date = value.split(',').next()?.trim();
+            let mut it = date.split('/').map(|n| n.trim().parse::<u32>().ok());
+            let (m, d, y) = (it.next()??, it.next()??, it.next()??);
+            Some((y, m, d))
+        })
+        .unwrap_or_default()
 }
 
 fn find_driver_file(root: &Path, stem: &str) -> Option<PathBuf> {
