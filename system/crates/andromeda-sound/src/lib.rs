@@ -2,6 +2,7 @@
 //! Sonitude preset archive or an Equalizer APO config) into a profile that the `PipeWire` filter-chain generator reads.
 
 pub mod chain;
+pub mod dax2;
 pub mod sonitude;
 
 use std::collections::BTreeMap;
