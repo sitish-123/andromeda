@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <span>
+#include <vector>
 
 using AudioDeviceRoutes = std::span<const PipeWireService::DeviceRouteData>;
 
@@ -33,3 +34,13 @@ activeAudioDeviceRoute(AudioDeviceRoutes routes, std::uint32_t wantDirection, st
 // and is now another port, or that route became unavailable (jack sense). `before` is the card's routes until now.
 // WirePlumber pauses media when a Bluetooth, USB or HDMI sink goes away, never for a jack (docs/system-health.md §12.2).
 [[nodiscard]] bool headphonesUnplugged(AudioDeviceRoutes before, const PipeWireService::DeviceRouteData& now);
+
+// One output row a user picks from. A virtual sink that enhances another (andromeda.enhances) is not a row: the sink
+// it enhances stands for it, and picking that row picks the enhancer (`pickId`). Unavailable ports are dropped unless
+// current.
+struct SinkChoice {
+  const AudioNode* node = nullptr;
+  std::uint32_t pickId = 0;
+  bool current = false;
+};
+[[nodiscard]] std::vector<SinkChoice> sinkChoices(const AudioState& state);

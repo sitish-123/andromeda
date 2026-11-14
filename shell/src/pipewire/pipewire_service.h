@@ -47,6 +47,7 @@ struct AudioNode {
   std::uint32_t deviceId = 0; // the card, 0 for nodes without one
   std::string portType;       // SPA route "port.type" of the node's route ("hdmi", "speaker", ...), empty without one
   bool portConnected = false; // that route reports availability yes (a jack or HDMI sink is plugged in)
+  std::string enhances;       // node.name of the sink this virtual sink processes (prop andromeda.enhances), else empty
 
   bool operator==(const AudioNode&) const = default;
 };
@@ -196,6 +197,7 @@ public:
     std::uint32_t deviceId = 0;
     // Binds this node to the matching route.device from its card's ParamRoute table.
     std::int32_t profileDevice = -1;
+    std::string enhances;
     bool hasRoute = false;
     std::int32_t routeIndex = -1;
     std::int32_t routeDevice = -1;

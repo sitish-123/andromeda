@@ -104,5 +104,19 @@ int main() {
     ok = false;
   }
 
+  // The speaker row stands for its enhancer; unplugged HDMI is hidden; the enhancer itself is never a row.
+  AudioState audio;
+  audio.sinks = {
+      AudioNode{.id = 10, .name = "hw_speaker"},
+      AudioNode{.id = 11, .name = "hw_hdmi", .available = false},
+      AudioNode{.id = 12, .name = "andromeda_speakers", .enhances = "hw_speaker"},
+  };
+  audio.defaultSinkId = 12;
+  const std::vector<SinkChoice> choices = sinkChoices(audio);
+  if (choices.size() != 1 || choices[0].node->id != 10 || choices[0].pickId != 12 || !choices[0].current) {
+    std::println(stderr, "audio_route_selection_test: expected one current speaker row that picks the enhancer");
+    ok = false;
+  }
+
   return ok ? 0 : 1;
 }

@@ -26,6 +26,7 @@
 #include "dbus/upower/upower_service.h"
 #include "i18n/i18n.h"
 #include "notification/notification_manager.h"
+#include "pipewire/audio_route_selection.h"
 #include "pipewire/pipewire_service.h"
 #include "shell/control_center/bluetooth_glyph.h"
 #include "shell/control_center/charge_limit.h"
@@ -791,12 +792,7 @@ namespace control_center {
       };
     };
 
-    std::vector<const AudioNode*> outputs;
-    for (const AudioNode& n : state.sinks) {
-      if (n.available || n.id == state.defaultSinkId) {
-        outputs.push_back(&n);
-      }
-    }
+    const std::vector<SinkChoice> outputs = sinkChoices(state);
     Flex* card = addGroup(tr("control-center.detail.sound.output"));
     if (outputs.empty()) {
       DetailRow row;
@@ -805,17 +801,17 @@ namespace control_center {
     }
     const std::size_t shownOutputs = m_showAllOutputs ? outputs.size() : std::min(outputs.size(), kCollapsedRows);
     for (std::size_t i = 0; i < shownOutputs; ++i) {
-      const AudioNode& n = *outputs[i];
+      const SinkChoice& choice = outputs[i];
       DetailRow row;
       row.glyph = "volume";
-      row.title = title(n);
-      row.selected = n.id == state.defaultSinkId;
-      row.onClick = [this, id = n.id] { m_audio->setDefaultSink(id); };
+      row.title = title(*choice.node);
+      row.selected = choice.current;
+      row.onClick = [this, id = choice.pickId] { m_audio->setDefaultSink(id); };
       addRow(*card, row);
       addSliderRow(*card, {.glyph = "volume",
                            .title = tr("control-center.detail.sound.output"),
-                           .value = level(n.id, false),
-                           .onChange = [this, id = n.id](float v) { m_audio->setSinkVolume(id, v); }});
+                           .value = level(choice.pickId, false),
+                           .onChange = [this, id = choice.pickId](float v) { m_audio->setSinkVolume(id, v); }});
     }
     if (outputs.size() > kCollapsedRows) {
       addShowAll(*card, m_showAllOutputs, [this] {
@@ -867,6 +863,9 @@ namespace control_center {
       addRow(*inputs, row);
     }
     for (const AudioNode& n : state.sources) {
+      if (!n.available && n.id != state.defaultSourceId) {
+        continue;
+      }
       DetailRow row;
       row.glyph = "microphone";
       row.title = title(n);

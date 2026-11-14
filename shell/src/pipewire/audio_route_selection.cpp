@@ -95,3 +95,24 @@ bool headphonesUnplugged(AudioDeviceRoutes before, const PipeWireService::Device
   });
   return was != before.end() && headphonesRoute(*was) && !headphonesRoute(now);
 }
+
+std::vector<SinkChoice> sinkChoices(const AudioState& state) {
+  std::vector<SinkChoice> out;
+  for (const AudioNode& n : state.sinks) {
+    if (!n.enhances.empty()) {
+      continue;
+    }
+    std::uint32_t pick = n.id;
+    for (const AudioNode& e : state.sinks) {
+      if (e.enhances == n.name) {
+        pick = e.id;
+        break;
+      }
+    }
+    const bool current = n.id == state.defaultSinkId || pick == state.defaultSinkId;
+    if (n.available || current) {
+      out.push_back({.node = &n, .pickId = pick, .current = current});
+    }
+  }
+  return out;
+}

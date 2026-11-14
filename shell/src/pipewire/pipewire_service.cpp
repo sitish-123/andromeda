@@ -1276,6 +1276,11 @@ void PipeWireService::onRegistryGlobal(std::uint32_t id, const char* type, std::
     }
     nd->clientId = parseUint32Or(dictGet(props, "client.id"));
     nd->deviceId = parseUint32Or(dictGet(props, "device.id"));
+    // A card's node.description repeats the card name ("Core Ultra ... HD Audio Speaker"); its nick is the port.
+    if (std::string nick = dictGet(props, PW_KEY_NODE_NICK); nd->deviceId != 0 && !nick.empty()) {
+      nd->description = std::move(nick);
+    }
+    nd->enhances = dictGet(props, "andromeda.enhances");
     nd->profileDevice = parseInt32Or(dictGet(props, "card.profile.device"));
     nd->applicationName = dictGet(props, "application.name");
     if (nd->applicationName.empty()) {
@@ -1459,6 +1464,9 @@ void PipeWireService::onNodeInfo(std::uint32_t id, const pw_node_info* info) {
       nd.mediaClass = std::move(mediaClass);
     }
     std::string desc = dictGet(info->props, PW_KEY_NODE_DESCRIPTION);
+    if (std::string nick = dictGet(info->props, PW_KEY_NODE_NICK); nd.deviceId != 0 && !nick.empty()) {
+      desc = std::move(nick);
+    }
     if (!desc.empty()) {
       nd.description = desc;
     }
@@ -1988,6 +1996,7 @@ void PipeWireService::rebuildState() {
     const AudioDeviceRoutes deviceRoutes = device != nullptr ? AudioDeviceRoutes{device->routes} : AudioDeviceRoutes{};
     node.available = !isDeviceNode || audioNodeRouteAvailable(nd->routes, deviceRoutes, wantDir, nd->profileDevice);
     node.deviceId = nd->deviceId;
+    node.enhances = nd->enhances;
     if (const DeviceRouteData* route =
             isDeviceNode ? audioNodeRoute(nd->routes, deviceRoutes, wantDir, nd->profileDevice) : nullptr) {
       node.portType = route->portType;

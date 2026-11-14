@@ -1,6 +1,7 @@
 #include "shell/settings/settings_content_sound.h"
 
 #include "i18n/i18n.h"
+#include "pipewire/audio_route_selection.h"
 #include "pipewire/pipewire_service.h"
 #include "shell/settings/settings_page_rows.h"
 #include "ui/builders.h"
@@ -20,8 +21,16 @@ namespace settings {
       const float scale = ctx.scale;
       PipeWireService* audio = ctx.audio;
       const AudioState& state = audio->state();
-      const auto& nodes = output ? state.sinks : state.sources;
-      const std::uint32_t current = output ? state.defaultSinkId : state.defaultSourceId;
+      std::vector<SinkChoice> nodes;
+      if (output) {
+        nodes = sinkChoices(state);
+      } else {
+        for (const AudioNode& n : state.sources) {
+          if (n.available || n.id == state.defaultSourceId) {
+            nodes.push_back({.node = &n, .pickId = n.id, .current = n.id == state.defaultSourceId});
+          }
+        }
+      }
 
       addHeader(content, i18n::tr(output ? "settings.sound.output" : "settings.sound.input"), nullptr, scale);
       Flex* card = addCard(content, scale);
@@ -32,14 +41,14 @@ namespace settings {
         card->addChild(std::move(r));
         return;
       }
-      for (const auto& node : nodes) {
+      for (const SinkChoice& choice : nodes) {
         auto r = row(scale);
         r->addChild(symbol(output ? "volume" : "microphone", Tokens::sizeSymbol * scale, ColorRole::Label2));
-        r->addChild(title(audioDeviceLabel(node), scale));
-        if (node.id == current) {
+        r->addChild(title(audioDeviceLabel(*choice.node), scale));
+        if (choice.current) {
           r->addChild(symbol("check", Tokens::sizeSymbol * scale, ColorRole::AccentText));
         } else {
-          r->addChild(plainButton(i18n::tr("settings.sound.use"), ButtonVariant::Ghost, scale, [audio, output, id = node.id] {
+          r->addChild(plainButton(i18n::tr("settings.sound.use"), ButtonVariant::Ghost, scale, [audio, output, id = choice.pickId] {
             if (output) {
               audio->setDefaultSink(id);
             } else {
