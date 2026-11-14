@@ -2034,6 +2034,33 @@ void Application::applyFocusTriggers() {
   }
 }
 
+void Application::scheduleFocusUpdate() {
+  m_focusTriggerTimer.start(std::chrono::milliseconds(0), [this] {
+    applyFocusTriggers();
+    applyFocusFilters();
+  });
+}
+
+void Application::applyFocusFilters() {
+  const auto active = m_notificationManager.focus().active();
+  const auto& filters = m_configService.config().notification.focusFilters;
+  const auto it = active.has_value() ? std::ranges::find(filters, active->focusId, &FocusFilterConfig::name)
+                                     : filters.end();
+  const FocusFilterConfig next = it != filters.end() ? *it : FocusFilterConfig{};
+  if (next == m_appliedFocusFilter) {
+    return;
+  }
+  m_appliedFocusFilter = next;
+  const std::string scheme = next.scheme == "light" || next.scheme == "dark" ? next.scheme : "";
+  // The layer first: the publish that the override triggers must not reach the user's scheme.
+  m_liveAppearance.setFocusScheme(scheme);
+  m_themeService.setModeOverride(scheme);
+  m_wallpaper.setFocusPath(next.wallpaper.empty() ? "" : FileUtils::expandUserPath(next.wallpaper).string());
+  m_bar.setFocusBars(next.bars.empty() ? std::nullopt : std::optional(next.bars));
+  m_notificationManager.setHideHeldBadges(next.hideBadges);
+  m_dock.refresh();
+}
+
 void Application::applyRuleDoNotDisturb() {
   const bool hold = m_systemHealthService != nullptr
       && m_systemHealthService->knob("notifications.dnd").value_or(0.0) > 0.0;

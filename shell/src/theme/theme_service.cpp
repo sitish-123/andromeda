@@ -180,6 +180,14 @@ namespace noctalia::theme {
     m_resolvedCallback(generated, mode);
   }
 
+  void ThemeService::setModeOverride(std::string mode) {
+    if (mode == m_modeOverride) {
+      return;
+    }
+    m_modeOverride = std::move(mode);
+    resolveAndSet(true);
+  }
+
   void ThemeService::resolveAndSet(bool animate) {
     profiling::ScopedTimer t(kLog, "theme: resolveAndSet");
     const auto& cfg = m_config.config().theme;
@@ -195,8 +203,8 @@ namespace noctalia::theme {
       }
       return *scheduleNight ? "dark" : "light";
     };
-    const std::string mode = modeName(cfg.mode);
-    const std::string shellMode = modeName(shellThemeMode(cfg));
+    const std::string mode = m_modeOverride.empty() ? modeName(cfg.mode) : m_modeOverride;
+    const std::string shellMode = m_modeOverride.empty() ? modeName(shellThemeMode(cfg)) : m_modeOverride;
 
     std::optional<ResolvedTheme> resolved = resolveTokens(mode, shellMode);
     if (cfg.pureBlackDark) {

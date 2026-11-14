@@ -521,6 +521,16 @@ namespace noctalia::config::schema {
     return s;
   }
 
+  const Schema<FocusFilterConfig>& focusFilterSchema() {
+    static const Schema<FocusFilterConfig> s = {
+        field(&FocusFilterConfig::wallpaper, "wallpaper"),
+        field(&FocusFilterConfig::scheme, "scheme"),
+        field(&FocusFilterConfig::bars, "bars"),
+        field(&FocusFilterConfig::hideBadges, "hide_badges"),
+    };
+    return s;
+  }
+
   const Schema<NotificationConfig>& notificationSchema() {
     static const Schema<NotificationConfig> s = {
         field(
@@ -660,6 +670,11 @@ namespace noctalia::config::schema {
             &NotificationConfig::focusTriggers, "focus_trigger", focusTriggerSchema(),
             [](FocusTriggerConfig& trigger, std::string_view name) { trigger.name = std::string(name); },
             [](const FocusTriggerConfig& trigger) { return trigger.name; }
+        ),
+        namedMap<NotificationConfig, FocusFilterConfig>(
+            &NotificationConfig::focusFilters, "focus", focusFilterSchema(),
+            [](FocusFilterConfig& filter, std::string_view name) { filter.name = std::string(name); },
+            [](const FocusFilterConfig& filter) { return filter.name; }
         ),
         custom<NotificationConfig>(
             "",

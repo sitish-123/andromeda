@@ -511,12 +511,24 @@ void Wallpaper::onOutputChange() {
   }
 }
 
+std::string Wallpaper::shownPath(const std::string& connector) const {
+  return m_focusPath.empty() ? m_config->getWallpaperPath(connector) : m_focusPath;
+}
+
+void Wallpaper::setFocusPath(std::string path) {
+  if (path == m_focusPath) {
+    return;
+  }
+  m_focusPath = std::move(path);
+  (void)onStateChange();
+}
+
 std::vector<WallpaperChange> Wallpaper::onStateChange() {
   kLog.info("state file changed, checking for updates");
 
   std::vector<WallpaperChange> changes;
   for (auto& inst : m_instances) {
-    auto newPath = m_config->getWallpaperPath(inst->connectorName);
+    auto newPath = shownPath(inst->connectorName);
     if (inst->surface == nullptr || inst->wallpaperNode == nullptr) {
       continue;
     }
@@ -1252,7 +1264,7 @@ Wallpaper::SwitchOutcome Wallpaper::switchWallpaperTo(PickWallpaper action, std:
 }
 
 void Wallpaper::createInstance(const WaylandOutput& output) {
-  auto wallpaperPath = m_config->getWallpaperPath(output.connectorName);
+  auto wallpaperPath = shownPath(output.connectorName);
   kLog.info("creating on {} ({}), path={}", output.connectorName, output.description, wallpaperPath);
 
   auto instance = std::make_unique<WallpaperInstance>();

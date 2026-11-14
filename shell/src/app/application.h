@@ -409,6 +409,11 @@ private:
   void applyRuleDoNotDisturb();
   // Reads the trigger inputs, starts or ends the trigger Focus, and arms the timer for the next schedule edge.
   void applyFocusTriggers();
+  // Applies the [notification.focus.<id>] filters of the Focus on now, or drops them; the user's settings stay.
+  void applyFocusFilters();
+  // Triggers and filters on the next loop turn: after startup (the saved Focus is restored in the constructor), and
+  // after startFocus ends the old Focus first, an interim change that must not read as a dismissal.
+  void scheduleFocusUpdate();
   // After an unlock: the wrong passwords typed while locked, with their times (docs/system-health.md §12.4).
   void notifyFailedUnlocks(const std::vector<std::int64_t>& rejectedAtMs);
   // The idle "dim" action: per display the brightness before the dim and the dimmed level.
@@ -583,6 +588,7 @@ private:
   std::vector<focus::Trigger> m_focusTriggers;
   focus::TriggerState m_focusTriggerState;
   Timer m_focusTriggerTimer;
+  FocusFilterConfig m_appliedFocusFilter;
   Timer m_speakerOfferTimer;
   Timer m_handoffTimer;
   Timer m_polkitIdleCloseTimer;

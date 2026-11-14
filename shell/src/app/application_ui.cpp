@@ -1049,7 +1049,7 @@ void Application::initNotificationAndOsd() {
   m_configService.addReloadCallback(applyDismissedHistory);
   auto applyFocusTriggerConfig = [this] {
     m_focusTriggers = focus::triggersFromConfig(m_configService.config().notification.focusTriggers);
-    applyFocusTriggers();
+    scheduleFocusUpdate();
   };
   applyFocusTriggerConfig();
   m_configService.addReloadCallback(applyFocusTriggerConfig);

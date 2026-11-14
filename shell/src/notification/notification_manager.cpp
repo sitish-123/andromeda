@@ -930,6 +930,12 @@ bool NotificationManager::toggleDoNotDisturb() {
   return doNotDisturb();
 }
 
+bool NotificationManager::badgeHidden(std::string_view desktopEntry) const {
+  const focus::Focus* active = m_hideHeldBadges ? m_focus.current(std::time(nullptr)) : nullptr;
+  return active != nullptr
+      && focus::decide(active, {.app = focus::identity(desktopEntry, "", "", "")}, false).verdict == focus::Verdict::Hold;
+}
+
 bool NotificationManager::startFocus(
     std::string_view id, std::optional<std::int64_t> untilEpochSec, std::string startedBy
 ) {

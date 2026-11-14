@@ -340,6 +340,18 @@ struct FocusTriggerConfig {
   bool operator==(const FocusTriggerConfig&) const = default;
 };
 
+// [notification.focus.<id>] (docs/focus.md §1 Focus filters): how a Focus changes the desktop while it is on. The
+// changes sit on top of the user's settings and never rewrite them.
+struct FocusFilterConfig {
+  std::string name;              // the Focus id
+  std::string wallpaper;         // image path; empty: the user's wallpaper
+  std::string scheme;            // "light" | "dark"; empty: the user's scheme
+  std::vector<std::string> bars; // names of the bars that show; empty: the user's bars
+  bool hideBadges = false;       // no dock unread badge for apps the Focus holds
+
+  bool operator==(const FocusFilterConfig&) const = default;
+};
+
 struct IdleConfig {
   std::vector<IdleBehaviorConfig> behaviors;
   /// When > 0, after the compositor reports idle the shell fades a fullscreen overlay (surface color)
@@ -903,6 +915,7 @@ struct NotificationConfig {
 
   std::vector<NotificationFilterConfig> filters;
   std::vector<FocusTriggerConfig> focusTriggers;
+  std::vector<FocusFilterConfig> focusFilters;
 
   bool operator==(const NotificationConfig&) const = default;
 };

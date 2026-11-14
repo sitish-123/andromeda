@@ -63,6 +63,8 @@ public:
 
   bool initialize(const BarServices& services);
   void reload();
+  // A Focus bar set: only these bar names show, without changing the config; nullopt: the configured bars.
+  void setFocusBars(std::optional<std::vector<std::string>> names);
   void closeAllInstances();
   void show();
   void hide();
@@ -200,6 +202,8 @@ private:
 
   CompositorPlatform* m_platform = nullptr;
   ConfigService* m_config = nullptr;
+  std::optional<std::vector<std::string>> m_focusBars;
+  [[nodiscard]] BarConfig resolveBar(const BarConfig& base, const WaylandOutput& output) const;
   NotificationManager* m_notifications = nullptr;
   TrayService* m_tray = nullptr;
   PipeWireService* m_audio = nullptr;

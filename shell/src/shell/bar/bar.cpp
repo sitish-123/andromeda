@@ -304,6 +304,22 @@ void Bar::onSecondTick() {
   }
 }
 
+BarConfig Bar::resolveBar(const BarConfig& base, const WaylandOutput& output) const {
+  BarConfig resolved = ConfigService::resolveForOutput(base, output, m_config->config().accessibility.uiScale);
+  if (m_focusBars.has_value() && !std::ranges::contains(*m_focusBars, base.name)) {
+    resolved.enabled = false;
+  }
+  return resolved;
+}
+
+void Bar::setFocusBars(std::optional<std::vector<std::string>> names) {
+  if (names == m_focusBars) {
+    return;
+  }
+  m_focusBars = std::move(names);
+  reload();
+}
+
 void Bar::reload() {
   noctalia::profiling::ScopedTimer t(kLog, "bar: reload (all instances)");
   kLog.info("reloading config");
@@ -354,7 +370,7 @@ void Bar::reload() {
     if (outIt == outputs.end()) {
       return true;
     }
-    auto resolved = ConfigService::resolveForOutput(*it->second.first, *outIt, m_config->config().accessibility.uiScale);
+    auto resolved = resolveBar(*it->second.first, *outIt);
     if (!resolved.enabled) {
       return true;
     }
@@ -398,7 +414,7 @@ void Bar::reload() {
       return destroy();
     }
 
-    auto resolved = ConfigService::resolveForOutput(*it->second.first, *outIt, m_config->config().accessibility.uiScale);
+    auto resolved = resolveBar(*it->second.first, *outIt);
     if (!resolved.enabled) {
       return destroy();
     }

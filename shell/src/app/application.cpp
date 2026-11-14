@@ -286,8 +286,7 @@ Application::Application()
     );
     (void)m_configService.setStateString("focus", "started_by", active.has_value() ? active->startedBy : "");
     (void)m_configService.setStateString("focus", "last", m_notificationManager.lastFocusId());
-    // Deferred: startFocus ends the old Focus first, and that interim change must not read as a dismissal.
-    m_focusTriggerTimer.start(std::chrono::milliseconds(0), [this] { applyFocusTriggers(); });
+    scheduleFocusUpdate();
   });
   m_notificationManager.setLastFocusId(m_configService.stateString("focus", "last").value_or("dnd"));
   if (const auto id = m_configService.stateString("focus", "active"); id.has_value() && !id->empty()) {

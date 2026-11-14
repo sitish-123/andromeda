@@ -50,6 +50,8 @@ namespace noctalia::theme {
 
     // The compositor's live appearance: accent "#rrggbb" (empty keeps the token accent) and increased contrast.
     void setLiveAppearance(std::string accent, bool increaseContrast);
+    // A Focus scheme ("light" | "dark") over both resolved modes, never saved; empty: the configured modes.
+    void setModeOverride(std::string mode);
 
     // Accent colors for GTK/Qt/KDE files in the resolved app mode: the target palette, not a mid-fade value.
     struct ToolkitColors {
@@ -98,6 +100,7 @@ namespace noctalia::theme {
     AnimationManager::Id m_transitionAnimId = 0;
     bool m_transitionResolvedCallbackFlushed = false;
     bool m_isShellLightMode = false;
+    std::string m_modeOverride;
     bool m_isLightMode = false;
     std::optional<double> m_autoLatitude;
     std::optional<double> m_autoLongitude;

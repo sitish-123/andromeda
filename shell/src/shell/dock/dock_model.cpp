@@ -72,7 +72,8 @@ namespace shell::dock {
     // Unread: not yet seen in the notification history, and not closed by the user or the app.
     std::size_t unreadCountFor(const NotificationManager& notifications, const DockItemModel& item) {
       return static_cast<std::size_t>(std::ranges::count_if(notifications.history(), [&](const auto& entry) {
-        if (entry.seen || !entry.notification.desktopEntry.has_value()) {
+        if (entry.seen || !entry.notification.desktopEntry.has_value()
+            || notifications.badgeHidden(*entry.notification.desktopEntry)) {
           return false;
         }
         if (entry.closeReason == CloseReason::Dismissed || entry.closeReason == CloseReason::ClosedByCall) {

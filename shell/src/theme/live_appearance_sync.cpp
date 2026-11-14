@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <array>
 #include <format>
 
 namespace {
@@ -75,7 +76,9 @@ void LiveAppearanceSync::initialize(ShellWaylandConnection& wayland, ChangeCallb
 }
 
 void LiveAppearanceSync::publish(std::string_view scheme, std::string_view accent) {
-  m_scheme = std::string(scheme);
+  if (m_focusScheme.empty()) {
+    m_scheme = std::string(scheme);
+  }
   m_accent = normalizeColor(accent);
   flush();
 }
@@ -91,11 +94,39 @@ void LiveAppearanceSync::setAccent(std::string_view accent) {
   flush();
 }
 
+void LiveAppearanceSync::setFocusScheme(std::string scheme) {
+  m_focusScheme = std::move(scheme);
+  flush();
+}
+
 void LiveAppearanceSync::flush() {
   if (m_control == nullptr || !m_control->ready()) {
     return;
   }
-  if (!m_scheme.empty()) {
+  // Blur recipe per scheme (glass tokens): the user's in the settings, a Focus scheme's in its layer.
+  const auto recipe = [](std::string_view scheme) {
+    const bool light = scheme == "light";
+    return std::array<std::pair<std::string, std::string>, 3>{{
+        {"appearance.blur.saturation", std::format("{:g}", light ? Tokens::blurLightSaturation : Tokens::blurSaturation)},
+        {"appearance.blur.brightness", std::format("{:g}", light ? Tokens::blurLightBrightness : Tokens::blurBrightness)},
+        {"appearance.blur.contrast", std::format("{:g}", light ? Tokens::blurLightContrast : Tokens::blurContrast)},
+    }};
+  };
+  if (m_focusScheme != m_layerScheme) {
+    m_layerScheme = m_focusScheme;
+    if (m_focusScheme.empty()) {
+      // Our view still holds the layer's values until the compositor answers; pushing now would save them as the
+      // user's. The answer flushes again.
+      m_control->clearLayer("focus");
+      return;
+    }
+    m_control->setInLayer("focus", "appearance.scheme", m_focusScheme);
+    for (const auto& [key, value] : recipe(m_focusScheme)) {
+      m_control->setInLayer("focus", key, value);
+    }
+  }
+  const bool userScheme = !m_scheme.empty() && m_focusScheme.empty();
+  if (userScheme) {
     push("appearance.scheme", m_scheme, m_control->value("appearance.scheme") != m_scheme);
   }
   // The user's accent choice lives in the compositor; the shell fills it in only while it is unset.
@@ -108,16 +139,9 @@ void LiveAppearanceSync::flush() {
   } else if (!m_accent.empty()) {
     push("appearance.accent", m_accent, m_control->value("appearance.accent").empty());
   }
-  if (!m_scheme.empty()) {
-    const bool light = m_scheme == "light";
-    const std::pair<const char*, float> recipe[] = {
-        {"appearance.blur.saturation", light ? Tokens::blurLightSaturation : Tokens::blurSaturation},
-        {"appearance.blur.brightness", light ? Tokens::blurLightBrightness : Tokens::blurBrightness},
-        {"appearance.blur.contrast", light ? Tokens::blurLightContrast : Tokens::blurContrast},
-    };
-    for (const auto& [key, value] : recipe) {
-      const std::string text = std::format("{:g}", value);
-      push(key, text, m_control->value(key) != text);
+  if (userScheme) {
+    for (const auto& [key, value] : recipe(m_scheme)) {
+      push(key, value, m_control->value(key) != value);
     }
   }
 }
@@ -147,7 +171,7 @@ void LiveAppearanceSync::onSettingsChanged() {
   const LiveAppearance next = readLiveAppearance([&c](std::string_view key) { return c.value(key); });
   // A new value that the shell did not publish is another client's choice: adopt it instead of writing ours back.
   // The first snapshot can be stale from an earlier session, so only a change after it counts.
-  const bool external = !m_state.scheme.empty() && next.scheme != m_state.scheme && next.scheme != m_scheme
+  const bool external = m_focusScheme.empty() && m_layerScheme.empty() && !m_state.scheme.empty() && next.scheme != m_state.scheme && next.scheme != m_scheme
       && (next.scheme == "light" || next.scheme == "dark");
   if (external) {
     m_scheme = next.scheme;

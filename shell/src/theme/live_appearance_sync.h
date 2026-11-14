@@ -47,6 +47,9 @@ public:
   void publish(std::string_view scheme, std::string_view accent);
   // Sets appearance.accent ("#rrggbb"); before the first batch arrives, it waits for it.
   void setAccent(std::string_view accent);
+  // A Focus scheme in the compositor's runtime layer "focus" (never saved there); empty clears the layer. While it is
+  // on, publish() keeps the user's scheme and no scheme change counts as another client's choice.
+  void setFocusScheme(std::string scheme);
   // Runs when another client (Settings, `andromeda msg settings-set`) changes appearance.scheme; the shell adopts it.
   void setOnExternalScheme(std::function<void(std::string_view)> callback) { m_onExternalScheme = std::move(callback); }
   // Runs on every batch of settings and on every refused set, once the first batch has arrived.
@@ -64,6 +67,8 @@ private:
   std::unique_ptr<SettingsControl> m_control;
   LiveAppearance m_state;
   std::string m_scheme;
+  std::string m_focusScheme;
+  std::string m_layerScheme; // the scheme in the compositor's "focus" layer now
   std::string m_accent;
   std::string m_chosenAccent; // a setAccent() value until the compositor holds it
   std::unordered_map<std::string, std::string> m_sent; // last value set per key, until the compositor has it

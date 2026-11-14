@@ -197,6 +197,9 @@ public:
   void setFocusEndedCallback(FocusEndedCallback callback) { m_focusEndedCallback = std::move(callback); }
   void setFocusChangedCallback(std::function<void()> callback) { m_focus.setChangedCallback(std::move(callback)); }
   void setScreenShared(bool shared) noexcept { m_screenShared = shared; }
+  // Focus filter hide_badges: no unread badge for an app the Focus on now holds.
+  void setHideHeldBadges(bool hide) noexcept { m_hideHeldBadges = hide; }
+  [[nodiscard]] bool badgeHidden(std::string_view desktopEntry) const;
   void setStateCallback(StateCallback callback);
   // Runs whenever the unread count changes, not only when the any-unread flag flips.
   int addUnreadCountCallback(std::function<void()> callback);
@@ -292,6 +295,7 @@ private:
   Timer m_focusEndTimer;
   std::string m_lastFocusId = "dnd";
   bool m_screenShared = false;
+  bool m_hideHeldBadges = false;
   std::unordered_map<std::string, int> m_held; // by app name, while the Focus is on
   FocusEndedCallback m_focusEndedCallback;
   std::uint64_t m_doNotDisturbRevision = 0;

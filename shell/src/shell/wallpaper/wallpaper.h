@@ -50,6 +50,8 @@ public:
   // (not persisted) — it clears on restart and is re-asserted by the owner.
   void setOutputExternallyManaged(const std::string& connector, bool managed);
   [[nodiscard]] std::vector<WallpaperChange> onStateChange();
+  // A Focus wallpaper shown on every output instead of the saved paths, which stay unchanged; empty: none.
+  void setFocusPath(std::string path);
   void onSecondTick();
   // When automation next needs a tick to rotate, or nullopt while it cannot run.
   // Lets the time source wake for the rotation interval instead of polling.
@@ -138,6 +140,8 @@ private:
 
   WaylandConnection* m_wayland = nullptr;
   ConfigService* m_config = nullptr;
+  std::string m_focusPath;
+  [[nodiscard]] std::string shownPath(const std::string& connector) const;
   RenderContext* m_renderContext = nullptr;
   SharedTextureCache* m_textureCache = nullptr;
   noctalia::theme::ThemeService* m_themeService = nullptr;
