@@ -100,6 +100,38 @@ extern "C" {
 namespace andromeda {
 
   namespace {
+    // The executable a command line starts (skipping VAR=value and env), escaped for a unit name part:
+    // app-andromeda-<it>-<n>.scope follows systemd.io/DESKTOP_ENVIRONMENTS, so the shell can name a windowless app.
+    std::string scopeAppPart(std::string_view command) {
+      std::size_t at = 0;
+      while (at < command.size()) {
+        at = command.find_first_not_of(" \t", at);
+        if (at == std::string_view::npos) {
+          return {};
+        }
+        const std::size_t end = std::min(command.find_first_of(" \t", at), command.size());
+        std::string_view word = command.substr(at, end - at);
+        at = end;
+        if (word == "env" || word.find('=') != std::string_view::npos) {
+          continue;
+        }
+        if (const std::size_t slash = word.rfind('/'); slash != std::string_view::npos) {
+          word.remove_prefix(slash + 1);
+        }
+        std::string out;
+        for (const char c : word) {
+          const auto u = static_cast<unsigned char>(c);
+          if (std::isalnum(u) != 0 || c == '_' || (c == '.' && !out.empty())) {
+            out += c;
+          } else {
+            out += std::format("\\x{:02x}", u);
+          }
+        }
+        return out;
+      }
+      return {};
+    }
+
 
     constexpr Logger kLog("server");
     constexpr size_t kWaylandClientBufferSize = 1024 * 1024;
@@ -2049,7 +2081,12 @@ namespace andromeda {
       return;
     }
     const std::string scopeUnitArgument = scopeRequired
-        ? "--unit=app-andromeda-" + std::to_string(getpid()) + "-" + std::to_string(m_nextApplicationScopeId++) + ".scope"
+        ? "--unit=app-andromeda-"
+              + [&] {
+                  const std::string app = scopeAppPart(command);
+                  return app.empty() ? std::to_string(getpid()) : app;
+                }()
+              + "-" + std::to_string(m_nextApplicationScopeId++) + ".scope"
         : "";
 
     wlr_xdg_activation_token_v1* launchToken = nullptr;
