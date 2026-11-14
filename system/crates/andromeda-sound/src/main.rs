@@ -27,8 +27,7 @@ fn main() -> Result<()> {
 }
 
 fn apply(mut args: impl Iterator<Item = String>) -> Result<()> {
-    let (mut profile, mut tuning, mut dsp, mut target, mut out) =
-        ("music".to_owned(), None, DSP_PATH.to_owned(), None, None);
+    let (mut profile, mut tuning, mut dsp, mut target, mut out) = ("music".to_owned(), None, default_dsp(), None, None);
     while let Some(a) = args.next() {
         let v = args.next().context(USAGE)?;
         match a.as_str() {
@@ -66,6 +65,15 @@ fn apply(mut args: impl Iterator<Item = String>) -> Result<()> {
     systemctl(&["restart", "filter-chain.service"])?;
     println!("{}", path.display());
     Ok(())
+}
+
+/// The installed library, else the one built next to this binary (`cargo build --release`).
+fn default_dsp() -> String {
+    let local = env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("libandromeda_dsp.so")));
+    match local {
+        Some(l) if !Path::new(DSP_PATH).exists() && l.exists() => l.display().to_string(),
+        _ => DSP_PATH.to_owned(),
+    }
 }
 
 /// The internal speaker sink; UCM names it `…__Speaker__sink`.

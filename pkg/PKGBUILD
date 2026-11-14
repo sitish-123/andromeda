@@ -179,6 +179,8 @@ package_andromeda-system-git() {
     "$pkgdir/usr/lib/systemd/user/andromeda-fileops.service"
   install -Dm644 desktop/system/data/org.andromeda.FileOps1.xml \
     "$pkgdir/usr/share/dbus-1/interfaces/org.andromeda.FileOps1.xml"
+  install -Dm755 desktop/system/target/release/andromeda-sound "$pkgdir/usr/bin/andromeda-sound"
+  install -Dm755 desktop/system/target/release/libandromeda_dsp.so "$pkgdir/usr/lib/ladspa/andromeda-dsp.so"
   install -Dm755 desktop/system/target/release/andromeda-update "$pkgdir/usr/lib/andromeda/andromeda-update"
   install -Dm644 desktop/system/data/org.andromeda.Update1.service \
     "$pkgdir/usr/share/dbus-1/services/org.andromeda.Update1.service"
