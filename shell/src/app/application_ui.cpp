@@ -645,7 +645,7 @@ void Application::initInputDispatch() {
                                             std::to_string(saved.size()));
     request.origin = NotificationOrigin::Internal;
     request.timeout = 0; // stays until dismissed: the user may come back to it after the restart
-                                    request.persistInHistory = true;
+    request.persistInHistory = true;
     if (!saved.empty()) {
       request.actions = {"restore", i18n::tr("notifications.internal.desktop-restore")};
     }
@@ -991,14 +991,13 @@ void Application::offerWindowsSpeakerTuning() {
             {"andromeda-sound", "import-windows"},
             process::RunCallbacks{.onExit =
                                       [this](process::RunResult result) {
-                                        const bool ok = static_cast<bool>(result);
-                                        DeferredCall::callLater([this, ok] {
+                                        const char* key = result ? "notifications.internal.speaker-tuning-done"
+                                                                 : settings::speakerImportErrorKey(result.err);
+                                        DeferredCall::callLater([this, key] {
                                           m_notificationManager.addInternal(
-                                              i18n::tr("settings.sound.speaker-sound"),
-                                              i18n::tr(ok ? "notifications.internal.speaker-tuning-done"
-                                                          : "settings.sound.windows-none"),
-                                              ""
+                                              i18n::tr("settings.sound.speaker-sound"), i18n::tr(key), ""
                                           );
+                                          m_settingsWindow.reloadSpeakerStatus();
                                         });
                                       }},
             // The udisks mount may wait for the user's password.

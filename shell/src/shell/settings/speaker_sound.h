@@ -32,4 +32,10 @@ namespace settings {
   // The next phase, or nullopt when the event is not valid in `from`.
   [[nodiscard]] std::optional<SpeakerPhase> speakerTransition(SpeakerPhase from, SpeakerEvent event);
 
+  // A command runs in this phase.
+  [[nodiscard]] bool speakerBusy(SpeakerPhase phase);
+
+  // The i18n key for a failed `import-windows`, from its stderr.
+  [[nodiscard]] const char* speakerImportErrorKey(std::string_view err);
+
 } // namespace settings

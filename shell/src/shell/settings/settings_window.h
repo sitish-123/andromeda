@@ -114,6 +114,8 @@ public:
   );
 
   void open(std::string context = "");
+  // Another caller changed the speaker sound: read the status again on the Sound page.
+  void reloadSpeakerStatus();
   void openToBarWidget(std::string barName, std::string widgetName);
   // Opens the window on the plugins section with the plugin's settings editor.
   // Returns false when the plugin is unknown, disabled, or exposes no settings.
@@ -568,6 +570,8 @@ private:
   std::optional<settings::SpeakerStatus> m_speakerStatus;
   std::string m_speakerError;
   bool m_speakerFineTuneOpen = false;
+  // The last apply asked for while a command ran; it runs once the status is read.
+  std::optional<std::vector<std::string>> m_speakerQueuedApply;
   Slider* m_soundOutputSlider = nullptr;
   Slider* m_soundInputSlider = nullptr;
   // The Wi-Fi network whose password row is open, and the text typed so far.

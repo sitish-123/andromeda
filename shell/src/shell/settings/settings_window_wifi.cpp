@@ -175,10 +175,24 @@ void SettingsWindow::addSoundContent(float scale) {
   );
 }
 
+void SettingsWindow::reloadSpeakerStatus() {
+  // A running command reads the status itself when it ends.
+  if (const auto next = settings::speakerTransition(m_speakerPhase, settings::SpeakerEvent::Close)) {
+    m_speakerPhase = *next;
+    if (isOpen()) {
+      requestContentRebuild();
+    }
+  }
+}
+
 // One andromeda-sound command at a time: speakerTransition rejects a second one.
 void SettingsWindow::runSpeaker(std::vector<std::string> args, settings::SpeakerEvent start) {
   const auto next = settings::speakerTransition(m_speakerPhase, start);
   if (!next) {
+    // Wheel ticks and keys apply faster than the chain restarts: the last one runs after the current command.
+    if (start == settings::SpeakerEvent::Apply && settings::speakerBusy(m_speakerPhase)) {
+      m_speakerQueuedApply = std::move(args);
+    }
     return;
   }
   m_speakerPhase = *next;
@@ -223,8 +237,7 @@ void SettingsWindow::onSpeakerCommandDone(bool status, bool import, bool ok,
     m_speakerError = i18n::tr("settings.sound.apply-error");
   } else if (import && !ok) {
     event = E::ImportFailed;
-    m_speakerError = err.find("no Windows partition") != std::string::npos ? i18n::tr("settings.sound.windows-none")
-                                                                            : i18n::tr("settings.sound.windows-error");
+    m_speakerError = i18n::tr(settings::speakerImportErrorKey(err));
   }
   if (const auto after = settings::speakerTransition(m_speakerPhase, event)) {
     m_speakerPhase = *after;
@@ -232,6 +245,18 @@ void SettingsWindow::onSpeakerCommandDone(bool status, bool import, bool ok,
   // Apply and import end in Loading: read the new state.
   if (m_speakerPhase == settings::SpeakerPhase::Loading) {
     startSpeakerCommand({"status"});
+  } else if (m_speakerPhase == settings::SpeakerPhase::Ready && m_speakerQueuedApply) {
+    auto args = std::move(*m_speakerQueuedApply);
+    m_speakerQueuedApply.reset();
+    runSpeaker(std::move(args), E::Apply);
+  } else {
+    m_speakerQueuedApply.reset();
+    // Closed during a command: the next open reads the status again.
+    if (!isOpen()) {
+      if (const auto closed = settings::speakerTransition(m_speakerPhase, E::Close)) {
+        m_speakerPhase = *closed;
+      }
+    }
   }
   if (isOpen()) {
     requestContentRebuild();

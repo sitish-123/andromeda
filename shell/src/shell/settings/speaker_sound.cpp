@@ -84,4 +84,15 @@ namespace settings {
     return std::nullopt;
   }
 
+  bool speakerBusy(SpeakerPhase phase) {
+    return phase == SpeakerPhase::Loading || phase == SpeakerPhase::Applying || phase == SpeakerPhase::Importing;
+  }
+
+  const char* speakerImportErrorKey(std::string_view err) {
+    if (err.contains("no Windows partition")) {
+      return "settings.sound.windows-none";
+    }
+    return err.contains("apply failed") ? "settings.sound.apply-error" : "settings.sound.windows-error";
+  }
+
 } // namespace settings

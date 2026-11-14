@@ -159,8 +159,7 @@ namespace settings {
         return;
       }
       const float scale = ctx.scale;
-      const bool busy = ctx.speakerPhase == SpeakerPhase::Applying || ctx.speakerPhase == SpeakerPhase::Importing ||
-                        ctx.speakerPhase == SpeakerPhase::Loading;
+      const bool busy = speakerBusy(ctx.speakerPhase);
       const auto run = ctx.runSpeaker;
       const SpeakerStatus s = *st;
 
@@ -198,7 +197,7 @@ namespace settings {
             .options = std::move(names),
             .selectedIndex = current,
             .fontSize = Style::fontSizeBody * scale,
-            .enabled = !busy,
+            .enabled = !busy && s.enabled,
             .onSelectionChanged = [run, s](std::size_t i, std::string_view) {
               if (i < s.profiles.size() && s.profiles[i] != s.profile) {
                 run(applyArgs(s.profiles[i], s.loudnessDb, s.bass));
@@ -216,7 +215,7 @@ namespace settings {
       );
       card->addChild(std::move(fine));
       if (ctx.speakerFineTuneOpen) {
-        // Apply on release: each apply restarts the filter chain.
+        // Apply on release, wheel tick or key: each apply restarts the filter chain.
         auto slide = [&](const std::string& label, double value, double max, bool isBass) {
           auto r = row(scale);
           r->addChild(ui::row({.width = Style::spaceLg * scale}));
@@ -227,10 +226,13 @@ namespace settings {
               .maxValue = max,
               .step = 1.0,
               .value = value,
-              .enabled = !busy,
+              .enabled = !busy && s.enabled,
               .width = kDeviceSliderWidth * scale,
               .onValueChanged = [latest](double v) { *latest = v; },
-              .onDragEnd = [run, s, latest, isBass] {
+              .onDragEnd = [run, s, latest, isBass, value] {
+                if (*latest == value) {
+                  return;
+                }
                 run(applyArgs(s.basic() ? "generic" : s.profile, isBass ? s.loudnessDb : *latest,
                               isBass ? *latest : s.bass));
               },
