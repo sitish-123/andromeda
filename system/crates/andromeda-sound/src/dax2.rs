@@ -304,6 +304,8 @@ pub fn tuning(inf: &[u8], vendor_id: u32, subsystem: &str) -> Result<Option<Tuni
         format!("subsys_{}", subsystem.to_lowercase()),
     ]
     .into();
+    // An install that binds but fails to read is reported only when no later one reads.
+    let mut failed = None;
     for (_, install) in bound_installs(&s, &parts) {
         let lines: Vec<&String> =
             addreg_sections(&s, &install).iter().flat_map(|n| s.get(n).into_iter().flatten()).collect();
@@ -311,48 +313,56 @@ pub fn tuning(inf: &[u8], vendor_id: u32, subsystem: &str) -> Result<Option<Tuni
         if presets.is_empty() {
             continue;
         }
-        let name = speaker_preset(&presets)?;
-        let raw = &presets[name];
-        if raw.keys().any(|&i| i >= DAX3_FIRST_INDEX) {
-            bail!("{name} is DAX3's registry form, not a DAX2 tuning");
+        match preset_tuning(&presets, subsystem) {
+            Ok(t) => return Ok(Some(t)),
+            Err(e) => failed = failed.or(Some(e)),
         }
-        let mut vlldp = BTreeMap::new();
-        let mut cp = BTreeMap::new();
-        let Value::Blob(bands) = decode(
-            name,
-            AUDIO_OPTIMIZER,
-            raw.get(&AUDIO_OPTIMIZER).ok_or_else(|| anyhow!("{name} has no audio-optimizer-bands"))?,
-        )?
-        else {
-            bail!("{name} audio-optimizer-bands is a number, not a blob");
-        };
-        let (hz, channels) = grid(name, &bands)?;
-        vlldp.insert("audio-optimizer-enable".to_owned(), vec![1.0]);
-        for (ch, c) in channels.iter().take(2).enumerate() {
-            vlldp.insert(format!("audio-optimizer-bands.ch_{ch:02}"), c.iter().map(|&v| f64::from(v)).collect());
-        }
-        for (index, key) in NUMBERS {
-            if let Some(data) = raw.get(&index) {
-                let Value::Number(v) = decode(name, index, data)? else {
-                    bail!("{name} value {index} ({key}) is a blob, not a number");
-                };
-                cp.insert(key.to_owned(), vec![f64::from(v)]);
-            }
-        }
-        let profile = Profile { cp, vlldp, ..Profile::default() };
-        return Ok(Some(Tuning {
-            source: "Dolby".to_owned(),
-            subsystem: subsystem.to_uppercase(),
-            tuning_date: String::new(),
-            band_freqs_hz: hz.iter().map(|&f| f64::from(f)).collect(),
-            endpoints: vec![Endpoint {
-                kind: "internal_speaker".to_owned(),
-                channels: 2,
-                profiles: [("music".to_owned(), profile)].into(),
-            }],
-        }));
     }
-    Ok(None)
+    failed.map_or(Ok(None), Err)
+}
+
+/// The speaker preset among `presets` as a tuning.
+fn preset_tuning(presets: &BTreeMap<String, BTreeMap<u32, Vec<String>>>, subsystem: &str) -> Result<Tuning> {
+    let name = speaker_preset(presets)?;
+    let raw = &presets[name];
+    if raw.keys().any(|&i| i >= DAX3_FIRST_INDEX) {
+        bail!("{name} is DAX3's registry form, not a DAX2 tuning");
+    }
+    let mut vlldp = BTreeMap::new();
+    let mut cp = BTreeMap::new();
+    let Value::Blob(bands) = decode(
+        name,
+        AUDIO_OPTIMIZER,
+        raw.get(&AUDIO_OPTIMIZER).ok_or_else(|| anyhow!("{name} has no audio-optimizer-bands"))?,
+    )?
+    else {
+        bail!("{name} audio-optimizer-bands is a number, not a blob");
+    };
+    let (hz, channels) = grid(name, &bands)?;
+    vlldp.insert("audio-optimizer-enable".to_owned(), vec![1.0]);
+    for (ch, c) in channels.iter().take(2).enumerate() {
+        vlldp.insert(format!("audio-optimizer-bands.ch_{ch:02}"), c.iter().map(|&v| f64::from(v)).collect());
+    }
+    for (index, key) in NUMBERS {
+        if let Some(data) = raw.get(&index) {
+            let Value::Number(v) = decode(name, index, data)? else {
+                bail!("{name} value {index} ({key}) is a blob, not a number");
+            };
+            cp.insert(key.to_owned(), vec![f64::from(v)]);
+        }
+    }
+    let profile = Profile { cp, vlldp, ..Profile::default() };
+    Ok(Tuning {
+        source: "Dolby".to_owned(),
+        subsystem: subsystem.to_uppercase(),
+        tuning_date: String::new(),
+        band_freqs_hz: hz.iter().map(|&f| f64::from(f)).collect(),
+        endpoints: vec![Endpoint {
+            kind: "internal_speaker".to_owned(),
+            channels: 2,
+            profiles: [("music".to_owned(), profile)].into(),
+        }],
+    })
 }
 
 /// `[Version] DriverVer` as (year, month, day, version parts); empty when absent.

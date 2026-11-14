@@ -1,7 +1,8 @@
-//! Unpacks an OEM audio driver download (.exe, .zip, .msi) with 7-Zip, keeping only the files a
+//! Unpacks an OEM audio driver download (.exe, .zip, .msi; not Inno Setup) with 7-Zip, keeping only the files a
 //! speaker tuning can be in. Nested installers and archives are opened up to `MAX_DEPTH` deep.
 
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -12,18 +13,14 @@ const MAX_DEPTH: u32 = 3;
 const MAX_UNPACK_BYTES: u64 = 4 << 30;
 /// A PE resource under this is an icon or manifest, not an embedded installer.
 const MIN_RESOURCE_BYTES: u64 = 65_536;
+/// Tuning files stay under this: Realtek .inf files run to a few MiB.
+const MAX_TUNING_BYTES: u64 = 64 << 20;
 const CONTAINERS: [&str; 6] = ["cab", "zip", "7z", "exe", "msi", "rar"];
 
 /// Unpacks `file` into the empty directory `dir`.
 pub fn unpack(file: &Path, dir: &Path) -> Result<()> {
     let mut budget = MAX_UNPACK_BYTES;
-    walk(file, dir, 0, &mut budget)?;
-    let any = fs::read_dir(dir).is_ok_and(|mut d| d.next().is_some());
-    if !any && which("innoextract") {
-        // Inno Setup installers (Lenovo) are opaque to 7-Zip.
-        run(Command::new("innoextract").args(["-s", "-d"]).arg(dir).arg(file))?;
-    }
-    Ok(())
+    walk(file, dir, 0, &mut budget)
 }
 
 /// Every folder at or under `dir`.
@@ -56,7 +53,7 @@ fn walk(file: &Path, dir: &Path, depth: u32, budget: &mut u64) -> Result<()> {
     if picked.is_empty() {
         return Ok(());
     }
-    let need: u64 = picked.iter().filter(|e| e.2).map(|e| e.1).sum();
+    let need: u64 = picked.iter().map(|e| e.1).sum();
     if need > *budget {
         bail!("{} unpacks to more than a driver download holds", file.display());
     }
@@ -77,7 +74,10 @@ fn walk(file: &Path, dir: &Path, depth: u32, budget: &mut u64) -> Result<()> {
         let sub = PathBuf::from(format!("{}.d", inner.display()));
         let r = walk(&inner, &sub, depth + 1, budget);
         let _ = fs::remove_file(&inner);
-        r?;
+        // One damaged installer must not hide a tuning in its siblings.
+        if let Err(e) = r {
+            eprintln!("skipped {name}: {e:#}");
+        }
     }
     Ok(())
 }
@@ -90,7 +90,7 @@ fn pick(path: &str, size: u64, depth: u32, pe: bool) -> Option<bool> {
     }
     let name = p.rsplit('/').next().unwrap_or_default().to_ascii_lowercase();
     if is_tuning_name(&name) {
-        return Some(false);
+        return (size <= MAX_TUNING_BYTES).then_some(false);
     }
     let ext = name.rsplit_once('.').map(|(_, e)| e).unwrap_or_default();
     let nested = if pe { p.starts_with(".rsrc/") && size >= MIN_RESOURCE_BYTES } else { CONTAINERS.contains(&ext) };
@@ -132,11 +132,8 @@ fn list(file: &Path, pe: bool) -> Vec<(String, u64)> {
 }
 
 fn is_pe(file: &Path) -> bool {
-    fs::read(file).is_ok_and(|b| b.starts_with(b"MZ"))
-}
-
-fn which(tool: &str) -> bool {
-    Command::new(tool).arg("--version").output().is_ok()
+    let mut magic = [0; 2];
+    fs::File::open(file).and_then(|mut f| f.read_exact(&mut magic)).is_ok() && magic == *b"MZ"
 }
 
 fn run(cmd: &mut Command) -> Result<()> {

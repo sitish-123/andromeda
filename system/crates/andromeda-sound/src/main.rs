@@ -313,7 +313,7 @@ fn import(mut args: impl Iterator<Item = String>) -> Result<PathBuf> {
     } else {
         let (vendor, subsys) = codec_ids()?;
         let stem = andromeda_sound::driver_file_stem(vendor, subsys);
-        let found = with_windows(windows, |roots| roots.iter().find_map(|r| find_tuning(r, &stem, vendor)));
+        let found = with_windows(windows, |roots| first_ok(roots.iter().map(|r| find_tuning(r, &stem, vendor))));
         found.with_context(|| {
             format!(
                 "no Windows partition with a speaker tuning (Dolby {stem}*.xml or DAX2 .inf, Sonitude archive or Equalizer APO config)"
@@ -363,12 +363,25 @@ fn with_windows<T>(given: Option<PathBuf>, f: impl Fn(&[PathBuf]) -> Option<T>) 
 /// A Windows install's vendor tuning for this codec, else its Equalizer APO config, parsed.
 fn find_tuning(root: &Path, stem: &str, vendor_id: u32) -> Option<Result<andromeda_sound::Tuning>> {
     let store = root.join("Windows/System32/DriverStore/FileRepository");
-    let packages: Vec<PathBuf> = fs::read_dir(store).into_iter().flatten().flatten().map(|d| d.path()).collect();
-    if let Some(found) = find_vendor(&packages, Layout::DriverStore, stem, vendor_id) {
-        return Some(found);
-    }
+    let packages: Vec<PathBuf> = fs::read_dir(&store).into_iter().flatten().flatten().map(|d| d.path()).collect();
     let eqapo = root.join("Program Files/EqualizerAPO/config/config.txt");
-    eqapo.is_file().then(|| eqapo_file(&eqapo, Some(root), &subsystem_of(stem)))
+    let tries: [&dyn Fn() -> Option<Result<andromeda_sound::Tuning>>; 2] =
+        [&|| find_vendor(&packages, Layout::DriverStore, &store, stem, vendor_id), &|| {
+            eqapo.is_file().then(|| eqapo_file(&eqapo, Some(root), &subsystem_of(stem)))
+        }];
+    first_ok(tries.iter().map(|f| f()))
+}
+
+/// The first tuning found; an error only when no source gives one.
+fn first_ok<T>(tries: impl IntoIterator<Item = Option<Result<T>>>) -> Option<Result<T>> {
+    let mut failed = None;
+    for t in tries.into_iter().flatten() {
+        match t {
+            Ok(v) => return Some(Ok(v)),
+            Err(e) => failed = failed.or(Some(e)),
+        }
+    }
+    failed.map(Err)
 }
 
 /// Where vendor packages come from: an installed Windows names its package folders after the
@@ -380,29 +393,36 @@ enum Layout {
 }
 
 /// The Dolby driver file for this codec, else a Sonitude preset, else a DAX2 .inf, parsed.
+/// The Surface EQ search stays inside `within`, the driver store or the unpacked download.
 fn find_vendor(
     packages: &[PathBuf],
     layout: Layout,
+    within: &Path,
     stem: &str,
     vendor_id: u32,
 ) -> Option<Result<andromeda_sound::Tuning>> {
-    if let Some(f) = find_driver_file(packages, layout, stem) {
+    let subsystem = subsystem_of(stem);
+    let dolby = || {
+        let f = find_driver_file(packages, layout, stem)?;
         let parsed = fs::read(&f)
             .with_context(|| format!("read {}", f.display()))
             .and_then(|b| andromeda_sound::parse(std::str::from_utf8(&b).context("tuning file is not UTF-8")?));
-        return Some(parsed.map(|mut t| {
+        Some(parsed.map(|mut t| {
             // A Surface EQ that fails to read leaves the Dolby tuning as it is.
-            if let Err(e) = andromeda_sound::surface::stack(&mut t, f.parent().unwrap_or(Path::new(".")), vendor_id) {
+            let dir = f.parent().unwrap_or(Path::new("."));
+            if let Err(e) = andromeda_sound::surface::stack(&mut t, dir, within, vendor_id) {
                 eprintln!("Surface speaker EQ not added: {e:#}");
             }
             t
-        }));
-    }
-    find_sonitude(packages, layout, vendor_id, &subsystem_of(stem))
-        .or_else(|| find_dax2(packages, layout, vendor_id, &subsystem_of(stem)))
+        }))
+    };
+    let tries: [&dyn Fn() -> Option<Result<andromeda_sound::Tuning>>; 3] =
+        [&dolby, &|| find_sonitude(packages, layout, vendor_id, &subsystem), &|| {
+            find_dax2(packages, layout, vendor_id, &subsystem)
+        }];
+    first_ok(tries.iter().map(|f| f()))
 }
 
-/// An Equalizer APO config; `Include:` files resolve against its directory, `C:\…` paths against `root`.
 /// The speaker tuning an OEM driver download holds for this codec.
 fn driver_tuning(file: &Path) -> Result<andromeda_sound::Tuning> {
     let (vendor, subsys) = codec_ids()?;
@@ -414,7 +434,7 @@ fn driver_tuning(file: &Path) -> Result<andromeda_sound::Tuning> {
     let dir = base.join(format!("andromeda/sound/driver-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     let found = driver::unpack(file, &dir).and_then(|()| {
-        find_vendor(&driver::folders(&dir), Layout::Download, &stem, vendor).with_context(|| {
+        find_vendor(&driver::folders(&dir), Layout::Download, &dir, &stem, vendor).with_context(|| {
             format!(
                 "{} holds no speaker tuning for this codec ({stem}): it may be another model's driver",
                 file.display()
@@ -425,6 +445,7 @@ fn driver_tuning(file: &Path) -> Result<andromeda_sound::Tuning> {
     found
 }
 
+/// An Equalizer APO config; `Include:` files resolve against its directory, `C:\…` paths against `root`.
 fn eqapo_file(path: &Path, root: Option<&Path>, subsystem: &str) -> Result<andromeda_sound::Tuning> {
     let read =
         |p: &Path| fs::read(p).ok().map(|b| String::from_utf8_lossy(&b).trim_start_matches('\u{feff}').to_owned());
@@ -631,9 +652,9 @@ fn find_dax2(
     let mut failed = None;
     for pkg in packages {
         let files = package_files(pkg);
-        let name = |p: &PathBuf| p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
         let ext = |p: &PathBuf, e: &str| p.extension().is_some_and(|x| x.eq_ignore_ascii_case(e));
-        if layout == Layout::DriverStore && !files.iter().any(|f| name(f).starts_with("dolbydax2apo") && ext(f, "dll"))
+        if layout == Layout::DriverStore
+            && !files.iter().any(|f| dir_name(f).starts_with("dolbydax2apo") && ext(f, "dll"))
         {
             continue;
         }

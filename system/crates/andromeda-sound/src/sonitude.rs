@@ -35,8 +35,13 @@ const BREAK_STEP_DB: f32 = 6.0;
 pub const PROFILES: [(&str, &str); 3] = [("music", "AnyContent"), ("movie", "Movie"), ("voice", "Voice")];
 
 /// Curve point k sits at 10 * 2^(k/24) Hz.
+fn grid_hz(k: usize) -> f64 {
+    10.0 * 2f64.powf(f64::from(u16::try_from(k).unwrap_or(u16::MAX)) / 24.0)
+}
+
 pub fn curve_grid_hz() -> Vec<f32> {
-    (0..265u16).map(|k| 10.0 * 2f32.powf(f32::from(k) / 24.0)).collect()
+    #[allow(clippy::cast_possible_truncation)]
+    (0..CURVE_POINTS).map(|k| grid_hz(k) as f32).collect()
 }
 
 /// The SEAPODAT archive name for codec `vendor_id` (`0x10EC0285`) on `bus` (`HDAUDIO`, `INTELAUDIO`), upper case.
@@ -207,8 +212,7 @@ const FIRST_BAND: usize = 48;
 
 /// The 1/3-octave band centres a Sonitude tuning stores.
 pub fn band_centres() -> Vec<f64> {
-    // Grid point FIRST_BAND is 40 Hz; each band is THIRD points up.
-    (0..28u8).map(|i| 40.0 * 2f64.powf(f64::from(i) / 3.0)).collect()
+    (FIRST_BAND..CURVE_POINTS).step_by(THIRD).map(grid_hz).collect()
 }
 
 /// A curve as the mean over each 1/3-octave band, so a narrow cut between centres still counts.

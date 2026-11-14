@@ -30,9 +30,9 @@ const CONFIG_PKEY: &str = "{c1f75c4c-3243-11ea-850d-2e728ce88125},0";
 const IDENTITY: [f64; 5] = [1.0, 0.0, 0.0, 0.0, 0.0];
 
 /// Adds the Surface APO speaker EQ that a package near the Dolby XML in `xml_dir` binds to this
-/// codec; returns whether it found one.
-pub fn stack(t: &mut Tuning, xml_dir: &Path, vendor_id: u32) -> Result<bool> {
-    let Some(biquads) = find(xml_dir, vendor_id, &t.subsystem)? else { return Ok(false) };
+/// codec; returns whether it found one. The search does not leave `within`.
+pub fn stack(t: &mut Tuning, xml_dir: &Path, within: &Path, vendor_id: u32) -> Result<bool> {
+    let Some(biquads) = find(xml_dir, within, vendor_id, &t.subsystem)? else { return Ok(false) };
     for e in t.endpoints.iter_mut().filter(|e| e.kind == "internal_speaker") {
         for p in e.profiles.values_mut() {
             p.biquads.clone_from(&biquads);
@@ -43,14 +43,14 @@ pub fn stack(t: &mut Tuning, xml_dir: &Path, vendor_id: u32) -> Result<bool> {
 
 /// The Surface .inf files in the XML's folder, the folders under it, and the Surface packages
 /// beside it (a driver store holds every package side by side).
-fn candidate_infs(xml_dir: &Path) -> Vec<PathBuf> {
+fn candidate_infs(xml_dir: &Path, within: &Path) -> Vec<PathBuf> {
     let subdirs = |d: &Path| -> Vec<PathBuf> {
         fs::read_dir(d).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect()
     };
     let name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     let mut dirs = vec![xml_dir.to_path_buf()];
     dirs.extend(subdirs(xml_dir));
-    if let Some(parent) = xml_dir.parent() {
+    if let Some(parent) = xml_dir.parent().filter(|p| p.starts_with(within)) {
         dirs.extend(subdirs(parent).into_iter().filter(|d| {
             let n = name(d);
             n.starts_with(INF_PREFIX) || !n.contains(".inf_")
@@ -72,11 +72,15 @@ fn subfiles(d: &Path) -> Vec<PathBuf> {
 }
 
 /// The newest bound package's biquads; `None` when no Surface .inf binds this codec.
-fn find(xml_dir: &Path, vendor_id: u32, subsystem: &str) -> Result<Option<Vec<Biquad>>> {
-    let parts: HashSet<String> =
-        [format!("dev_{:04x}", vendor_id & 0xffff), format!("subsys_{}", subsystem.to_lowercase())].into();
+fn find(xml_dir: &Path, within: &Path, vendor_id: u32, subsystem: &str) -> Result<Option<Vec<Biquad>>> {
+    let parts: HashSet<String> = [
+        format!("ven_{:04x}", vendor_id >> 16),
+        format!("dev_{:04x}", vendor_id & 0xffff),
+        format!("subsys_{}", subsystem.to_lowercase()),
+    ]
+    .into();
     let mut bound = Vec::new();
-    for inf in candidate_infs(xml_dir) {
+    for inf in candidate_infs(xml_dir, within) {
         let Ok(raw) = fs::read(&inf) else { continue };
         let s = read_inf(&raw);
         let config = bound_installs(&s, &parts).into_iter().find_map(|(_, install)| {
@@ -220,7 +224,7 @@ mod tests {
                 profiles: [("music".into(), Profile::default())].into(),
             }],
         };
-        assert!(stack(&mut t, &dolby, 0x10EC_0294)?);
+        assert!(stack(&mut t, &dolby, store.path(), 0x10EC_0294)?);
         let p = &t.endpoints[0].profiles["music"];
         let at = |ch: usize, f: f64| {
             channel_eq(&t, p, ch).iter().map(|b| peaking_db(b.freq, b.q, b.gain_db, f)).sum::<f64>()
