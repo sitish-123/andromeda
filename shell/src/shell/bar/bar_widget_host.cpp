@@ -419,7 +419,7 @@ void Bar::attachWidgetsToSections(BarInstance& instance) {
           return panel != nullptr && panel->isPanelTransitionActive();
         });
       }
-      widget->setPanelToggleCallback([this, inst = &instance](
+      widget->setPanelToggleCallback([this, inst = &instance, w = widget.get()](
                                          std::string_view panelId, std::string_view context,
                                          std::optional<float> anchorSurfaceX, std::optional<float> anchorSurfaceY,
                                          Widget::PanelActivation activation
@@ -433,6 +433,21 @@ void Bar::attachWidgetsToSections(BarInstance& instance) {
           anchorY = *anchorSurfaceY;
         }
         const auto island = islandRectAt(*inst, anchorX, anchorY);
+        // A bar with no islands (Windows and macOS layouts): the sheet morphs out of the clicked widget instead.
+        const auto widgetRect = [w]() -> std::optional<std::array<float, 4>> {
+          const Node* node = w->barHoverBox();
+          if (node == nullptr || node->width() <= 0.0F || node->height() <= 0.0F) {
+            node = w->root();
+          }
+          if (node == nullptr || node->width() <= 0.0F || node->height() <= 0.0F) {
+            return std::nullopt;
+          }
+          float x = 0.0F;
+          float y = 0.0F;
+          Node::absolutePosition(node, x, y);
+          return std::array<float, 4>{x, y, node->width(), node->height()};
+        };
+        const auto source = island ? island : widgetRect();
         if (island) {
           anchorX = (*island)[0] + (*island)[2] * 0.5F;
           anchorY = (*island)[1] + (*island)[3] * 0.5F;
@@ -452,8 +467,8 @@ void Bar::attachWidgetsToSections(BarInstance& instance) {
             .hasAnchorPosition = true,
             .context = context,
             .sourceBarName = inst->barConfig.name,
-            .sourceSurface = island && inst->surface != nullptr ? inst->surface->wlSurface() : nullptr,
-            .sourceRect = island.value_or(std::array<float, 4>{}),
+            .sourceSurface = source && inst->surface != nullptr ? inst->surface->wlSurface() : nullptr,
+            .sourceRect = source.value_or(std::array<float, 4>{}),
         };
         if (activation == Widget::PanelActivation::Open) {
           PanelManager::instance().openPanel(std::string(panelId), request);
