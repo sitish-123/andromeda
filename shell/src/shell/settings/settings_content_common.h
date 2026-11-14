@@ -52,9 +52,10 @@ namespace settings {
   [[nodiscard]] std::unique_ptr<Flex> makeDockPreview(const DockConfig& dock, float scale);
   // Hairline between the rows of a card body.
   void addSettingsRowSeparators(Flex& body, float scale);
-  // A full-width chevron row that opens another view; `trailing` is a muted value or count.
-  [[nodiscard]] std::unique_ptr<Button>
-  makeSettingsLinkRow(std::string_view label, std::string_view trailing, float scale, std::function<void()> onClick);
+  // A full-width chevron row that opens another view or a fold; `trailing` is a muted value or count.
+  [[nodiscard]] std::unique_ptr<Button> makeSettingsLinkRow(std::string_view label, std::string_view trailing, float scale,
+                                                          std::function<void()> onClick,
+                                                          std::string_view glyph = "chevron-right");
 
   [[nodiscard]] std::optional<std::size_t>
   optionIndex(const std::vector<SelectOption>& options, std::string_view value);

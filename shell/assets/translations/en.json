@@ -2346,6 +2346,7 @@
       "windows-reading": "Reading the Windows partition…",
       "windows-none": "No tuning for these speakers on Windows.",
       "windows-error": "Could not read the Windows partition.",
+      "apply-error": "Could not change the speaker sound. Try again.",
       "use-tuning": "Use Tuning",
       "try-again": "Try Again",
       "speaker-note": "Applies to the built-in speakers. Headphones and HDMI play unchanged."

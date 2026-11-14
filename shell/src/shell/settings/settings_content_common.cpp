@@ -296,7 +296,8 @@ namespace settings {
   }
 
   std::unique_ptr<Button>
-  makeSettingsLinkRow(std::string_view label, std::string_view trailing, float scale, std::function<void()> onClick) {
+  makeSettingsLinkRow(std::string_view label, std::string_view trailing, float scale, std::function<void()> onClick,
+                      std::string_view glyph) {
     auto row = ui::button({
         .text = std::string(label),
         .fontSize = Style::fontSizeBody * scale,
@@ -315,7 +316,7 @@ namespace settings {
     }
     row->addChild(
         ui::glyph({
-            .glyph = "chevron-right",
+            .glyph = std::string(glyph),
             .glyphSize = Style::fontSizeBody * scale,
             .color = colorSpecFromRole(ColorRole::Label3),
         })

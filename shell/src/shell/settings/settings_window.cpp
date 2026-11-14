@@ -659,6 +659,9 @@ void SettingsWindow::destroyWindow() {
   leavePrivacy();
   // The next open reads the update service again.
   m_softwareUpdateRead = false;
+  if (const auto next = settings::speakerTransition(m_speakerPhase, settings::SpeakerEvent::Close)) {
+    m_speakerPhase = *next;
+  }
   // A pending display confirmation keeps its binding so the revert timer still fires after the window closes.
   if (m_displayConfirmSecondsLeft == 0) {
     m_outputManagement.reset();

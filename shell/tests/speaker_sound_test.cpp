@@ -30,7 +30,7 @@ int main() {
   // Random event sequences: a command (apply, import, status) never starts while another runs, and a busy phase
   // always ends through its own completion event.
   std::mt19937 rng(7);
-  std::uniform_int_distribution<int> pick(0, 7);
+  std::uniform_int_distribution<int> pick(0, 8);
   for (int run = 0; run < 2000; ++run) {
     SpeakerPhase phase = SpeakerPhase::Unloaded;
     for (int step = 0; step < 50; ++step) {

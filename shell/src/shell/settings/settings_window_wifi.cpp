@@ -218,6 +218,9 @@ void SettingsWindow::onSpeakerCommandDone(bool status, bool import, bool ok,
     if (parsed) {
       m_speakerStatus = std::move(parsed);
     }
+  } else if (!import && !ok) {
+    event = E::ApplyFailed;
+    m_speakerError = i18n::tr("settings.sound.apply-error");
   } else if (import && !ok) {
     event = E::ImportFailed;
     m_speakerError = err.find("no Windows partition") != std::string::npos ? i18n::tr("settings.sound.windows-none")

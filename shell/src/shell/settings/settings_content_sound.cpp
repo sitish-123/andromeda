@@ -168,7 +168,9 @@ namespace settings {
       Flex* card = addCard(content, scale);
       std::string source = s.basic() ? i18n::tr("settings.sound.basic-tuning")
                                      : i18n::tr("settings.sound.tuned-from-windows", "vendor", s.source);
-      if (!s.enabled) {
+      if (ctx.speakerPhase == SpeakerPhase::ApplyFailed) {
+        source = ctx.speakerError;
+      } else if (!s.enabled) {
         source = i18n::tr("settings.sound.off-with", "source", source);
       }
       Flex* enhance = addTwoLineRow(*card, "", i18n::tr("settings.sound.enhance-speakers"), source, scale);
@@ -206,15 +208,12 @@ namespace settings {
         card->addChild(std::move(r));
       }
 
-      auto fine = row(scale);
-      fine->addChild(title(i18n::tr("settings.sound.fine-tune"), scale));
-      fine->addChild(plainButton(
+      auto fine = makeSettingsLinkRow(
+          i18n::tr("settings.sound.fine-tune"),
           i18n::tr("settings.sound.fine-tune-value", "bass", std::format("{:g}", s.bass), "loudness",
                    std::format("{:g}", s.loudnessDb)),
-          ButtonVariant::Ghost, scale, ctx.toggleSpeakerFineTune
-      ));
-      fine->addChild(symbol(ctx.speakerFineTuneOpen ? "chevron-up" : "chevron-down", Tokens::sizeSymbol * scale,
-                            ColorRole::Label3));
+          scale, ctx.toggleSpeakerFineTune, ctx.speakerFineTuneOpen ? "chevron-up" : "chevron-down"
+      );
       card->addChild(std::move(fine));
       if (ctx.speakerFineTuneOpen) {
         // Apply on release: each apply restarts the filter chain.

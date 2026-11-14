@@ -58,24 +58,28 @@ namespace settings {
     using E = SpeakerEvent;
     switch (event) {
     case E::Open:
-      return from == P::Unloaded || from == P::Ready || from == P::Unavailable || from == P::ImportFailed
+      return from == P::Unloaded || from == P::Ready || from == P::Unavailable || from == P::ImportFailed ||
+                   from == P::ApplyFailed
                  ? std::optional(P::Loading)
                  : std::nullopt;
     case E::Close:
-      return from == P::Ready || from == P::Unavailable || from == P::ImportFailed ? std::optional(P::Unloaded)
-                                                                                   : std::nullopt;
+      return from == P::Ready || from == P::Unavailable || from == P::ImportFailed || from == P::ApplyFailed
+                 ? std::optional(P::Unloaded)
+                 : std::nullopt;
     case E::StatusOk:
       return from == P::Loading ? std::optional(P::Ready) : std::nullopt;
     case E::StatusFailed:
       return from == P::Loading ? std::optional(P::Unavailable) : std::nullopt;
     case E::Apply:
-      return from == P::Ready || from == P::ImportFailed ? std::optional(P::Applying) : std::nullopt;
+      return from == P::Ready || from == P::ImportFailed || from == P::ApplyFailed ? std::optional(P::Applying) : std::nullopt;
     case E::Import:
-      return from == P::Ready || from == P::ImportFailed ? std::optional(P::Importing) : std::nullopt;
+      return from == P::Ready || from == P::ImportFailed || from == P::ApplyFailed ? std::optional(P::Importing) : std::nullopt;
     case E::CommandDone:
       return from == P::Applying || from == P::Importing ? std::optional(P::Loading) : std::nullopt;
     case E::ImportFailed:
       return from == P::Importing ? std::optional(P::ImportFailed) : std::nullopt;
+    case E::ApplyFailed:
+      return from == P::Applying ? std::optional(P::ApplyFailed) : std::nullopt;
     }
     return std::nullopt;
   }
