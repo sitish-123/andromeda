@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/app_poll_sources.h"
+#include "app/graphics_recovery.h"
 #include "app/lock_before_sleep.h"
 #include "app/modules/bluetooth_module.h"
 #include "app/modules/mpris_module.h"
@@ -566,10 +567,8 @@ private:
   Timer m_clipboardAutoPasteTimer;
   Timer m_launcherAutoPasteTimer;
   Timer m_pluginAutoUpdateTimer;
-  Timer m_graphicsRecoveryTimer;
+  GraphicsRecovery m_graphicsRecovery{[this] { recoverGraphicsAfterReset(); }};
   std::uint64_t m_greeterSyncGeneration = 0;
-  int m_graphicsRecoveryAttempts = 0;
-  bool m_graphicsRecoveryScheduled = false;
 
   std::unique_ptr<MainLoop> m_mainLoop;
 };

@@ -20,12 +20,6 @@
 namespace {
   constexpr Logger kLog("app");
 
-  // A reset that outlives this many retries is not a transient GPU hiccup. Back off between
-  // attempts so a dead GPU does not spin the loop, and give up rather than retry forever.
-  constexpr int kMaxGraphicsRecoveryAttempts = 8;
-  constexpr std::chrono::milliseconds kGraphicsRecoveryBaseDelay{250};
-  constexpr std::chrono::milliseconds kGraphicsRecoveryMaxDelay{5000};
-
   std::string_view powerProfileOriginName(PowerProfilesChangeOrigin origin) {
     switch (origin) {
     case PowerProfilesChangeOrigin::Noctalia:
@@ -46,15 +40,10 @@ void Application::onIconThemeChanged() {
 
 void Application::onGraphicsReset(RenderGraphicsResetStatus status) {
   (void)status;
-  if (m_graphicsRecoveryScheduled) {
-    return;
-  }
-  m_graphicsRecoveryScheduled = true;
-  DeferredCall::callLater([this] { recoverGraphicsAfterReset(); });
+  m_graphicsRecovery.onReset();
 }
 
 void Application::recoverGraphicsAfterReset() {
-  m_graphicsRecoveryScheduled = false;
   try {
     // A robust-context reset invalidates the whole share group. Tear down every
     // child before replacing the root, and do it outside the render callback.
@@ -77,26 +66,21 @@ void Application::recoverGraphicsAfterReset() {
     m_settingsWindow.requestRedraw();
     m_screenCorners.requestRedraw();
     requestAllSurfacesRedraw();
-    m_graphicsRecoveryAttempts = 0;
+    m_graphicsRecovery.succeeded();
     kLog.info("graphics context recovery completed");
   } catch (const std::exception& e) {
-    ++m_graphicsRecoveryAttempts;
-    if (m_graphicsRecoveryAttempts >= kMaxGraphicsRecoveryAttempts) {
+    const auto delay = m_graphicsRecovery.failed();
+    if (!delay) {
       kLog.error(
           "graphics context recovery failed after {} attempts; rendering stays disabled: {}",
-          m_graphicsRecoveryAttempts, e.what()
+          m_graphicsRecovery.failedAttempts(), e.what()
       );
       return;
     }
-
-    const auto delay =
-        std::min(kGraphicsRecoveryBaseDelay * (1 << (m_graphicsRecoveryAttempts - 1)), kGraphicsRecoveryMaxDelay);
     kLog.warn(
-        "graphics context recovery failed (attempt {}); retrying in {}ms: {}", m_graphicsRecoveryAttempts,
-        delay.count(), e.what()
+        "graphics context recovery failed (attempt {}); retrying in {}ms: {}", m_graphicsRecovery.failedAttempts(),
+        delay->count(), e.what()
     );
-    m_graphicsRecoveryScheduled = true;
-    m_graphicsRecoveryTimer.start(delay, [this] { recoverGraphicsAfterReset(); });
   }
 }
 
