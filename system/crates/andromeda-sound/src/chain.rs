@@ -47,7 +47,9 @@ pub fn filter_chain_conf(t: &Tuning, s: &Settings) -> Result<String> {
     let cp = |k: &str| p.cp.get(k).and_then(|v| v.first()).copied().unwrap_or(0.0);
     let leveler_amount = if cp("volume-leveler-enable") > 0.0 { cp("volume-leveler-amount") } else { 0.0 };
     let leveler_target = p.cp.get("volume-leveler-in-target").and_then(|v| v.first()).map_or(-20.0, |v| v / DAX);
-    let mut reg = String::new();
+    // Our reading of DAX3: the relaxation amount caps how deep the regulator cuts (1/16 dB).
+    let max_cut = p.cp.get("regulator-relaxation-amount").and_then(|v| v.first()).map_or(6.0, |v| v / DAX);
+    let mut reg = format!(" \"Max cut\" = {max_cut:.2}");
     for (name, key) in [("High", "regulator-tuning.threshold_high"), ("Low", "regulator-tuning.threshold_low")] {
         if let Some(v) = p.vlldp.get(key) {
             for (i, x) in v.iter().take(20).enumerate() {

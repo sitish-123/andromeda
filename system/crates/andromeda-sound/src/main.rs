@@ -16,6 +16,11 @@ fn main() -> Result<()> {
         Some("import-dolby") => import(args),
         Some("apply") => apply(args),
         Some("off") => {
+            // Give the user's volume back to the speaker before the chain goes, so it never plays at 100 %.
+            if let (Some(vol), Ok(speaker)) = (sink_volume(chain::SINK_NAME), speaker_sink()) {
+                pactl(&["set-sink-volume", &speaker, &vol])?;
+                pactl(&["set-default-sink", &speaker])?;
+            }
             let conf = conf_path()?;
             if conf.exists() {
                 fs::remove_file(&conf)?;
@@ -60,9 +65,16 @@ fn apply(mut args: impl Iterator<Item = String>) -> Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
+    // The user's volume must sit before the regulator, as with Dolby: the chain's sink carries it
+    // and the hardware stays at 100 %. On a profile switch the chain already holds it.
+    let vol = sink_volume(chain::SINK_NAME).or_else(|| sink_volume(&target)).unwrap_or_else(|| "50%".to_owned());
     fs::write(&path, conf)?;
     systemctl(&["enable", "filter-chain.service"])?;
     systemctl(&["restart", "filter-chain.service"])?;
+    wait_sink(chain::SINK_NAME)?;
+    pactl(&["set-sink-volume", chain::SINK_NAME, &vol])?;
+    pactl(&["set-default-sink", chain::SINK_NAME])?;
+    pactl(&["set-sink-volume", &target, "100%"])?;
     println!("{}", path.display());
     Ok(())
 }
@@ -82,9 +94,36 @@ fn speaker_sink() -> Result<String> {
     String::from_utf8_lossy(&out.stdout)
         .lines()
         .filter_map(|l| l.split('\t').nth(1))
-        .find(|n| n.to_ascii_lowercase().contains("speaker"))
+        .find(|n| !n.starts_with(chain::SINK_NAME) && n.to_ascii_lowercase().contains("speaker"))
         .map(str::to_owned)
         .context("no speaker sink; pass --target")
+}
+
+/// First channel's volume as `pactl` prints it (`45%`), or None when the sink does not exist.
+fn sink_volume(sink: &str) -> Option<String> {
+    let out = Command::new("pactl").args(["get-sink-volume", sink]).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout).split_whitespace().find(|w| w.ends_with('%')).map(str::to_owned)
+}
+
+fn wait_sink(sink: &str) -> Result<()> {
+    for _ in 0..50 {
+        if sink_volume(sink).is_some() {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    bail!("{sink} did not appear within 5 s; see journalctl --user -u filter-chain.service")
+}
+
+fn pactl(args: &[&str]) -> Result<()> {
+    let st = Command::new("pactl").args(args).status().context("run pactl")?;
+    if !st.success() {
+        bail!("pactl {} failed", args.join(" "));
+    }
+    Ok(())
 }
 
 fn systemctl(args: &[&str]) -> Result<()> {

@@ -22,6 +22,8 @@ pub struct Regulator {
     pub low_db: [f32; BANDS],
     pub attack_ms: f32,
     pub release_ms: f32,
+    /// Deepest cut per band in dB (positive).
+    pub max_cut_db: f32,
 }
 
 struct Band {
@@ -53,7 +55,15 @@ impl Regulator {
                 }
             })
             .collect();
-        Self { fs, bands, high_db: [0.0; BANDS], low_db: [-12.0; BANDS], attack_ms: 5.0, release_ms: 150.0 }
+        Self {
+            fs,
+            bands,
+            high_db: [0.0; BANDS],
+            low_db: [-12.0; BANDS],
+            attack_ms: 5.0,
+            release_ms: 150.0,
+            max_cut_db: 6.0,
+        }
     }
 
     #[allow(clippy::many_single_char_names)]
@@ -73,7 +83,7 @@ impl Regulator {
                     }
                     level = level.max(10.0 * (*p + 1e-12).log10() + 3.0103);
                 }
-                let cut = knee_cut(level, self.low_db[i], self.high_db[i]);
+                let cut = knee_cut(level, self.low_db[i], self.high_db[i]).max(-self.max_cut_db);
                 if (cut - band.cut_db).abs() > 0.01 {
                     band.cut_db = cut;
                     let c = Coeffs::peaking(self.fs, band.hz, band.q, cut);
@@ -137,10 +147,16 @@ mod tests {
     }
 
     #[test]
-    fn loud_tone_in_protected_band_is_cut() {
-        let out = rms_out_db(&mut ux3405(), 0.5, 328.0);
+    fn loud_tone_in_protected_band_is_cut_up_to_max_cut() {
         let input = 20.0 * 0.5f32.log10() - 3.0103;
-        assert!(input - out > 20.0, "cut only {} dB", input - out);
+        let mut reg = ux3405();
+        reg.max_cut_db = 48.0;
+        let deep = input - rms_out_db(&mut reg, 0.5, 328.0);
+        assert!(deep > 20.0, "cut only {deep} dB");
+        let mut reg = ux3405();
+        reg.max_cut_db = 6.0;
+        let capped = input - rms_out_db(&mut reg, 0.5, 328.0);
+        assert!((5.0..12.0).contains(&capped), "capped cut {capped} dB");
     }
 
     #[test]

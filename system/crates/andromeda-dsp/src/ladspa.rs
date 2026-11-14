@@ -91,7 +91,11 @@ impl Kind {
             Kind::Regulator => (0..BANDS)
                 .map(|i| control(&format!("High {i}"), -96.0, 0.0, 0.0))
                 .chain((0..BANDS).map(|i| control(&format!("Low {i}"), -96.0, 0.0, -12.0)))
-                .chain([control("Attack", 0.1, 100.0, 5.0), control("Release", 1.0, 2000.0, 150.0)])
+                .chain([
+                    control("Attack", 0.1, 100.0, 5.0),
+                    control("Release", 1.0, 2000.0, 150.0),
+                    control("Max cut", 0.0, 96.0, 6.0),
+                ])
                 .collect(),
             Kind::Leveler => vec![
                 control("Target", -60.0, 0.0, -20.0),
@@ -126,7 +130,7 @@ impl Dsp {
             Dsp::Regulator(d) => {
                 d.high_db.copy_from_slice(&c[..BANDS]);
                 d.low_db.copy_from_slice(&c[BANDS..2 * BANDS]);
-                (d.attack_ms, d.release_ms) = (c[2 * BANDS], c[2 * BANDS + 1]);
+                (d.attack_ms, d.release_ms, d.max_cut_db) = (c[2 * BANDS], c[2 * BANDS + 1], c[2 * BANDS + 2]);
                 d.process(l, r);
             }
             Dsp::Leveler(d) => {
