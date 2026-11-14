@@ -433,6 +433,7 @@ _noctalia_sources = files(
   'src/core/inotify/inotify.cpp',
   'src/dbus/mpris/mpris_art.cpp',
   'src/dbus/notification/notification_poll_source.cpp',
+  'src/dbus/notification/notification_portal.cpp',
   'src/dbus/notification/notification_service.cpp',
   'src/dbus/link/link_service.cpp',
   'src/dbus/link/link_device_state.cpp',

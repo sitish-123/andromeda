@@ -20,8 +20,9 @@ enum class CloseReason : uint32_t {
 };
 
 enum class NotificationOrigin : uint8_t {
-  External = 0,
+  External = 0, // org.freedesktop.Notifications
   Internal = 1,
+  Portal = 2, // org.freedesktop.impl.portal.Notification
 };
 
 enum class NotificationDndPolicy : uint8_t {

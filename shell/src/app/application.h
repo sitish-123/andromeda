@@ -186,6 +186,7 @@ class LinkService;
 class LockClient;
 class QuickShareService;
 class SettingsPortal;
+class NotificationPortal;
 enum class BluetoothStateChangeOrigin : std::uint8_t;
 enum class NetworkChangeOrigin : std::uint8_t;
 enum class PowerProfilesChangeOrigin : std::uint8_t;
@@ -448,6 +449,7 @@ private:
   std::optional<bool> m_profileAppliedOnBattery;
   std::unique_ptr<UDisksService> m_udisksService;
   std::unique_ptr<SettingsPortal> m_settingsPortal;
+  std::unique_ptr<NotificationPortal> m_notificationPortal;
   std::unique_ptr<InhibitPortal> m_inhibitPortal;
   std::unique_ptr<BackgroundPortal> m_backgroundPortal;
   std::unique_ptr<GlobalShortcutsPortal> m_globalShortcutsPortal;

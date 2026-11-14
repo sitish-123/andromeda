@@ -15,8 +15,8 @@ namespace sdbus {
 }
 
 // The PT2 portal backends served by `andromeda-files --picker` next to the FileChooser (FILES-UI-SPEC §12):
-// org.freedesktop.impl.portal.Account, .Wallpaper and .DynamicLauncher ask through a sheet; .Notification forwards
-// sandboxed apps' notifications to org.freedesktop.Notifications (our notification center) and routes actions back.
+// org.freedesktop.impl.portal.Account, .Wallpaper and .DynamicLauncher ask through a sheet. The shell serves
+// .Notification.
 class SystemPortals {
 public:
   enum class Kind : std::uint8_t { Account, Wallpaper, Launcher };
@@ -48,7 +48,7 @@ public:
 
   // response 0 granted, 1 cancelled, 2 other. `name` is the Launcher's final name.
   void answer(std::uint64_t id, std::uint32_t response, const std::string& name = {});
-  [[nodiscard]] bool idle() const noexcept { return m_pending.empty() && m_notifications.empty(); }
+  [[nodiscard]] bool idle() const noexcept { return m_pending.empty(); }
 
   // The user's id, real name and picture file ("" = none), as Account returns them.
   struct User {
@@ -60,26 +60,15 @@ public:
 
 private:
   struct Pending;
-  struct Notification {
-    std::string appId;
-    std::string id;
-    std::string defaultAction;
-    std::vector<std::string> actions; // button actions by index "b<i>"
-  };
 
   std::uint64_t track(const std::string& handle, std::unique_ptr<Pending> pending);
-  void forget(std::uint32_t serverId);
 
   SessionBus& m_bus;
   Handlers m_handlers;
   std::unique_ptr<sdbus::IObject> m_account;
   std::unique_ptr<sdbus::IObject> m_wallpaper;
   std::unique_ptr<sdbus::IObject> m_launcher;
-  std::unique_ptr<sdbus::IObject> m_notification;
-  std::unique_ptr<sdbus::IProxy> m_server; // org.freedesktop.Notifications
   std::map<std::uint64_t, std::unique_ptr<Pending>> m_pending;
-  std::map<std::uint32_t, Notification> m_notifications; // by the server's id
-  std::map<std::string, std::uint32_t> m_byKey;          // "<app id>\n<id>" -> the server's id
   std::uint64_t m_nextId = 1;
   std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
 };

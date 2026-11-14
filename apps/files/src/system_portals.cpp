@@ -6,7 +6,6 @@
 
 #include <filesystem>
 #include <fstream>
-#include <gio/gdesktopappinfo.h>
 #include <gio/gio.h>
 #include <glib.h>
 #include <optional>
@@ -21,9 +20,7 @@ namespace {
   constexpr auto kAccount = "org.freedesktop.impl.portal.Account";
   constexpr auto kWallpaper = "org.freedesktop.impl.portal.Wallpaper";
   constexpr auto kLauncher = "org.freedesktop.impl.portal.DynamicLauncher";
-  constexpr auto kNotification = "org.freedesktop.impl.portal.Notification";
   constexpr auto kRequest = "org.freedesktop.impl.portal.Request";
-  constexpr auto kServer = "org.freedesktop.Notifications";
   constexpr std::uint32_t kLauncherApp = 1;
   constexpr std::uint32_t kLauncherWebApp = 2;
   using Options = std::map<std::string, sdbus::Variant>;
@@ -76,7 +73,6 @@ namespace {
     return {};
   }
 
-  std::string keyOf(const std::string& appId, const std::string& id) { return appId + "\n" + id; }
 } // namespace
 
 struct SystemPortals::Pending {
@@ -194,106 +190,6 @@ SystemPortals::SystemPortals(SessionBus& bus, Handlers handlers) : m_bus(bus), m
           sdbus::registerProperty("version").withGetter([] { return 1U; })
       )
       .forInterface(kLauncher);
-
-  m_notification = sdbus::createObject(connection, kObjectPath);
-  m_notification
-      ->addVTable(
-          sdbus::registerMethod("AddNotification")
-              .withInputParamNames("app_id", "id", "notification")
-              .implementedAs([this](const std::string& appId, const std::string& id, const Options& n) {
-                const std::string key = keyOf(appId, id);
-                const auto old = m_byKey.find(key);
-                const std::uint32_t replaces = old != m_byKey.end() ? old->second : 0;
-                Notification entry{.appId = appId, .id = id,
-                                   .defaultAction = option<std::string>(n, "default-action").value_or(""), .actions = {}};
-                std::vector<std::string> actions{"default", ""};
-                for (const Options& button : option<std::vector<Options>>(n, "buttons").value_or({})) {
-                  actions.push_back("b" + std::to_string(entry.actions.size()));
-                  actions.push_back(option<std::string>(button, "label").value_or(""));
-                  entry.actions.push_back(option<std::string>(button, "action").value_or(""));
-                }
-                std::string icon = appId;
-                if (const auto v = option<IconVariant>(n, "icon")) {
-                  if (std::string file = iconFile(*v, "notification-" + std::to_string(std::hash<std::string>{}(key)));
-                      !file.empty()) {
-                    icon = std::move(file);
-                  }
-                }
-                const std::string priority = option<std::string>(n, "priority").value_or("normal");
-                const std::uint8_t urgency = priority == "low" ? 0 : (priority == "urgent" ? 2 : 1);
-                Options hints{{"desktop-entry", sdbus::Variant(appId)}, {"urgency", sdbus::Variant(urgency)}};
-                std::string appName = appId;
-                if (GDesktopAppInfo* info = g_desktop_app_info_new((appId + ".desktop").c_str())) {
-                  appName = g_app_info_get_name(G_APP_INFO(info));
-                  g_object_unref(info);
-                }
-                m_server->callMethodAsync("Notify")
-                    .onInterface(kServer)
-                    .withArguments(appName, replaces, icon, option<std::string>(n, "title").value_or(""),
-                                   option<std::string>(n, "body").value_or(""), actions, hints, std::int32_t{-1})
-                    .uponReplyInvoke([this, key, entry = std::move(entry), alive = std::weak_ptr<bool>(m_alive)](
-                                         std::optional<sdbus::Error> error, std::uint32_t serverId) {
-                      if (alive.expired()) {
-                        return;
-                      }
-                      if (error.has_value()) {
-                        kLog.warn("notify: {}", error->getMessage());
-                        return;
-                      }
-                      if (const auto it = m_byKey.find(key); it != m_byKey.end() && it->second != serverId) {
-                        m_notifications.erase(it->second);
-                      }
-                      m_byKey[key] = serverId;
-                      kLog.info("notification {} from {} shown as {}", entry.id, entry.appId, serverId);
-                      m_notifications[serverId] = entry;
-                    });
-              }),
-          sdbus::registerMethod("RemoveNotification")
-              .withInputParamNames("app_id", "id")
-              .implementedAs([this](const std::string& appId, const std::string& id) {
-                const auto it = m_byKey.find(keyOf(appId, id));
-                if (it == m_byKey.end()) {
-                  return;
-                }
-                const std::uint32_t serverId = it->second;
-                forget(serverId);
-                m_server->callMethodAsync("CloseNotification").onInterface(kServer).withArguments(serverId).uponReplyInvoke(
-                    [](std::optional<sdbus::Error> error) {
-                      if (error.has_value()) {
-                        kLog.debug("close notification: {}", error->getMessage());
-                      }
-                    });
-              }),
-          sdbus::registerSignal("ActionInvoked").withParameters<std::string, std::string, std::string, std::vector<sdbus::Variant>>(),
-          sdbus::registerProperty("SupportedOptions").withGetter([] { return Options{}; }),
-          sdbus::registerProperty("version").withGetter([] { return 1U; })
-      )
-      .forInterface(kNotification);
-
-  m_server = sdbus::createProxy(connection, sdbus::ServiceName{kServer}, sdbus::ObjectPath{"/org/freedesktop/Notifications"});
-  m_server->uponSignal("ActionInvoked").onInterface(kServer).call([this](std::uint32_t serverId, const std::string& key) {
-    const auto it = m_notifications.find(serverId);
-    if (it == m_notifications.end()) {
-      return;
-    }
-    const Notification& n = it->second;
-    std::string action;
-    if (key == "default") {
-      action = n.defaultAction.empty() ? "default" : n.defaultAction;
-    } else if (key.starts_with('b')) {
-      const std::size_t index = std::stoul(key.substr(1));
-      action = index < n.actions.size() ? n.actions[index] : "";
-    }
-    if (action.empty()) {
-      return;
-    }
-    kLog.info("notification {} action {}", n.id, action);
-    m_notification->emitSignal("ActionInvoked").onInterface(kNotification).withArguments(n.appId, n.id, action,
-                                                                                         std::vector<sdbus::Variant>{});
-  });
-  m_server->uponSignal("NotificationClosed").onInterface(kServer).call([this](std::uint32_t serverId, std::uint32_t) {
-    forget(serverId);
-  });
 }
 
 SystemPortals::~SystemPortals() {
@@ -304,15 +200,6 @@ SystemPortals::~SystemPortals() {
       pending->plain->returnResults(std::uint32_t{2});
     }
   }
-}
-
-void SystemPortals::forget(std::uint32_t serverId) {
-  const auto it = m_notifications.find(serverId);
-  if (it == m_notifications.end()) {
-    return;
-  }
-  m_byKey.erase(keyOf(it->second.appId, it->second.id));
-  m_notifications.erase(it);
 }
 
 std::uint64_t SystemPortals::track(const std::string& handle, std::unique_ptr<Pending> pending) {

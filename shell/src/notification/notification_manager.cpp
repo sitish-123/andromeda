@@ -49,6 +49,8 @@ namespace {
       return "external";
     case NotificationOrigin::Internal:
       return "internal";
+    case NotificationOrigin::Portal:
+      return "portal";
     }
     return "unknown";
   }
@@ -80,7 +82,7 @@ namespace {
 
   bool shouldTrackHistory(NotificationOrigin origin, Urgency /*urgency*/, bool transient, bool persistInHistory) noexcept {
     // Low urgency is kept (user, 2026-11-07: downloads, updates and some chat apps send low); transient stays out.
-    return (origin == NotificationOrigin::External || persistInHistory) && !transient;
+    return (origin != NotificationOrigin::Internal || persistInHistory) && !transient;
   }
 
   bool shouldSaveNotificationToHistory(
@@ -338,8 +340,12 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
   bool held = false;
   bool hideContent = m_screenShared;
   if (const focus::Focus* active = m_focus.current(std::time(nullptr)); active != nullptr) {
+    const bool portal = origin == NotificationOrigin::Portal;
     const focus::Incoming incoming{
-        .app = focus::identity(desktopEntry.value_or(""), "", "", appName), .critical = urgency == Urgency::Critical
+        .app = focus::identity(desktopEntry.value_or(""), "", "", appName),
+        .critical = urgency == Urgency::Critical,
+        .portalPriority = request.portalPriority,
+        .portalCategory = portal ? category.value_or("") : "",
     };
     const focus::Decision decision = focus::decide(active, incoming, m_screenShared);
     hideContent = decision.hideContent;
@@ -618,6 +624,10 @@ bool NotificationManager::invokeAction(
     for (const ActionInvokeCallback& callback : m_internalActionCallbacks) {
       callback(id, actionKey, activationToken, notification->sender);
     }
+  } else if (notification->origin == NotificationOrigin::Portal) {
+    if (m_portalActionCallback) {
+      m_portalActionCallback(id, actionKey, activationToken, notification->sender);
+    }
   } else if (m_actionInvokeCallback) {
     m_actionInvokeCallback(id, actionKey, activationToken, notification->sender);
   }
@@ -646,6 +656,8 @@ bool NotificationManager::invokeInlineReply(
 
   if (notification->origin == NotificationOrigin::External && m_replyCallback) {
     m_replyCallback(id, replyText, activationToken, notification->sender);
+  } else if (notification->origin == NotificationOrigin::Portal && m_portalReplyCallback) {
+    m_portalReplyCallback(id, replyText, activationToken, notification->sender);
   }
 
   if (closeAfterInvoke) {
@@ -895,7 +907,7 @@ NotificationManager::ExternalNotificationDispatch NotificationManager::evaluateE
   dispatch.showToast = resolved.showToast;
   // Internal notifications are toast/sound only unless they explicitly opt into history. Filters
   // still apply either way, so a user can silence an opted-in source by app name.
-  dispatch.saveHistory = (origin == NotificationOrigin::External || persistInHistory)
+  dispatch.saveHistory = (origin != NotificationOrigin::Internal || persistInHistory)
       && resolved.saveHistory
       && shouldTrackHistory(origin, urgency, transient, persistInHistory);
   dispatch.playSound = resolved.playSound && dispatch.showToast;

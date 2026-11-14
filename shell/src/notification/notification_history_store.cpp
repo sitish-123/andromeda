@@ -29,6 +29,7 @@ namespace {
 
   constexpr std::string_view kOriginExternal = "external";
   constexpr std::string_view kOriginInternal = "internal";
+  constexpr std::string_view kOriginPortal = "portal";
 
   constexpr std::string_view kUrgencyLow = "low";
   constexpr std::string_view kUrgencyNormal = "normal";
@@ -75,11 +76,22 @@ namespace {
   }
 
   std::string_view originStr(NotificationOrigin o) noexcept {
-    return o == NotificationOrigin::Internal ? kOriginInternal : kOriginExternal;
+    switch (o) {
+    case NotificationOrigin::Internal:
+      return kOriginInternal;
+    case NotificationOrigin::Portal:
+      return kOriginPortal;
+    case NotificationOrigin::External:
+      break;
+    }
+    return kOriginExternal;
   }
 
   NotificationOrigin originFrom(std::string_view s) noexcept {
-    return s == kOriginInternal ? NotificationOrigin::Internal : NotificationOrigin::External;
+    if (s == kOriginInternal) {
+      return NotificationOrigin::Internal;
+    }
+    return s == kOriginPortal ? NotificationOrigin::Portal : NotificationOrigin::External;
   }
 
   std::optional<CloseReason> closeReasonFrom(std::string_view s) noexcept {

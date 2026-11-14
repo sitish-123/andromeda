@@ -73,6 +73,7 @@ struct NotificationRequest {
   std::optional<std::string> group = std::nullopt;
   std::optional<uint32_t> forcedId = std::nullopt;
   std::optional<std::string> settingsPage = std::nullopt;
+  std::string portalPriority; // Portal origin: low | normal | high | urgent
 };
 
 class NotificationManager {
@@ -114,6 +115,11 @@ public:
   bool updateBody(uint32_t id, std::string body);
 
   void setActionInvokeCallback(ActionInvokeCallback callback);
+  // Actions and inline replies on Portal-origin notifications go to the notification portal.
+  void setPortalCallbacks(ActionInvokeCallback action, ReplyCallback reply) {
+    m_portalActionCallback = std::move(action);
+    m_portalReplyCallback = std::move(reply);
+  }
   // Opens a Settings page for a notification's x-andromeda-settings-page hint.
   void setSettingsPageCallback(std::function<void(const std::string& page)> callback) {
     m_settingsPageCallback = std::move(callback);
@@ -278,6 +284,8 @@ private:
   std::unordered_map<uint32_t, size_t> m_historyIndex;
   std::vector<std::pair<int, EventCallback>> m_eventCallbacks;
   ActionInvokeCallback m_actionInvokeCallback;
+  ActionInvokeCallback m_portalActionCallback;
+  ReplyCallback m_portalReplyCallback;
   std::function<void(const std::string&)> m_settingsPageCallback;
   std::vector<ActionInvokeCallback> m_internalActionCallbacks;
   CloseCallback m_closeCallback;

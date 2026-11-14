@@ -37,6 +37,7 @@
 #include "dbus/network/nm_hotspot.h"
 #include "dbus/network/wpa_supplicant_service.h"
 #include "dbus/notification/notification_dbus_host.h"
+#include "dbus/notification/notification_portal.h"
 #include "dbus/notification/notification_service.h"
 #include "dbus/polkit/polkit_agent.h"
 #include "dbus/sensor/ambient_light_service.h"
@@ -1030,6 +1031,11 @@ void Application::initStyleThemeAndWayland() {
       m_settingsPortal = std::make_unique<SettingsPortal>(*m_bus);
     } catch (const sdbus::Error& e) {
       kLog.warn("settings portal disabled: {}", e.what());
+    }
+    try {
+      m_notificationPortal = std::make_unique<NotificationPortal>(*m_bus, m_notificationManager);
+    } catch (const sdbus::Error& e) {
+      kLog.warn("notification portal disabled: {}", e.what());
     }
   }
   m_themeService.apply();

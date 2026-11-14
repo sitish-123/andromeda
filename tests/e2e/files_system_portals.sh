@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-# Files PT2: Account, Wallpaper, DynamicLauncher and Notification served by `andromeda-files --picker`. Fails when:
+# Files PT2: Account, Wallpaper and DynamicLauncher served by `andromeda-files --picker`. Fails when:
 #   - Account Share does not return the user's id and name, or Cancel does not answer 1,
 #   - Wallpaper with a preview does not show a window and answer 0 on Set, or without one does not set at once,
-#   - PrepareInstall does not return the edited name and the icon,
-#   - AddNotification does not reach org.freedesktop.Notifications with the button, a server action does not come
-#     back as the portal's ActionInvoked with the app's action name, or RemoveNotification does not close it.
+#   - PrepareInstall does not return the edited name and the icon.
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/files-system-portals}
 source "$(dirname "$0")/lib.sh"
@@ -33,7 +31,6 @@ trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true
 env_all=(env DESK_FILES_TEST=1 DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config"
   XDG_DATA_HOME="$HOME_DIR/.local/share" XDG_STATE_HOME="$HOME_DIR/.local/state" XDG_CURRENT_DESKTOP=andromeda)
 
-run "${env_all[@]}" python3 "$ROOT/tests/e2e/fake_notification_server.py" > "$OUT/server.log" 2>&1 &
 run "${env_all[@]}" ANDROMEDA_LOG_LEVEL=debug "$FILES" --picker > "$OUT/picker.log" 2>&1 &
 
 wait_for() { # description, test command...
@@ -43,7 +40,6 @@ wait_for() { # description, test command...
 }
 on_bus() { DBUS_SESSION_BUS_ADDRESS=$BUS gdbus introspect --session -d "$1" -o "$2" > /dev/null 2>&1; }
 wait_for "the picker is not on the bus" on_bus org.freedesktop.impl.portal.desktop.andromeda.Files /org/freedesktop/portal/desktop
-wait_for "the notification server is not on the bus" on_bus org.freedesktop.Notifications /org/freedesktop/Notifications
 
 win() { run "$ANDROMEDA" windows --json | jq -c "[.. | objects | select(.app_id? == \"$PICKER\")][0] // empty"; }
 mapped() { local w; w=$(win); [[ -n $w && $(jq .w <<< "$w") -gt 0 ]]; }
@@ -93,16 +89,3 @@ action portal.accept
 wait_for "the launcher dialog stayed open" unmapped
 echo "PASS launcher"
 
-start notify notify n1
-result notify > /dev/null
-notified() { grep -q "^NOTIFY 1 .* Build done default,,b0,Retry$" "$OUT/server.log"; }
-wait_for "the notification did not reach the server" notified
-DBUS_SESSION_BUS_ADDRESS=$BUS gdbus call --session -d org.freedesktop.Notifications -o /org/freedesktop/Notifications \
-  -m org.freedesktop.Notifications.Invoke 1 b0 > /dev/null
-retried() { grep -q "^PORTAL_ACTION org.test.Caller n1 app.retry$" "$OUT/server.log"; }
-wait_for "the button action did not come back to the app" retried
-start unnotify unnotify n1
-result unnotify > /dev/null
-closed() { grep -q "^CLOSE 1$" "$OUT/server.log"; }
-wait_for "RemoveNotification did not close it" closed
-echo "PASS notification"

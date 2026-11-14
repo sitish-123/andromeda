@@ -44,6 +44,7 @@
 #include "dbus/portal/global_shortcuts_portal.h"
 #include "dbus/portal/background_portal.h"
 #include "dbus/portal/inhibit_portal.h"
+#include "dbus/notification/notification_portal.h"
 #include "dbus/portal/settings_portal.h"
 #include "dbus/power/power_profiles_service.h"
 #include "dbus/sensor/ambient_light_service.h"
@@ -258,8 +259,7 @@ Application::Application()
     } else if (event == NotificationEvent::Closed) {
       kind = "closed";
     }
-    const char* origin = (n.origin == NotificationOrigin::Internal) ? "internal" : "external";
-    kLog.debug("notification {} id={} origin={}", kind, n.id, origin);
+    kLog.debug("notification {} id={} origin={}", kind, n.id, static_cast<int>(n.origin));
 
     if (event == NotificationEvent::Added && m_panelManager.isActivePanelContext("detail-notifications")) {
       m_notificationManager.markNotificationHistorySeen();

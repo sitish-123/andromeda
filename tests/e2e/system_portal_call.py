@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Calls the PT2 impl portals on the Files picker process directly.
 Usage: system_portal_call.py account|wallpaper-preview|wallpaper-direct|launcher <handle> [file]
-       system_portal_call.py notify <id> | unnotify <id>
 Prints "RESULT <response> <key=value,...>" once the call returns."""
 import sys
 
@@ -37,15 +36,3 @@ elif kind == "launcher":
                                             "target": GLib.Variant("s", "https://mail.example")})), "(ua{sv})")
     response, results = r.unpack()
     print(f"RESULT {response} name={results.get('name', '')},icon={'icon' in results}", flush=True)
-elif kind == "notify":
-    n = {"title": GLib.Variant("s", "Build done"), "body": GLib.Variant("s", "All green"),
-         "default-action": GLib.Variant("s", "app.open"),
-         "buttons": GLib.Variant("aa{sv}", [{"label": GLib.Variant("s", "Retry"),
-                                             "action": GLib.Variant("s", "app.retry")}])}
-    call("org.freedesktop.impl.portal.Notification", "AddNotification",
-         GLib.Variant("(ssa{sv})", ("org.test.Caller", arg, n)), None)
-    print("RESULT 0 ", flush=True)
-elif kind == "unnotify":
-    call("org.freedesktop.impl.portal.Notification", "RemoveNotification",
-         GLib.Variant("(ss)", ("org.test.Caller", arg)), None)
-    print("RESULT 0 ", flush=True)
