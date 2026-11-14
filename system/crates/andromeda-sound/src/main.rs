@@ -8,6 +8,7 @@ use anyhow::{Context, Result, bail};
 const USAGE: &str = "usage: andromeda-sound import-dolby [--xml FILE | --windows DIR] [-o FILE]
        andromeda-sound apply [--profile NAME] [--tuning FILE] [--dsp FILE] [--target SINK] [--loudness DB] [--bass 0-10] [-o FILE]
        andromeda-sound off
+       andromeda-sound import-windows
        andromeda-sound status";
 /// Defaults that make laptop speakers sound fuller and louder than the flat Dolby curve.
 const DEFAULT_LOUDNESS_DB: f32 = 4.0;
@@ -33,6 +34,13 @@ fn main() -> Result<()> {
             systemctl(&["restart", "filter-chain.service"])
         }
         Some("status") => status(),
+        // Import from Windows, then turn the chain on with the user's last bass and loudness.
+        Some("import-windows") => {
+            import(std::iter::empty())?;
+            let (_, profile, loudness, bass) = last_settings()?;
+            let profile = if profile == chain::GENERIC { "music".to_owned() } else { profile };
+            apply(["--profile", &profile, "--loudness", &loudness, "--bass", &bass].into_iter().map(str::to_owned))
+        }
         _ => bail!(USAGE),
     }
 }
@@ -101,10 +109,8 @@ fn apply(mut args: impl Iterator<Item = String>) -> Result<()> {
     Ok(())
 }
 
-/// One `key=value` per line for the Settings card: enabled, source (`basic` or the vendor),
-/// profile, loudness, bass, profiles (comma list from the imported tuning), windows (an NTFS
-/// partition exists), speakers (an internal speaker sink exists).
-fn status() -> Result<()> {
+/// (enabled, profile, loudness, bass) from the header of the live config, else of the `.off` one.
+fn last_settings() -> Result<(bool, String, String, String)> {
     let conf = conf_path()?;
     let enabled = conf.exists();
     let text =
@@ -116,7 +122,19 @@ fn status() -> Result<()> {
             .and_then(|(_, r)| r.split([' ', ';']).next())
             .map(|v| v.trim_matches('"').to_owned())
     };
-    let profile = field("profile").unwrap_or_else(|| "music".to_owned());
+    Ok((
+        enabled,
+        field("profile").unwrap_or_else(|| "music".to_owned()),
+        field("loudness").unwrap_or_else(|| DEFAULT_LOUDNESS_DB.to_string()),
+        field("bass").unwrap_or_else(|| DEFAULT_BASS.to_string()),
+    ))
+}
+
+/// One `key=value` per line for the Settings card: enabled, source (`basic` or the vendor),
+/// profile, loudness, bass, profiles (comma list from the imported tuning), windows (an NTFS
+/// partition exists), speakers (an internal speaker sink exists).
+fn status() -> Result<()> {
+    let (enabled, profile, loudness, bass) = last_settings()?;
     let tuning = codec_stem().ok().and_then(|stem| {
         let path = data_dir().ok()?.join(format!("{}.toml", stem.rsplit('_').next().unwrap_or_default()));
         toml::from_str::<andromeda_sound::Tuning>(&fs::read_to_string(path).ok()?).ok()
@@ -135,8 +153,8 @@ fn status() -> Result<()> {
     println!("enabled={}", u8::from(enabled));
     println!("source={}", if tuning.is_some() { "Dolby" } else { "basic" });
     println!("profile={profile}");
-    println!("loudness={}", field("loudness").unwrap_or_else(|| DEFAULT_LOUDNESS_DB.to_string()));
-    println!("bass={}", field("bass").unwrap_or_else(|| DEFAULT_BASS.to_string()));
+    println!("loudness={loudness}");
+    println!("bass={bass}");
     println!("profiles={}", profiles.join(","));
     println!("windows={}", u8::from(windows));
     println!("speakers={}", u8::from(speaker_sink().is_ok()));
