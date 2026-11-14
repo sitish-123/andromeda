@@ -1,5 +1,8 @@
 #include "app/main_loop.h"
+#include <charconv>
 #include <cstdlib>
+#include <ctime>
+#include <format>
 #include <vector>
 #include <system_error>
 #include <string>
@@ -334,6 +337,56 @@ void Application::initIpc() {
         m_osdOverlay.show(dndOsdContent(nextState));
         return "ok\n";
       }
+  );
+
+  m_ipcService.bind(noctalia::cli::msg::focusStart, [this](const std::string& args) -> std::string {
+    const auto parts = noctalia::ipc::splitWords(args);
+    if (parts.empty() || parts.size() > 2) {
+      return "error: focus-start requires <focus> [minutes]\n";
+    }
+    std::optional<std::int64_t> until;
+    if (parts.size() == 2) {
+      std::int64_t minutes = 0;
+      const auto [end, ec] = std::from_chars(parts[1].data(), parts[1].data() + parts[1].size(), minutes);
+      if (ec != std::errc{} || end != parts[1].data() + parts[1].size() || minutes <= 0) {
+        return "error: minutes must be a positive number\n";
+      }
+      until = std::time(nullptr) + minutes * 60;
+    }
+    if (!m_notificationManager.startFocus(parts[0], until, "user")) {
+      return "error: unknown focus\n";
+    }
+    m_bar.refresh();
+    if (m_panelManager.isOpenPanel("control-center")) {
+      m_panelManager.refresh();
+    }
+    return "ok\n";
+  });
+
+  m_ipcService.bind(noctalia::cli::msg::focusEnd, [this](const std::string&) -> std::string {
+    m_notificationManager.endFocus();
+    m_bar.refresh();
+    if (m_panelManager.isOpenPanel("control-center")) {
+      m_panelManager.refresh();
+    }
+    return "ok\n";
+  });
+
+  m_ipcService.bind(
+      noctalia::cli::msg::focusStatus,
+      [this](const std::string&) -> std::string {
+        const auto& active = m_notificationManager.focus().active();
+        if (!active.has_value()) {
+          return "{\"id\":null,\"until\":null,\"held\":0}\n";
+        }
+        int held = 0;
+        for (const auto& [app, count] : m_notificationManager.heldByApp()) {
+          held += count;
+        }
+        const std::string until = active->untilEpochSec.has_value() ? std::to_string(*active->untilEpochSec) : "null";
+        return std::format("{{\"id\":\"{}\",\"until\":{},\"held\":{}}}\n", active->focusId, until, held);
+      },
+      IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
   );
 
   m_ipcService.bind(

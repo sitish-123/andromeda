@@ -272,44 +272,56 @@ Application::Application()
     }
   });
 
-  // The active Focus survives a shell restart (docs/focus.md §3); one whose end time passed meanwhile is dropped.
-  if (const auto id = m_configService.stateString("focus", "active"); id.has_value() && !id->empty()) {
-    const std::string until = m_configService.stateString("focus", "until").value_or("");
-    std::int64_t untilSec = 0;
-    const auto parsed = std::from_chars(until.data(), until.data() + until.size(), untilSec);
-    // A damaged end time drops the Focus: kept, it would never end.
-    if (until.empty() || (parsed.ec == std::errc{} && parsed.ptr == until.data() + until.size())) {
-      m_notificationManager.focus().restore({
-          .focusId = *id,
-          .untilEpochSec = until.empty() ? std::nullopt : std::optional(untilSec),
-          .startedBy = m_configService.stateString("focus", "started_by").value_or("user"),
-      });
+  // The active Focus survives a shell restart (docs/focus.md §3); one whose end time passed meanwhile is dropped. A
+  // rule's Focus (Presenting) is not saved: its rule starts it again.
+  m_notificationManager.setFocusChangedCallback([this] {
+    auto active = m_notificationManager.focus().active();
+    if (active.has_value() && active->startedBy == "rule") {
+      active.reset();
     }
-  }
-  m_notificationManager.focus().setChangedCallback([this] {
-    const auto& active = m_notificationManager.focus().active();
     (void)m_configService.setStateString("focus", "active", active.has_value() ? active->focusId : "");
     (void)m_configService.setStateString(
         "focus", "until", active.has_value() && active->untilEpochSec.has_value() ? std::to_string(*active->untilEpochSec) : ""
     );
     (void)m_configService.setStateString("focus", "started_by", active.has_value() ? active->startedBy : "");
   });
-  (void)m_notificationManager.focus().expire(std::time(nullptr));
-  // The user's Do Not Disturb survives a shell restart; a rule's (Presenting) does not.
+  if (const auto id = m_configService.stateString("focus", "active"); id.has_value() && !id->empty()) {
+    const std::string until = m_configService.stateString("focus", "until").value_or("");
+    std::int64_t untilSec = 0;
+    const auto parsed = std::from_chars(until.data(), until.data() + until.size(), untilSec);
+    // A damaged end time drops the Focus: kept, it would never end.
+    if (until.empty() || (parsed.ec == std::errc{} && parsed.ptr == until.data() + until.size())) {
+      m_notificationManager.restoreFocus({
+          .focusId = *id,
+          .untilEpochSec = until.empty() ? std::nullopt : std::optional(untilSec),
+          .startedBy = m_configService.stateString("focus", "started_by").value_or("user"),
+      });
+    }
+  }
+  // Releases before the Focus state kept the user's Do Not Disturb in [notifications] do_not_disturb.
   if (m_configService.stateBool("notifications", "do_not_disturb").value_or(false)) {
     m_notificationManager.setDoNotDisturb(true);
+    (void)m_configService.setStateBool("notifications", "do_not_disturb", false);
   }
+  m_notificationManager.setFocusEndedCallback([this](const focus::Focus& ended, const auto& held) {
+    int total = 0;
+    std::string apps;
+    for (std::size_t i = 0; i < held.size(); ++i) {
+      total += held[i].second;
+      if (i < 3) {
+        apps += (i == 0 ? "" : ", ") + held[i].first;
+      }
+    }
+    if (held.size() > 3) {
+      apps = i18n::tr("notifications.internal.focus-summary-more", "apps", apps, "count", held.size() - 3);
+    }
+    (void)m_notificationManager.addInternal(
+        "Noctalia", i18n::trp("notifications.internal.focus-summary", total, "focus", ended.name), apps
+    );
+  });
   m_notificationManager.setStateCallback([this] {
     if (m_notificationManager.doNotDisturb()) {
       m_liveActivity.hideDndSuppressed();
-    }
-    // A change the rule did not make (a later revision) makes the DND the user's.
-    if (m_dndByRule && m_notificationManager.doNotDisturbRevision() != m_dndRuleRevision) {
-      m_dndByRule = false;
-    }
-    if (const bool userDnd = m_notificationManager.doNotDisturb() && !m_dndByRule && !m_notificationManager.doNotDisturbTimed();
-        m_configService.stateBool("notifications", "do_not_disturb").value_or(false) != userDnd) {
-      (void)m_configService.setStateBool("notifications", "do_not_disturb", userDnd);
     }
     if (m_andromedaShellService != nullptr) {
       m_andromedaShellService->notificationStateChanged();

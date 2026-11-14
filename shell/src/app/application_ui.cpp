@@ -57,6 +57,7 @@
 #include "launcher/klipy_provider.h"
 #include "launcher/symbol_provider.h"
 #include "launcher/web_search_provider.h"
+#include "launcher/focus_provider.h"
 #include "launcher/wallpaper_provider.h"
 #include "launcher/window_provider.h"
 #include "notification/notifications.h"
@@ -862,6 +863,7 @@ void Application::initPanelManagerAndPanels() {
     );
     launcherPanel->addProvider(std::make_unique<SessionProvider>(&m_configService, &m_sessionActionRunner));
     launcherPanel->addProvider(std::make_unique<WebSearchProvider>());
+    launcherPanel->addProvider(std::make_unique<FocusProvider>(&m_notificationManager));
     launcherPanel->addProvider(std::make_unique<MathProvider>(&m_clipboardService, &m_configService, &m_httpClient));
     launcherPanel->addProvider(std::make_unique<EmojiProvider>(&m_clipboardService, &m_configService));
     launcherPanel->addProvider(std::make_unique<ClipboardProvider>(&m_clipboardService));

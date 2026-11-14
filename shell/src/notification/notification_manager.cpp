@@ -10,6 +10,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <ctime>
 #include <mutex>
 #include <filesystem>
 #include <ranges>
@@ -331,6 +333,20 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
   if (dispatch.bypassDnd) {
     dndPolicy = NotificationDndPolicy::Bypass;
   }
+  // The Focus decides before Do Not Disturb (docs/focus.md §3): Show breaks through, Hold keeps history only. A rule
+  // or caller that bypasses DND also bypasses the Focus.
+  bool held = false;
+  if (const focus::Focus* active = m_focus.current(std::time(nullptr)); active != nullptr) {
+    const focus::Incoming incoming{
+        .app = focus::identity(desktopEntry.value_or(""), "", "", appName), .critical = urgency == Urgency::Critical
+    };
+    const focus::Decision decision = focus::decide(active, incoming, false);
+    if (decision.verdict == focus::Verdict::Show) {
+      dndPolicy = NotificationDndPolicy::Bypass;
+    } else if (decision.verdict == focus::Verdict::Hold && dndPolicy != NotificationDndPolicy::Bypass) {
+      held = true;
+    }
+  }
 
   if (dispatch.overrideDuration.has_value()) {
     timeout = normalizeNotifyExpireTimeout(*dispatch.overrideDuration);
@@ -460,20 +476,22 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
   m_idToIndex.emplace(id, m_notifications.size() - 1);
 
   const auto& n = m_notifications.back();
-  logNotification(n, "added");
+  logNotification(n, held ? "held" : "added");
+  if (held) {
+    ++m_held[n.appName];
+  }
   if (dispatch.saveHistory) {
     const bool hadUnreadBefore = computeHasUnreadNotificationHistory();
     upsertHistory(n, true, std::nullopt);
     notifyUnreadStateChangedIfNeeded(hadUnreadBefore);
   }
 
-  if (dispatch.showToast) {
+  if (dispatch.showToast && !held) {
     for (auto& [token, cb] : m_eventCallbacks) {
       cb(n, NotificationEvent::Added);
     }
   }
-  const bool dndAllowsSound = !m_doNotDisturb || dndPolicy == NotificationDndPolicy::Bypass;
-  if (dndAllowsSound && m_soundPlayer != nullptr && dispatch.playSound && !request.suppressSound) {
+  if (!held && m_soundPlayer != nullptr && dispatch.playSound && !request.suppressSound) {
     m_soundPlayer->play(SoundPlayer::kEventNotification);
   }
 
@@ -890,23 +908,74 @@ uint32_t NotificationManager::suppressExternal(std::string_view appName, Urgency
   return id;
 }
 
-void NotificationManager::setDoNotDisturb(bool enabled, bool timed) {
-  if (m_doNotDisturb == enabled && m_doNotDisturbTimed == (enabled && timed)) {
+void NotificationManager::setDoNotDisturb(bool enabled, std::string startedBy) {
+  if (enabled == doNotDisturb()) {
     return;
   }
-  m_doNotDisturb = enabled;
-  m_doNotDisturbTimed = enabled && timed;
-  ++m_doNotDisturbRevision;
-  if (m_stateCallback) {
-    m_stateCallback();
+  if (enabled) {
+    (void)startFocus("dnd", std::nullopt, std::move(startedBy));
+  } else {
+    endFocus();
   }
 }
 
-bool NotificationManager::doNotDisturb() const noexcept { return m_doNotDisturb; }
+bool NotificationManager::doNotDisturb() const noexcept { return m_focus.current(std::time(nullptr)) != nullptr; }
 
 bool NotificationManager::toggleDoNotDisturb() {
-  setDoNotDisturb(!m_doNotDisturb);
+  setDoNotDisturb(!doNotDisturb());
   return doNotDisturb();
+}
+
+bool NotificationManager::startFocus(
+    std::string_view id, std::optional<std::int64_t> untilEpochSec, std::string startedBy
+) {
+  if (m_focus.find(id) == nullptr) {
+    return false;
+  }
+  if (m_focus.active().has_value() && m_focus.active()->focusId != id) {
+    endFocus();
+  }
+  (void)m_focus.start(id, untilEpochSec, std::move(startedBy));
+  focusChanged();
+  return true;
+}
+
+void NotificationManager::endFocus() {
+  if (!m_focus.active().has_value()) {
+    return;
+  }
+  const focus::Focus* ended = m_focus.find(m_focus.active()->focusId);
+  const auto held = heldByApp();
+  m_held.clear();
+  m_focus.end();
+  focusChanged();
+  if (ended != nullptr && !held.empty() && m_focusEndedCallback) {
+    m_focusEndedCallback(*ended, held);
+  }
+}
+
+void NotificationManager::restoreFocus(focus::Active active) {
+  m_focus.restore(std::move(active));
+  (void)m_focus.expire(std::time(nullptr));
+  focusChanged();
+}
+
+std::vector<std::pair<std::string, int>> NotificationManager::heldByApp() const {
+  std::vector<std::pair<std::string, int>> out(m_held.begin(), m_held.end());
+  std::ranges::sort(out, [](const auto& a, const auto& b) { return a.second != b.second ? a.second > b.second : a.first < b.first; });
+  return out;
+}
+
+void NotificationManager::focusChanged() {
+  ++m_doNotDisturbRevision;
+  m_focusEndTimer.stop();
+  if (const auto& active = m_focus.active(); active.has_value() && active->untilEpochSec.has_value()) {
+    const std::int64_t left = std::max<std::int64_t>(*active->untilEpochSec - std::time(nullptr), 0);
+    m_focusEndTimer.start(std::chrono::seconds(left), [this] { endFocus(); });
+  }
+  if (m_stateCallback) {
+    m_stateCallback();
+  }
 }
 
 void NotificationManager::setStateCallback(StateCallback callback) { m_stateCallback = std::move(callback); }

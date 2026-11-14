@@ -1034,9 +1034,10 @@ namespace control_center {
     }
     m_timer.stop();
     m_until = until;
-    m_notifications->setDoNotDisturb(true, until == Until::OneHour || until == Until::Tomorrow);
-    m_revision = m_notifications->doNotDisturbRevision();
-    if (until == Until::OneHour || until == Until::Tomorrow) {
+    if (until != Until::OneHour && until != Until::Tomorrow) {
+      (void)m_notifications->startFocus("dnd", std::nullopt, "user");
+      m_revision = m_notifications->doNotDisturbRevision();
+    } else {
       auto end = std::chrono::system_clock::now() + std::chrono::hours(1);
       if (until == Until::Tomorrow) {
         std::time_t now = std::time(nullptr);
@@ -1050,12 +1051,11 @@ namespace control_center {
         end = std::chrono::system_clock::from_time_t(std::mktime(&local));
       }
       m_endsAt = end;
+      // The manager ends the Focus at `end`; this timer only redraws the page.
+      (void)m_notifications->startFocus("dnd", std::chrono::system_clock::to_time_t(end), "user");
+      m_revision = m_notifications->doNotDisturbRevision();
       m_timer.start(std::chrono::duration_cast<std::chrono::milliseconds>(end - std::chrono::system_clock::now()),
                     [this] {
-                      // Another switch (the Focus tile) changed Do Not Disturb since: this choice is void.
-                      if (m_notifications != nullptr && m_notifications->doNotDisturbRevision() == m_revision) {
-                        disable();
-                      }
                       m_until = Until::None;
                       if (PanelManager::instance().isOpenPanel("control-center")) {
                         requestRebuild();

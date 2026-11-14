@@ -472,6 +472,7 @@ _noctalia_sources = files(
   'src/launcher/klipy_provider.cpp',
   'src/launcher/symbol_provider.cpp',
   'src/launcher/web_search_provider.cpp',
+  'src/launcher/focus_provider.cpp',
   'src/launcher/wallpaper_provider.cpp',
   'src/launcher/window_provider.cpp',
   'src/launcher/search_broker.cpp',

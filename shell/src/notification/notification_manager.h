@@ -12,6 +12,8 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -169,16 +171,26 @@ public:
   [[nodiscard]] const std::vector<NotificationFilterConfig>& filters() const noexcept;
   void setKeepDismissedInHistory(bool keep);
   void setHistoryRetentionHours(int hours);
-  // `timed`: an end time runs elsewhere (the control center's "for 1 hour"); a timed DND is not restored.
-  void setDoNotDisturb(bool enabled, bool timed = false);
-  [[nodiscard]] bool doNotDisturbTimed() const noexcept { return m_doNotDisturbTimed; }
+  // Do Not Disturb is the built-in Focus "dnd": on = a Focus is on; true starts "dnd" when none is on, false ends the
+  // Focus that is on.
+  void setDoNotDisturb(bool enabled, std::string startedBy = "user");
   [[nodiscard]] bool doNotDisturb() const noexcept;
-  // Counts every change of the Do Not Disturb state, so a holder of a timed choice can tell it was overridden.
+  // Counts every change of the Focus, so a holder of a timed choice can tell it was overridden.
   [[nodiscard]] std::uint64_t doNotDisturbRevision() const noexcept { return m_doNotDisturbRevision; }
   [[nodiscard]] bool toggleDoNotDisturb();
   // Focus modes (docs/focus.md); the application saves focus().active() on each change.
-  [[nodiscard]] focus::FocusService& focus() noexcept { return m_focus; }
   [[nodiscard]] const focus::FocusService& focus() const noexcept { return m_focus; }
+  // Ends the Focus on now first (its summary posts); false for an unknown id. The manager ends it at `untilEpochSec`.
+  bool startFocus(std::string_view id, std::optional<std::int64_t> untilEpochSec, std::string startedBy);
+  void endFocus();
+  // A saved Focus from the last session; one whose end time passed is dropped.
+  void restoreFocus(focus::Active active);
+  // Notifications a Focus held, per app name, most first; reset when the Focus ends.
+  [[nodiscard]] std::vector<std::pair<std::string, int>> heldByApp() const;
+  // Runs when a Focus ends with held notifications: the ended Focus and heldByApp() at that moment.
+  using FocusEndedCallback = std::function<void(const focus::Focus&, const std::vector<std::pair<std::string, int>>&)>;
+  void setFocusEndedCallback(FocusEndedCallback callback) { m_focusEndedCallback = std::move(callback); }
+  void setFocusChangedCallback(std::function<void()> callback) { m_focus.setChangedCallback(std::move(callback)); }
   void setStateCallback(StateCallback callback);
   // Runs whenever the unread count changes, not only when the any-unread flag flips.
   int addUnreadCountCallback(std::function<void()> callback);
@@ -268,9 +280,12 @@ private:
   int m_nextCallbackToken{0};
   uint32_t m_nextId{1};
   std::uint64_t m_changeSerial{0};
-  bool m_doNotDisturb = false;
-  bool m_doNotDisturbTimed = false;
+  void focusChanged();
+
   focus::FocusService m_focus;
+  Timer m_focusEndTimer;
+  std::unordered_map<std::string, int> m_held; // by app name, while the Focus is on
+  FocusEndedCallback m_focusEndedCallback;
   std::uint64_t m_doNotDisturbRevision = 0;
   class SoundPlayer* m_soundPlayer = nullptr;
 };

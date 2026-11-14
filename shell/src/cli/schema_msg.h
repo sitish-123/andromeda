@@ -148,6 +148,10 @@ namespace noctalia::cli {
   inline constexpr std::array kMsgNotificationDndSetPositionals{
       Positional{"state", {}, kMsgNotificationDndSetStateChoices, true, false, false},
   };
+  inline constexpr std::array kMsgFocusStartPositionals{
+      Positional{"focus", "dnd, work, personal, sleep or gaming", {}, true, false, false},
+      Positional{"minutes", "ends after this many minutes; omitted: until ended", {}, false, false, false},
+  };
   inline constexpr std::array kMsgNotificationShowPositionals{
       Positional{"summary", {}, {}, true, false, false},
       Positional{"body", {}, {}, true, false, true},
@@ -667,6 +671,13 @@ namespace noctalia::cli {
         kMsgNotificationDndSetPositionals,
         {},
         false
+    };
+    inline constexpr Command focusStart{
+        "focus-start", "Start a Focus", {}, {}, {}, kMsgFocusStartPositionals, {}, false
+    };
+    inline constexpr Command focusEnd{"focus-end", "End the Focus that is on", {}, {}, {}, {}, {}, false};
+    inline constexpr Command focusStatus{
+        "focus-status", "Print the Focus that is on as JSON: id, until, held", {}, {}, {}, {}, {}, false
     };
     inline constexpr Command notificationDndStatus{
         "notification-dnd-status", "Print notification Do Not Disturb state", {}, {}, {}, {}, {}, false
@@ -1225,6 +1236,9 @@ namespace noctalia::cli {
       msg::notificationDndSet,
       msg::notificationDndStatus,
       msg::notificationDndToggle,
+      msg::focusStart,
+      msg::focusEnd,
+      msg::focusStatus,
       msg::notificationInvokeLatest,
       msg::notificationActionLatest,
       msg::notificationReplyLatest,

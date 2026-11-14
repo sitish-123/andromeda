@@ -1382,6 +1382,13 @@
         },
         "title": "Panels"
       },
+      "focus": {
+        "end": "End Focus",
+        "start": "Focus {name}",
+        "start-hour": "Focus {name} for 1 hour",
+        "subtitle": "Silences notifications that the Focus does not allow",
+        "title": "Focus"
+      },
       "session": {
         "action-subtitle": "Run session action",
         "command-subtitle": "Run configured command",
@@ -1655,6 +1662,9 @@
       "placeholder": "Type a reply…"
     },
     "internal": {
+      "focus-summary": "{count} notification while in {focus}",
+      "focus-summary-plural": "{count} notifications while in {focus}",
+      "focus-summary-more": "{apps} and {count} more",
       "speaker-tuning-title": "Use your Windows speaker tuning?",
       "speaker-tuning-body": "Windows may have a tuning made for these speakers.",
       "speaker-tuning-later": "Not Now",
@@ -5849,6 +5859,18 @@
           "notification-clear-history": {
             "description": "Clear notification history",
             "label": "Clear notification history"
+          },
+          "focus-start": {
+            "description": "Start a Focus, for a number of minutes or until ended",
+            "label": "Start Focus"
+          },
+          "focus-end": {
+            "description": "End the Focus that is on",
+            "label": "End Focus"
+          },
+          "focus-status": {
+            "description": "Print the Focus that is on as JSON",
+            "label": "Focus status"
           },
           "notification-dnd-set": {
             "description": "Set notification Do Not Disturb state",

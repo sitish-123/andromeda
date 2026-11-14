@@ -3,6 +3,7 @@
 #include <iostream>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -90,6 +91,33 @@ int main() {
       manager.all().back().dndPolicy == NotificationDndPolicy::Respect,
       "unmatched notification continues to respect DND"
   );
+
+  // docs/focus.md §3: a Work Focus holds an app not on its list (no banner) and lets a critical one through; ending it
+  // reports what it held, by app.
+  manager.setDoNotDisturb(false);
+  int banners = 0;
+  manager.addEventCallback([&banners](const Notification&, NotificationEvent event) {
+    if (event == NotificationEvent::Added) {
+      ++banners;
+    }
+  });
+  std::string endedFocus;
+  std::vector<std::pair<std::string, int>> summary;
+  manager.setFocusEndedCallback([&](const focus::Focus& ended, const auto& held) {
+    endedFocus = ended.name;
+    summary = held;
+  });
+  ok &= check(manager.startFocus("work", std::nullopt, "user"), "Work Focus starts");
+  addNotification("held one");
+  addNotification("held two");
+  ok &= check(banners == 0, "Work Focus holds an unlisted app's notifications");
+  (void)manager.addOrReplace(NotificationRequest{
+      .appName = "Alarm", .summary = "Wake", .urgency = Urgency::Critical, .timeout = 0, .transient = true,
+  });
+  ok &= check(banners == 1, "a critical notification breaks through the Focus");
+  manager.endFocus();
+  ok &= check(endedFocus == "Work", "ending the Focus reports it");
+  ok &= check(summary == std::vector<std::pair<std::string, int>>{{"dnd-test", 2}}, "the summary counts held by app");
 
   return ok ? 0 : 1;
 }
