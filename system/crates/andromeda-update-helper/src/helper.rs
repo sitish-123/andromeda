@@ -136,9 +136,7 @@ impl Helper {
         if !dry_run && scope == Scope::All {
             self.news_gate().await?;
         }
-        if self.running.load(Ordering::SeqCst) {
-            return Err(zbus::fdo::Error::Failed("an update already runs".into()));
-        }
+        self.refuse_if_running()?;
         // An upgrade never runs without the inhibitor: a power-off mid-transaction can break the system.
         let inhibitor = if dry_run {
             None
@@ -207,6 +205,14 @@ impl Helper {
         Ok(())
     }
 
+    /// Checked before polkit too, so a second request fails without a password prompt.
+    fn refuse_if_running(&self) -> zbus::fdo::Result<()> {
+        if self.running.load(Ordering::SeqCst) {
+            return Err(zbus::fdo::Error::Failed("an update already runs".into()));
+        }
+        Ok(())
+    }
+
     fn tonight_file(&self) -> PathBuf {
         self.state_dir.join("tonight")
     }
@@ -262,6 +268,7 @@ impl Helper {
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> zbus::fdo::Result<()> {
         self.touch();
+        self.refuse_if_running()?;
         authorize(conn, &header, if dry_run { "org.andromeda.update.preview" } else { "org.andromeda.update.upgrade" })
             .await?;
         self.start(Scope::All, dry_run, Vec::new(), conn, emitter).await
@@ -276,6 +283,7 @@ impl Helper {
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> zbus::fdo::Result<()> {
         self.touch();
+        self.refuse_if_running()?;
         authorize(conn, &header, "org.andromeda.update.upgrade").await?;
         self.start(Scope::Andromeda, false, Vec::new(), conn, emitter).await
     }
@@ -296,6 +304,7 @@ impl Helper {
         if questions.is_empty() || questions.len() > MAX_QUESTIONS || questions.iter().any(|q| q.len() > MAX_QUESTION) {
             return Err(zbus::fdo::Error::InvalidArgs("questions: 1 to 256, each at most 4096 bytes".into()));
         }
+        self.refuse_if_running()?;
         authorize(conn, &header, "org.andromeda.update.upgrade").await?;
         let scope = if andromeda { Scope::Andromeda } else { Scope::All };
         self.start(scope, false, questions, conn, emitter).await
