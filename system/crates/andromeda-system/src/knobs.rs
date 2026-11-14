@@ -2,7 +2,6 @@
 //! `Hold` and `Release` are for clients that run rules (the session part). Per-device choices are methods on the
 //! device (`Battery.SetChargeLimit`, `KbdBacklight.SetBrightness`).
 
-use futures_util::StreamExt;
 use zbus::fdo::{DBusProxy, Error, Result};
 use zbus::message::Header;
 use zbus::object_server::SignalEmitter;
@@ -174,8 +173,8 @@ pub async fn set_user(conn: &Connection, policy: &Shared, knob: &str, choice: Kn
 
 /// Ends the holds of each client that leaves the bus.
 pub async fn release_on_exit(conn: Connection, policy: Shared) -> zbus::Result<()> {
-    let mut gone = DBusProxy::new(&conn).await?.receive_name_owner_changed().await?;
-    while let Some(signal) = gone.next().await {
+    let mut gone = crate::bus::drain(DBusProxy::new(&conn).await?.receive_name_owner_changed().await?);
+    while let Some(signal) = gone.recv().await {
         let Ok(args) = signal.args() else { continue };
         if args.new_owner().is_some() || !args.name().starts_with(':') {
             continue;
