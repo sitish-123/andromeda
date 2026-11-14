@@ -5,8 +5,11 @@ use std::{env, fs};
 use andromeda_sound::chain;
 use anyhow::{Context, Result, bail};
 
+mod driver;
+
 const USAGE: &str = "usage: andromeda-sound import-dolby [--xml FILE | --windows DIR] [-o FILE]
        andromeda-sound import-eqapo FILE [-o FILE]
+       andromeda-sound import-driver FILE [-o FILE]
        andromeda-sound probe [--windows DIR]
        andromeda-sound apply [--profile NAME] [--tuning FILE] [--dsp FILE] [--target SINK] [--loudness DB] [--bass 0-10] [-o FILE]
        andromeda-sound off
@@ -27,6 +30,11 @@ fn main() -> Result<()> {
         Some("import-eqapo") => {
             let file = PathBuf::from(args.next().context(USAGE)?);
             let tuning = eqapo_file(&file, None, &subsystem()?)?;
+            write_tuning(&tuning, args).map(drop)
+        }
+        Some("import-driver") => {
+            let file = PathBuf::from(args.next().context(USAGE)?);
+            let tuning = driver_tuning(&file)?;
             write_tuning(&tuning, args).map(drop)
         }
         Some("probe") => probe(args),
@@ -352,26 +360,66 @@ fn with_windows<T>(given: Option<PathBuf>, f: impl Fn(&[PathBuf]) -> Option<T>) 
     found
 }
 
-/// The Dolby driver file for this codec, else a Sonitude preset, else a DAX2 .inf, else the Equalizer APO config, parsed.
+/// A Windows install's vendor tuning for this codec, else its Equalizer APO config, parsed.
 fn find_tuning(root: &Path, stem: &str, vendor_id: u32) -> Option<Result<andromeda_sound::Tuning>> {
-    if let Some(f) = find_driver_file(root, stem) {
-        return Some(
-            fs::read(&f)
-                .with_context(|| format!("read {}", f.display()))
-                .and_then(|b| andromeda_sound::parse(std::str::from_utf8(&b).context("tuning file is not UTF-8")?)),
-        );
-    }
-    if let Some(found) = find_sonitude(root, vendor_id, &subsystem_of(stem)) {
-        return Some(found);
-    }
-    if let Some(found) = find_dax2(root, vendor_id, &subsystem_of(stem)) {
+    let store = root.join("Windows/System32/DriverStore/FileRepository");
+    let packages: Vec<PathBuf> = fs::read_dir(store).into_iter().flatten().flatten().map(|d| d.path()).collect();
+    if let Some(found) = find_vendor(&packages, Layout::DriverStore, stem, vendor_id) {
         return Some(found);
     }
     let eqapo = root.join("Program Files/EqualizerAPO/config/config.txt");
     eqapo.is_file().then(|| eqapo_file(&eqapo, Some(root), &subsystem_of(stem)))
 }
 
+/// Where vendor packages come from: an installed Windows names its package folders after the
+/// driver; an unpacked download keeps the OEM's own names, so every folder is a candidate.
+#[derive(Clone, Copy, PartialEq)]
+enum Layout {
+    DriverStore,
+    Download,
+}
+
+/// The Dolby driver file for this codec, else a Sonitude preset, else a DAX2 .inf, parsed.
+fn find_vendor(
+    packages: &[PathBuf],
+    layout: Layout,
+    stem: &str,
+    vendor_id: u32,
+) -> Option<Result<andromeda_sound::Tuning>> {
+    if let Some(f) = find_driver_file(packages, layout, stem) {
+        return Some(
+            fs::read(&f)
+                .with_context(|| format!("read {}", f.display()))
+                .and_then(|b| andromeda_sound::parse(std::str::from_utf8(&b).context("tuning file is not UTF-8")?)),
+        );
+    }
+    find_sonitude(packages, layout, vendor_id, &subsystem_of(stem))
+        .or_else(|| find_dax2(packages, layout, vendor_id, &subsystem_of(stem)))
+}
+
 /// An Equalizer APO config; `Include:` files resolve against its directory, `C:\…` paths against `root`.
+/// The speaker tuning an OEM driver download holds for this codec.
+fn driver_tuning(file: &Path) -> Result<andromeda_sound::Tuning> {
+    let (vendor, subsys) = codec_ids()?;
+    let stem = andromeda_sound::driver_file_stem(vendor, subsys);
+    let base = env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
+        .context("no HOME")?;
+    let dir = base.join(format!("andromeda/sound/driver-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    let found = driver::unpack(file, &dir).and_then(|()| {
+        find_vendor(&driver::folders(&dir), Layout::Download, &stem, vendor).with_context(|| {
+            format!(
+                "{} holds no speaker tuning for this codec ({stem}): it may be another model's driver",
+                file.display()
+            )
+        })?
+    });
+    let _ = fs::remove_dir_all(&dir);
+    found
+}
+
 fn eqapo_file(path: &Path, root: Option<&Path>, subsystem: &str) -> Result<andromeda_sound::Tuning> {
     let read =
         |p: &Path| fs::read(p).ok().map(|b| String::from_utf8_lossy(&b).trim_start_matches('\u{feff}').to_owned());
@@ -518,13 +566,15 @@ fn mounted_windows_roots() -> Vec<PathBuf> {
 
 /// The newest Sonitude package's preset for this codec; an archive that fails to read is
 /// reported only when no other archive names this subsystem.
-fn find_sonitude(root: &Path, vendor_id: u32, subsystem: &str) -> Option<Result<andromeda_sound::Tuning>> {
-    let store = root.join("Windows/System32/DriverStore/FileRepository");
-    let mut packages: Vec<PathBuf> = fs::read_dir(store)
-        .ok()?
-        .flatten()
-        .filter(|d| d.file_name().to_string_lossy().to_ascii_lowercase().starts_with("snapo64ext.inf_amd64_"))
-        .map(|d| d.path())
+fn find_sonitude(
+    packages: &[PathBuf],
+    layout: Layout,
+    vendor_id: u32,
+    subsystem: &str,
+) -> Option<Result<andromeda_sound::Tuning>> {
+    let mut packages: Vec<&PathBuf> = packages
+        .iter()
+        .filter(|p| layout == Layout::Download || dir_name(p).starts_with("snapo64ext.inf_amd64_"))
         .collect();
     packages.sort_by_cached_key(|p| std::cmp::Reverse(driver_version(p)));
     // Windows binds the INTELAUDIO archive behind Intel's audio DSP driver (SOF), HDAUDIO otherwise.
@@ -532,7 +582,7 @@ fn find_sonitude(root: &Path, vendor_id: u32, subsystem: &str) -> Option<Result<
         if Path::new("/sys/module/snd_sof").exists() { ["INTELAUDIO", "HDAUDIO"] } else { ["HDAUDIO", "INTELAUDIO"] };
     let mut failed = None;
     for pkg in packages {
-        let files = package_files(&pkg);
+        let files = package_files(pkg);
         for bus in buses {
             let want = andromeda_sound::sonitude::archive_name(bus, vendor_id);
             let Some(archive) =
@@ -564,17 +614,22 @@ fn package_files(pkg: &Path) -> Vec<PathBuf> {
     fs::read_dir(pkg).into_iter().flatten().flatten().map(|d| d.path()).collect()
 }
 
-/// The newest driver .inf beside Dolby's DAX2 APO that binds a DAX2 speaker preset to this codec;
-/// an .inf that binds but fails to read is reported only when no other one reads.
-fn find_dax2(root: &Path, vendor_id: u32, subsystem: &str) -> Option<Result<andromeda_sound::Tuning>> {
-    let store = root.join("Windows/System32/DriverStore/FileRepository");
+/// The newest driver .inf that binds a DAX2 speaker preset to this codec: in a driver store, only
+/// beside Dolby's DAX2 APO. An .inf that binds but fails to read is reported only when no other one reads.
+fn find_dax2(
+    packages: &[PathBuf],
+    layout: Layout,
+    vendor_id: u32,
+    subsystem: &str,
+) -> Option<Result<andromeda_sound::Tuning>> {
     let mut bound = Vec::new();
     let mut failed = None;
-    for pkg in fs::read_dir(store).ok()?.flatten().map(|d| d.path()) {
-        let files = package_files(&pkg);
+    for pkg in packages {
+        let files = package_files(pkg);
         let name = |p: &PathBuf| p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
         let ext = |p: &PathBuf, e: &str| p.extension().is_some_and(|x| x.eq_ignore_ascii_case(e));
-        if !files.iter().any(|f| name(f).starts_with("dolbydax2apo") && ext(f, "dll")) {
+        if layout == Layout::DriverStore && !files.iter().any(|f| name(f).starts_with("dolbydax2apo") && ext(f, "dll"))
+        {
             continue;
         }
         for inf in files.iter().filter(|f| ext(f, "inf")) {
@@ -593,19 +648,18 @@ fn find_dax2(root: &Path, vendor_id: u32, subsystem: &str) -> Option<Result<andr
     bound.pop().map(|(_, _, t)| Ok(t)).or(failed.map(Err))
 }
 
-fn find_driver_file(root: &Path, stem: &str) -> Option<PathBuf> {
-    let store = root.join("Windows/System32/DriverStore/FileRepository");
+fn dir_name(p: &Path) -> String {
+    p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default()
+}
+
+fn find_driver_file(packages: &[PathBuf], layout: Layout, stem: &str) -> Option<PathBuf> {
     let want = stem.to_ascii_uppercase();
-    fs::read_dir(store)
-        .ok()?
-        .flatten()
-        .filter(|d| d.file_name().to_string_lossy().to_ascii_lowercase().starts_with("dax3_ext"))
-        .find_map(|d| {
-            fs::read_dir(d.path()).ok()?.flatten().map(|f| f.path()).find(|f| {
-                let n = f.file_name().map(|n| n.to_string_lossy().to_ascii_uppercase()).unwrap_or_default();
-                n.starts_with(&want) && f.extension().is_some_and(|e| e.eq_ignore_ascii_case("xml"))
-            })
+    packages.iter().filter(|p| layout == Layout::Download || dir_name(p).starts_with("dax3_ext")).find_map(|d| {
+        fs::read_dir(d).ok()?.flatten().map(|f| f.path()).find(|f| {
+            let n = f.file_name().map(|n| n.to_string_lossy().to_ascii_uppercase()).unwrap_or_default();
+            n.starts_with(&want) && f.extension().is_some_and(|e| e.eq_ignore_ascii_case("xml"))
         })
+    })
 }
 
 fn data_dir() -> Result<PathBuf> {
