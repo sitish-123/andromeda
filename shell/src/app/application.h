@@ -232,6 +232,7 @@ private:
   void initInputDispatch();
   void initPanelManagerAndPanels();
   void initNotificationAndOsd();
+  void offerWindowsSpeakerTuning();
   void initBarDockAndLayout();
   void initWidgetControllersAndCallbacks();
   // Single source of truth for surface (re)creation order: (re)builds every
@@ -578,6 +579,7 @@ private:
   CalendarPollSource m_calendarPollSource{m_calendarService};
   CalendarReminderPollSource m_calendarReminderPollSource{m_calendarReminderMonitor};
   Timer m_polkitInitTimer;
+  Timer m_speakerOfferTimer;
   Timer m_handoffTimer;
   Timer m_polkitIdleCloseTimer;
   Timer m_greeterSyncTimeoutTimer;

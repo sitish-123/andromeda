@@ -1,6 +1,9 @@
 #pragma once
 
+#include "shell/settings/speaker_sound.h"
+
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -19,6 +22,14 @@ namespace settings {
     Slider** inputSlider = nullptr;
     // Filled with each program stream's slider, for the same reason.
     std::vector<std::pair<std::uint32_t, Slider*>>* programSliders = nullptr;
+    // Speaker Sound card; hidden while status is null or the laptop has no internal speakers.
+    SpeakerPhase speakerPhase = SpeakerPhase::Unloaded;
+    const SpeakerStatus* speakerStatus = nullptr;
+    std::string speakerError;
+    bool speakerFineTuneOpen = false;
+    // Runs andromeda-sound with these arguments (apply …, off, import-windows).
+    std::function<void(std::vector<std::string>)> runSpeaker;
+    std::function<void()> toggleSpeakerFineTune;
   };
 
   // Sound page (direction A, .agent/DESIGN.md): Output and Input cards with the device list (current one checked) and

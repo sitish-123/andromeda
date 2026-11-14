@@ -8,6 +8,7 @@
 #include "render/scene/node.h"
 #include "scripting/plugin_file_cache.h"
 #include "scripting/plugin_manager.h"
+#include "shell/settings/speaker_sound.h"
 #include "shell/settings/config_export_dialog_modal.h"
 #include "shell/settings/settings_content_problems.h"
 #include "shell/settings/settings_content_shortcuts.h"
@@ -302,6 +303,10 @@ private:
   void addBluetoothContent(float scale);
   void addNetworkContent(float scale);
   void addSoundContent(float scale);
+  void runSpeaker(std::vector<std::string> args, settings::SpeakerEvent start);
+  void startSpeakerCommand(std::vector<std::string> args);
+  void onSpeakerCommandDone(bool status, bool import, bool ok, std::optional<settings::SpeakerStatus> parsed,
+                            const std::string& err);
   void addUsersContent(float scale);
   void addPrivacyContent(float scale);
   // Asks polkit (org.andromeda.biometrics.manage) before a fingerprint change; `then` runs only when allowed.
@@ -558,6 +563,11 @@ private:
   ScreenTimeService* m_screenTime = nullptr;
   std::function<void(const std::string&)> m_openActivityApp;
   std::string m_soundSignature;
+  // Speaker Sound card (andromeda-sound); the last status stays shown while a command runs.
+  settings::SpeakerPhase m_speakerPhase = settings::SpeakerPhase::Unloaded;
+  std::optional<settings::SpeakerStatus> m_speakerStatus;
+  std::string m_speakerError;
+  bool m_speakerFineTuneOpen = false;
   Slider* m_soundOutputSlider = nullptr;
   Slider* m_soundInputSlider = nullptr;
   // The Wi-Fi network whose password row is open, and the text typed so far.

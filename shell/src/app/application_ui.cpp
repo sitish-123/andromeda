@@ -12,6 +12,7 @@
 #include "core/input/keybind_matcher.h"
 #include "core/log.h"
 #include "core/process/process.h"
+#include "shell/settings/speaker_sound.h"
 #include "system/crash_report.h"
 #include "cursor-shape-v1-client-protocol.h"
 #include "dbus/accounts/accounts_service.h"
@@ -644,7 +645,7 @@ void Application::initInputDispatch() {
                                             std::to_string(saved.size()));
     request.origin = NotificationOrigin::Internal;
     request.timeout = 0; // stays until dismissed: the user may come back to it after the restart
-    request.persistInHistory = true;
+                                    request.persistInHistory = true;
     if (!saved.empty()) {
       request.actions = {"restore", i18n::tr("notifications.internal.desktop-restore")};
     }
@@ -973,6 +974,64 @@ void Application::initPanelManagerAndPanels() {
   if (SetupWizardPanel::isFirstRun(m_configService)) {
     DeferredCall::callLater([] { PanelManager::instance().togglePanel("setup-wizard"); });
   }
+}
+
+// Dual boot: once per user, offer the Windows speaker tuning while only our basic tuning plays.
+void Application::offerWindowsSpeakerTuning() {
+  if (m_configService.stateBool("sound", "windows_tuning_offered").value_or(false)) {
+    return;
+  }
+  auto offerId = std::make_shared<std::uint32_t>(0);
+  m_notificationManager.addInternalActionCallback(
+      [this, offerId](std::uint32_t id, const std::string& action, const std::string&, const std::string&) {
+        if (id != *offerId || action != "use") {
+          return;
+        }
+        (void)process::runAsync(
+            {"andromeda-sound", "import-windows"},
+            process::RunCallbacks{.onExit =
+                                      [this](process::RunResult result) {
+                                        const bool ok = static_cast<bool>(result);
+                                        DeferredCall::callLater([this, ok] {
+                                          m_notificationManager.addInternal(
+                                              i18n::tr("settings.sound.speaker-sound"),
+                                              i18n::tr(ok ? "notifications.internal.speaker-tuning-done"
+                                                          : "settings.sound.windows-none"),
+                                              ""
+                                          );
+                                        });
+                                      }},
+            // The udisks mount may wait for the user's password.
+            process::RunOptions{.timeout = std::chrono::seconds(120)}
+        );
+      }
+  );
+  (void)process::runAsync(
+      {"andromeda-sound", "status"},
+      process::RunCallbacks{.onExit =
+                                [this, offerId](process::RunResult result) {
+                                  const auto status =
+                                      result ? settings::parseSpeakerStatus(result.out) : std::nullopt;
+                                  if (!status || !status->speakers || !status->windows || !status->basic()) {
+                                    return;
+                                  }
+                                  DeferredCall::callLater([this, offerId] {
+                                    (void)m_configService.setStateBool("sound", "windows_tuning_offered", true);
+                                    NotificationRequest request;
+                                    request.appName = i18n::tr("settings.sound.speaker-sound");
+                                    request.summary = i18n::tr("notifications.internal.speaker-tuning-title");
+                                    request.body = i18n::tr("notifications.internal.speaker-tuning-body");
+                                    request.origin = NotificationOrigin::Internal;
+                                    request.timeout = 0;
+                                    request.persistInHistory = true;
+                                    request.actions = {"use", i18n::tr("settings.sound.use-tuning"), "later",
+                                                       i18n::tr("notifications.internal.speaker-tuning-later")};
+                                    *offerId = m_notificationManager.addOrReplace(std::move(request));
+                                    kLog.info("offered the Windows speaker tuning (notification #{})", *offerId);
+                                  });
+                                }},
+      process::RunOptions{.timeout = std::chrono::seconds(10)}
+  );
 }
 
 void Application::initNotificationAndOsd() {

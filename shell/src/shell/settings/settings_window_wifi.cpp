@@ -8,6 +8,7 @@
 #include "shell/settings/settings_content_bluetooth.h"
 #include "shell/settings/settings_alert.h"
 #include "core/deferred_call.h"
+#include "i18n/i18n.h"
 #include "core/shared_worker.h"
 #include "core/process/process.h"
 #include "dbus/system_interactive_call.h"
@@ -136,7 +137,13 @@ void SettingsWindow::addSoundContent(float scale) {
   m_soundOutputSlider = nullptr;
   m_soundInputSlider = nullptr;
   if (m_selectedSection != "sound") {
+    if (const auto next = settings::speakerTransition(m_speakerPhase, settings::SpeakerEvent::Close)) {
+      m_speakerPhase = *next;
+    }
     return;
+  }
+  if (m_speakerPhase == settings::SpeakerPhase::Unloaded) {
+    runSpeaker({"status"}, settings::SpeakerEvent::Open);
   }
   PipeWireService* audio = m_audioProvider ? m_audioProvider() : nullptr;
   m_soundSignature = settings::soundDeviceSignature(audio);
@@ -149,8 +156,83 @@ void SettingsWindow::addSoundContent(float scale) {
           .outputSlider = &m_soundOutputSlider,
           .inputSlider = &m_soundInputSlider,
           .programSliders = &m_soundProgramSliders,
+          .speakerPhase = m_speakerPhase,
+          .speakerStatus = m_speakerStatus ? &*m_speakerStatus : nullptr,
+          .speakerError = m_speakerError,
+          .speakerFineTuneOpen = m_speakerFineTuneOpen,
+          .runSpeaker =
+              [this](std::vector<std::string> args) {
+                const auto event =
+                    args.front() == "import-windows" ? settings::SpeakerEvent::Import : settings::SpeakerEvent::Apply;
+                runSpeaker(std::move(args), event);
+              },
+          .toggleSpeakerFineTune =
+              [this] {
+                m_speakerFineTuneOpen = !m_speakerFineTuneOpen;
+                requestContentRebuild();
+              },
       }
   );
+}
+
+// One andromeda-sound command at a time: speakerTransition rejects a second one.
+void SettingsWindow::runSpeaker(std::vector<std::string> args, settings::SpeakerEvent start) {
+  const auto next = settings::speakerTransition(m_speakerPhase, start);
+  if (!next) {
+    return;
+  }
+  m_speakerPhase = *next;
+  startSpeakerCommand(std::move(args));
+  requestContentRebuild();
+}
+
+void SettingsWindow::startSpeakerCommand(std::vector<std::string> args) {
+  const bool status = args.front() == "status";
+  const bool import = args.front() == "import-windows";
+  args.insert(args.begin(), "andromeda-sound");
+  auto finish = [this, alive = std::weak_ptr<void>(m_aliveGuard), status, import](process::RunResult result) {
+    std::optional<settings::SpeakerStatus> parsed =
+        status && result ? settings::parseSpeakerStatus(result.out) : std::nullopt;
+    const bool ok = static_cast<bool>(result);
+    DeferredCall::callLater([this, alive, status, import, ok, parsed = std::move(parsed),
+                             err = std::move(result.err)]() mutable {
+      if (!alive.expired()) {
+        onSpeakerCommandDone(status, import, ok, std::move(parsed), err);
+      }
+    });
+  };
+  // Import can wait for the user's password (udisks mount); apply restarts the filter chain.
+  const auto timeout = import ? std::chrono::seconds(120) : std::chrono::seconds(15);
+  if (!process::runAsync(args, process::RunCallbacks{.onExit = std::move(finish)},
+                         process::RunOptions{.timeout = timeout})) {
+    onSpeakerCommandDone(status, import, false, std::nullopt, {});
+  }
+}
+
+void SettingsWindow::onSpeakerCommandDone(bool status, bool import, bool ok,
+                                          std::optional<settings::SpeakerStatus> parsed, const std::string& err) {
+  using E = settings::SpeakerEvent;
+  E event = E::CommandDone;
+  if (status) {
+    event = parsed ? E::StatusOk : E::StatusFailed;
+    if (parsed) {
+      m_speakerStatus = std::move(parsed);
+    }
+  } else if (import && !ok) {
+    event = E::ImportFailed;
+    m_speakerError = err.find("no Windows partition") != std::string::npos ? i18n::tr("settings.sound.windows-none")
+                                                                            : i18n::tr("settings.sound.windows-error");
+  }
+  if (const auto after = settings::speakerTransition(m_speakerPhase, event)) {
+    m_speakerPhase = *after;
+  }
+  // Apply and import end in Loading: read the new state.
+  if (m_speakerPhase == settings::SpeakerPhase::Loading) {
+    startSpeakerCommand({"status"});
+  }
+  if (isOpen()) {
+    requestContentRebuild();
+  }
 }
 
 void SettingsWindow::onAudioChanged() {

@@ -418,6 +418,8 @@ void Application::run(const std::function<void()>& startupReadyCallback) {
   runStartupPhase("allocator_trim", [] { trimAllocator(); });
 
   m_polkitInitTimer.start(std::chrono::milliseconds(1000), [this] { syncPolkitAgent(); });
+  // After login settles: the notification island has no surface during startup and drops banners.
+  m_speakerOfferTimer.start(std::chrono::seconds(10), [this] { offerWindowsSpeakerTuning(); });
 
   m_mainLoop = std::make_unique<MainLoop>(
       m_wayland, [this] { return currentPollSources(); }, [this] { m_bar.closeAllInstances(); }
