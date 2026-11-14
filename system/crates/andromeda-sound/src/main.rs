@@ -17,13 +17,19 @@ const DSP_PATH: &str = "/usr/lib/ladspa/andromeda-dsp.so";
 
 fn main() -> Result<()> {
     let mut args = env::args().skip(1);
-    match args.next().as_deref() {
-        Some("import-dolby") => import(args),
+    let cmd = args.next();
+    // Settings and the login offer may both run a command: one writes the chain at a time.
+    let _lock = if cmd.as_deref() == Some("status") { None } else { Some(lock()?) };
+    match cmd.as_deref() {
+        Some("import-dolby") => import(args).map(drop),
         Some("apply") => apply(args),
         Some("off") => {
             // Give the user's volume back to the speaker before the chain goes, so it never plays at 100 %.
-            if let (Some(vol), Ok(speaker)) = (sink_volume(chain::SINK_NAME), speaker_sink()) {
-                pactl(&["set-sink-volume", &speaker, &vol])?;
+            let speaker = speaker_sink()?;
+            if let Some(vol) = sink_volume(chain::SINK_NAME).or_else(|| fs::read_to_string(volume_path().ok()?).ok()) {
+                pactl(&["set-sink-volume", &speaker, vol.trim()])?;
+            }
+            if default_sink().as_deref() == Some(chain::SINK_NAME) {
                 pactl(&["set-default-sink", &speaker])?;
             }
             // The config stays as `.off`: `status` reads the last settings from it.
@@ -36,10 +42,18 @@ fn main() -> Result<()> {
         Some("status") => status(),
         // Import from Windows, then turn the chain on with the user's last bass and loudness.
         Some("import-windows") => {
-            import(std::iter::empty())?;
-            let (_, profile, loudness, bass) = last_settings()?;
-            let profile = if profile == chain::GENERIC { "music".to_owned() } else { profile };
+            let tuning: andromeda_sound::Tuning = toml::from_str(&fs::read_to_string(import(std::iter::empty())?)?)?;
+            let (_, last, loudness, bass) = last_settings()?;
+            let styles = styles(Some(&tuning));
+            // The last style when the new tuning has it, else music, else the tuning's first style.
+            let profile = [last.as_str(), "music"]
+                .into_iter()
+                .chain(styles.first().copied())
+                .find(|p| styles.contains(p))
+                .context("the imported tuning has no speaker style")?
+                .to_owned();
             apply(["--profile", &profile, "--loudness", &loudness, "--bass", &bass].into_iter().map(str::to_owned))
+                .context("imported the tuning, but apply failed")
         }
         _ => bail!(USAGE),
     }
@@ -97,13 +111,19 @@ fn apply(mut args: impl Iterator<Item = String>) -> Result<()> {
     // The user's volume must sit before the limiter: the chain's sink carries it
     // and the hardware stays at 100 %. On a profile switch the chain already holds it.
     let vol = sink_volume(chain::SINK_NAME).or_else(|| sink_volume(&target)).unwrap_or_else(|| "50%".to_owned());
+    // Move the default only when the speakers play: never take it from headphones or HDMI.
+    let speakers_play = matches!(default_sink(), Some(d) if d == target || d == chain::SINK_NAME);
     fs::write(&path, conf)?;
     let _ = fs::remove_file(path.with_extension("conf.off"));
     systemctl(&["enable", "filter-chain.service"])?;
     systemctl(&["restart", "filter-chain.service"])?;
     wait_sink(chain::SINK_NAME)?;
     pactl(&["set-sink-volume", chain::SINK_NAME, &vol])?;
-    pactl(&["set-default-sink", chain::SINK_NAME])?;
+    if speakers_play {
+        pactl(&["set-default-sink", chain::SINK_NAME])?;
+    }
+    // `off` restores this when the chain sink is gone and cannot report the volume.
+    fs::write(volume_path()?, &vol)?;
     pactl(&["set-sink-volume", &target, "100%"])?;
     println!("{}", path.display());
     Ok(())
@@ -139,17 +159,8 @@ fn status() -> Result<()> {
         let path = data_dir().ok()?.join(format!("{}.toml", stem.rsplit('_').next().unwrap_or_default()));
         toml::from_str::<andromeda_sound::Tuning>(&fs::read_to_string(path).ok()?).ok()
     });
-    let names =
-        tuning.as_ref().and_then(|t| t.endpoints.iter().find(|e| e.kind == "internal_speaker")).map(|e| &e.profiles);
-    // The styles a user picks; vendor files also hold "off", user slots and niche variants.
-    let profiles: Vec<&str> = ["music", "movie", "voice", "game", "dynamic"]
-        .into_iter()
-        .filter(|p| names.is_some_and(|n| n.contains_key(*p)))
-        .collect();
-    let windows = Command::new("lsblk")
-        .args(["-rno", "FSTYPE"])
-        .output()
-        .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).lines().any(|l| l == "ntfs"));
+    let profiles = styles(tuning.as_ref());
+    let windows = !ntfs_partitions().is_empty();
     println!("enabled={}", u8::from(enabled));
     println!("source={}", if tuning.is_some() { "Dolby" } else { "basic" });
     println!("profile={profile}");
@@ -159,6 +170,51 @@ fn status() -> Result<()> {
     println!("windows={}", u8::from(windows));
     println!("speakers={}", u8::from(speaker_sink().is_ok()));
     Ok(())
+}
+
+/// The styles a user picks; vendor files also hold "off", user slots and niche variants.
+fn styles(tuning: Option<&andromeda_sound::Tuning>) -> Vec<&'static str> {
+    let names =
+        tuning.and_then(|t| t.endpoints.iter().find(|e| e.kind == "internal_speaker")).map(|e| &e.profiles);
+    ["music", "movie", "voice", "game", "dynamic"]
+        .into_iter()
+        .filter(|p| names.is_some_and(|n| n.contains_key(*p)))
+        .collect()
+}
+
+/// NTFS partitions on internal disks as (device, mount point or empty); USB drives are not Windows installs.
+fn ntfs_partitions() -> Vec<(String, String)> {
+    let Ok(out) = Command::new("lsblk").args(["-rno", "PATH,FSTYPE,HOTPLUG,MOUNTPOINT"]).output() else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split(' ').collect();
+            // `lsblk -r` writes a space in a mount point as \x20.
+            (f.len() >= 3 && f[1] == "ntfs" && f[2] == "0")
+                .then(|| (f[0].to_owned(), f.get(3).unwrap_or(&"").replace("\\x20", " ")))
+        })
+        .collect()
+}
+
+fn default_sink() -> Option<String> {
+    let out = Command::new("pactl").arg("get-default-sink").output().ok()?;
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
+}
+
+/// Held until exit: an exclusive lock on $XDG_RUNTIME_DIR/andromeda-sound.lock.
+fn lock() -> Result<fs::File> {
+    let dir = env::var_os("XDG_RUNTIME_DIR").map_or_else(env::temp_dir, PathBuf::from);
+    let file = fs::File::create(dir.join("andromeda-sound.lock")).context("create the lock file")?;
+    rustix::fs::flock(&file, rustix::fs::FlockOperation::LockExclusive).context("lock")?;
+    Ok(file)
+}
+
+fn volume_path() -> Result<PathBuf> {
+    let dir = data_dir()?;
+    fs::create_dir_all(&dir)?;
+    Ok(dir.join("volume"))
 }
 
 /// The installed library, else the one built next to this binary (`cargo build --release`).
@@ -224,7 +280,8 @@ fn conf_path() -> Result<PathBuf> {
     Ok(base.join("pipewire/filter-chain.conf.d/andromeda-speakers.conf"))
 }
 
-fn import(mut args: impl Iterator<Item = String>) -> Result<()> {
+/// Writes the tuning TOML and returns its path.
+fn import(mut args: impl Iterator<Item = String>) -> Result<PathBuf> {
     let (mut xml, mut windows, mut out) = (None, None, None);
     while let Some(a) = args.next() {
         let v = args.next().context(USAGE)?;
@@ -262,20 +319,16 @@ fn import(mut args: impl Iterator<Item = String>) -> Result<()> {
     }
     fs::write(&out, toml::to_string(&tuning)?)?;
     println!("{}", out.display());
-    Ok(())
+    Ok(out)
 }
 
-/// Mounts every unmounted NTFS partition read-only through udisks; polkit may ask for the
+/// Mounts every unmounted internal NTFS partition read-only through udisks; polkit may ask for the
 /// password through the session's agent. Returns (device, mount point) for the caller to unmount.
 fn mount_ntfs_ro() -> Vec<(String, PathBuf)> {
-    let Ok(out) = Command::new("lsblk").args(["-rno", "PATH,FSTYPE,MOUNTPOINT"]).output() else { return Vec::new() };
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .filter_map(|l| {
-            let f: Vec<&str> = l.split(' ').collect();
-            (f.len() >= 2 && f[1] == "ntfs" && f.get(2).is_none_or(|m| m.is_empty())).then(|| f[0].to_owned())
-        })
-        .filter_map(|dev| {
+    ntfs_partitions()
+        .into_iter()
+        .filter(|(_, at)| at.is_empty())
+        .filter_map(|(dev, _)| {
             let out = Command::new("udisksctl").args(["mount", "-b", &dev, "-o", "ro"]).output().ok()?;
             let text = String::from_utf8_lossy(&out.stdout);
             let at = text.trim().rsplit_once(" at ")?.1.trim_end_matches('.').to_owned();
@@ -301,14 +354,12 @@ fn codec_stem() -> Result<String> {
     bail!("no analog HDA codec in /sys/bus/hdaudio/devices")
 }
 
+/// Mounted internal NTFS partitions that hold a Windows directory, wherever they are mounted.
 fn mounted_windows_roots() -> Vec<PathBuf> {
-    let user = env::var("USER").unwrap_or_default();
-    fs::read_dir(Path::new("/run/media").join(user))
+    ntfs_partitions()
         .into_iter()
-        .flatten()
-        .flatten()
-        .map(|d| d.path())
-        .filter(|p| p.join("Windows").is_dir())
+        .map(|(_, at)| PathBuf::from(at))
+        .filter(|p| !p.as_os_str().is_empty() && p.join("Windows").is_dir())
         .collect()
 }
 
