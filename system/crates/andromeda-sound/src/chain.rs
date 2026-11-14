@@ -186,6 +186,12 @@ pub fn channel_curve(p: &Profile, ch: usize) -> Vec<f64> {
 /// Peaking bands at the band centres whose combined response fits the curve (interpolated
 /// linearly in log frequency) on a dense grid, then the enabled speaker PEQ filters for this channel.
 pub fn channel_eq(t: &Tuning, p: &Profile, ch: usize) -> Vec<Band> {
+    let ch_u32 = u32::try_from(ch).unwrap_or(u32::MAX);
+    let peq = p.speaker_peq.iter().filter(|f| f.speaker == ch_u32).filter_map(peq_band);
+    // Equalizer APO imports carry filters only, no band curve to fit.
+    if t.band_freqs_hz.is_empty() {
+        return peq.collect();
+    }
     let curve = channel_curve(p, ch);
     let centres = &t.band_freqs_hz;
     // Fit bands at the centres and their geometric midpoints: a sum of smooth bells
@@ -234,8 +240,7 @@ pub fn channel_eq(t: &Tuning, p: &Profile, ch: usize) -> Vec<Band> {
         .filter(|&i| gains[i].abs() > 0.01)
         .map(|i| Band { kind: "bq_peaking", freq: freqs[i], q: qs[i], gain_db: gains[i] })
         .collect();
-    let ch_u32 = u32::try_from(ch).unwrap_or(u32::MAX);
-    bands.extend(p.speaker_peq.iter().filter(|f| f.speaker == ch_u32).filter_map(peq_band));
+    bands.extend(peq);
     bands
 }
 
@@ -275,11 +280,15 @@ fn solve(mut a: Vec<Vec<f64>>) -> Vec<f64> {
 }
 
 /// DAX3 PEQ type codes, read from the files: 1 carries `q` (peaking), 2 and 3 carry `s` (shelves).
+/// Equalizer APO shelves carry `q`; 4 and 5 are its high and low pass.
 fn peq_band(f: &PeqFilter) -> Option<Band> {
+    let shelf = |f: &PeqFilter| f.slope.map(|s| shelf_q(f.gain_db, s)).or(f.q);
     let (kind, q) = match f.kind {
         1 => ("bq_peaking", f.q?),
-        2 => ("bq_lowshelf", shelf_q(f.gain_db, f.slope?)),
-        3 => ("bq_highshelf", shelf_q(f.gain_db, f.slope?)),
+        2 => ("bq_lowshelf", shelf(f)?),
+        3 => ("bq_highshelf", shelf(f)?),
+        4 => ("bq_highpass", f.q?),
+        5 => ("bq_lowpass", f.q?),
         _ => return None,
     };
     Some(Band { kind, freq: f.freq_hz, q, gain_db: f.gain_db })
@@ -333,6 +342,7 @@ mod tests {
         p.vlldp.insert("audio-optimizer-enable".into(), vec![1.0]);
         p.vlldp.insert("audio-optimizer-bands.ch_00".into(), curve.clone());
         let t = Tuning {
+            source: String::new(),
             subsystem: String::new(),
             tuning_date: String::new(),
             band_freqs_hz: freqs.clone(),

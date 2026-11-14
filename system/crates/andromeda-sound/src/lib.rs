@@ -1,5 +1,5 @@
-//! Imports a Dolby DAX3 speaker tuning file (from the user's own Windows driver) into a
-//! profile that the `PipeWire` filter-chain generator reads.
+//! Imports a speaker tuning from the user's own Windows install (a Dolby DAX3 driver file or an
+//! Equalizer APO config) into a profile that the `PipeWire` filter-chain generator reads.
 
 pub mod chain;
 
@@ -15,6 +15,9 @@ pub const MAX_XML_BYTES: usize = 4 << 20;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Tuning {
+    /// Where the tuning came from, shown in Settings: `Dolby` or `Equalizer APO`.
+    #[serde(default = "dolby")]
+    pub source: String,
     /// HDA codec subsystem id, upper-case hex, for example `10431A63`.
     pub subsystem: String,
     pub tuning_date: String,
@@ -43,13 +46,19 @@ pub struct Profile {
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct PeqFilter {
     pub speaker: u32,
-    /// DAX3 filter type code as written in the file.
+    /// DAX3 filter type code as written in the file: 1 peaking, 2 low shelf, 3 high shelf.
+    /// Equalizer APO imports add 4 high pass and 5 low pass.
     pub kind: u32,
     pub freq_hz: f64,
     pub gain_db: f64,
+    /// Peaking and pass Q; shelf Q when there is no slope.
     pub q: Option<f64>,
     /// Shelf slope.
     pub slope: Option<f64>,
+}
+
+fn dolby() -> String {
+    "Dolby".to_owned()
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -75,6 +84,7 @@ pub fn parse(xml: &str) -> Result<Tuning> {
     let mut stack: Vec<String> = Vec::new();
     let mut constants: BTreeMap<String, Vec<f64>> = BTreeMap::new();
     let mut tuning = Tuning {
+        source: dolby(),
         subsystem: String::new(),
         tuning_date: String::new(),
         band_freqs_hz: Vec::new(),
@@ -205,9 +215,135 @@ pub fn driver_file_stem(vendor_id: u32, subsystem_id: u32) -> String {
     format!("DEV_{:04X}_SUBSYS_{subsystem_id:08X}", vendor_id & 0xffff)
 }
 
+/// An Equalizer APO config as one speaker profile (`music`) for codec `subsystem`.
+/// `include` reads a file named by an `Include:` line, relative to the config directory.
+pub fn eqapo_tuning(subsystem: &str, config: &str, include: &dyn Fn(&str) -> Option<String>) -> Result<Tuning> {
+    let mut state = EqApoState { device: true, channels: [true, true], filters: Vec::new() };
+    eqapo_lines(config, include, &mut state, 0);
+    if state.filters.is_empty() {
+        bail!("the Equalizer APO config has no filter for the speakers");
+    }
+    let profile = Profile { speaker_peq: state.filters, ..Profile::default() };
+    Ok(Tuning {
+        source: "Equalizer APO".to_owned(),
+        subsystem: subsystem.to_owned(),
+        tuning_date: String::new(),
+        band_freqs_hz: Vec::new(),
+        endpoints: vec![Endpoint {
+            kind: "internal_speaker".to_owned(),
+            channels: 2,
+            profiles: [("music".to_owned(), profile)].into(),
+        }],
+    })
+}
+
+struct EqApoState {
+    /// The last `Device:` line names the speakers, `all`, or there was none.
+    device: bool,
+    /// Left and right are selected by the last `Channel:` line.
+    channels: [bool; 2],
+    filters: Vec<PeqFilter>,
+}
+
+/// Reads `Device:`, `Channel:`, `Include:` and `Filter:` lines; `Preamp:` is left to our limiter, other commands are skipped.
+fn eqapo_lines(text: &str, include: &dyn Fn(&str) -> Option<String>, s: &mut EqApoState, depth: u32) {
+    for line in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+        let Some((cmd, rest)) = line.split_once(':') else { continue };
+        let cmd = cmd.trim().to_ascii_lowercase();
+        let rest = rest.trim();
+        if cmd == "device" {
+            let d = rest.to_ascii_lowercase();
+            s.device = d == "all" || d.contains("speaker");
+        } else if cmd == "channel" {
+            let tokens: Vec<String> = rest.split_whitespace().map(str::to_ascii_uppercase).collect();
+            let all = tokens.iter().any(|t| t == "ALL");
+            s.channels = [all || tokens.iter().any(|t| t == "L"), all || tokens.iter().any(|t| t == "R")];
+        } else if cmd == "include" && depth < 4 {
+            if let Some(text) = include(rest) {
+                eqapo_lines(&text, include, s, depth + 1);
+            }
+        } else if (cmd == "filter" || cmd.starts_with("filter "))
+            && s.device
+            && let Some(f) = eqapo_filter(rest)
+        {
+            for (speaker, _) in s.channels.iter().enumerate().filter(|(_, on)| **on) {
+                s.filters.push(PeqFilter { speaker: u32::try_from(speaker).unwrap_or(0), ..f });
+            }
+        }
+    }
+}
+
+/// `ON PK Fc 100 Hz Gain -3 dB Q 1.41`; None for OFF lines and types we do not map.
+fn eqapo_filter(spec: &str) -> Option<PeqFilter> {
+    let t: Vec<&str> = spec.split_whitespace().collect();
+    if !t.first()?.eq_ignore_ascii_case("on") {
+        return None;
+    }
+    // `BW Oct 1`: a unit word may sit between the key and the number.
+    let value = |key: &str| {
+        t.iter()
+            .position(|w| w.eq_ignore_ascii_case(key))
+            .and_then(|i| t.get(i + 1).filter(|v| !v.eq_ignore_ascii_case("oct")).or_else(|| t.get(i + 2)))
+            .and_then(|v| v.parse::<f64>().ok())
+    };
+    let kind = match t.get(1)?.to_ascii_uppercase().as_str() {
+        "PK" | "PEQ" | "MODAL" => 1,
+        "LS" | "LSC" => 2,
+        "HS" | "HSC" => 3,
+        "HP" | "HPQ" => 4,
+        "LP" | "LPQ" => 5,
+        _ => return None,
+    };
+    // `BW` is the bandwidth in octaves.
+    let q = value("Q")
+        .or_else(|| value("BW").map(|bw| 2f64.powf(bw).sqrt() / (2f64.powf(bw) - 1.0)))
+        .filter(|q| q.is_finite() && *q > 0.0);
+    Some(PeqFilter {
+        speaker: 0,
+        kind,
+        freq_hz: value("Fc").filter(|f| *f > 0.0)?,
+        gain_db: if kind >= 4 { 0.0 } else { value("Gain")? },
+        q: match kind {
+            1 => Some(q?),
+            _ => Some(q.unwrap_or(std::f64::consts::FRAC_1_SQRT_2)),
+        },
+        slope: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eqapo_config_gives_speaker_filters_per_channel() -> Result<()> {
+        let config = "Preamp: -6 dB\nDevice: Headphones\nFilter: ON PK Fc 50 Hz Gain 9 dB Q 1\n\
+                      Device: Speakers Realtek(R) Audio\nInclude: speaker.txt\nFilter: ON PK Fc 2000 Hz Gain 1 dB BW Oct 1\nChannel: R\n\
+                      Filter 2: ON HS Fc 8000 Hz Gain 3 dB\nFilter 3: OFF PK Fc 1000 Hz Gain 5 dB Q 2\n";
+        let include =
+            |name: &str| (name == "speaker.txt").then(|| "Filter: ON PK Fc 300 Hz Gain -4.5 dB Q 1.4".to_owned());
+        let t = eqapo_tuning("1043ABCD", config, &include)?;
+        assert_eq!(t.source, "Equalizer APO");
+        let pk = |speaker| PeqFilter { speaker, kind: 1, freq_hz: 300.0, gain_db: -4.5, q: Some(1.4), slope: None };
+        let hs = PeqFilter {
+            speaker: 1,
+            kind: 3,
+            freq_hz: 8000.0,
+            gain_db: 3.0,
+            q: Some(std::f64::consts::FRAC_1_SQRT_2),
+            slope: None,
+        };
+        let bw = |speaker| PeqFilter {
+            speaker,
+            kind: 1,
+            freq_hz: 2000.0,
+            gain_db: 1.0,
+            q: Some(std::f64::consts::SQRT_2),
+            slope: None,
+        };
+        assert_eq!(t.endpoints[0].profiles["music"].speaker_peq, vec![pk(0), pk(1), bw(0), bw(1), hs]);
+        Ok(())
+    }
 
     const FIXTURE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <device_data>

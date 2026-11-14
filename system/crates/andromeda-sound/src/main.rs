@@ -6,6 +6,8 @@ use andromeda_sound::chain;
 use anyhow::{Context, Result, bail};
 
 const USAGE: &str = "usage: andromeda-sound import-dolby [--xml FILE | --windows DIR] [-o FILE]
+       andromeda-sound import-eqapo FILE [-o FILE]
+       andromeda-sound probe [--windows DIR]
        andromeda-sound apply [--profile NAME] [--tuning FILE] [--dsp FILE] [--target SINK] [--loudness DB] [--bass 0-10] [-o FILE]
        andromeda-sound off
        andromeda-sound import-windows
@@ -22,6 +24,12 @@ fn main() -> Result<()> {
     let _lock = if cmd.as_deref() == Some("status") { None } else { Some(lock()?) };
     match cmd.as_deref() {
         Some("import-dolby") => import(args).map(drop),
+        Some("import-eqapo") => {
+            let file = PathBuf::from(args.next().context(USAGE)?);
+            let tuning = eqapo_file(&file, None, &subsystem()?)?;
+            write_tuning(&tuning, args).map(drop)
+        }
+        Some("probe") => probe(args),
         Some("apply") => apply(args),
         Some("off") => {
             // Give the user's volume back to the speaker before the chain goes, so it never plays at 100 %.
@@ -162,7 +170,7 @@ fn status() -> Result<()> {
     let profiles = styles(tuning.as_ref());
     let windows = !ntfs_partitions().is_empty();
     println!("enabled={}", u8::from(enabled));
-    println!("source={}", if tuning.is_some() { "Dolby" } else { "basic" });
+    println!("source={}", tuning.as_ref().map_or("basic", |t| t.source.as_str()));
     println!("profile={profile}");
     println!("loudness={loudness}");
     println!("bass={bass}");
@@ -174,8 +182,7 @@ fn status() -> Result<()> {
 
 /// The styles a user picks; vendor files also hold "off", user slots and niche variants.
 fn styles(tuning: Option<&andromeda_sound::Tuning>) -> Vec<&'static str> {
-    let names =
-        tuning.and_then(|t| t.endpoints.iter().find(|e| e.kind == "internal_speaker")).map(|e| &e.profiles);
+    let names = tuning.and_then(|t| t.endpoints.iter().find(|e| e.kind == "internal_speaker")).map(|e| &e.profiles);
     ["music", "movie", "voice", "game", "dynamic"]
         .into_iter()
         .filter(|p| names.is_some_and(|n| n.contains_key(*p)))
@@ -292,34 +299,166 @@ fn import(mut args: impl Iterator<Item = String>) -> Result<PathBuf> {
             _ => bail!(USAGE),
         }
     }
-    let bytes = if let Some(p) = xml {
-        fs::read(&p).with_context(|| format!("read {}", p.display()))?
+    let tuning = if let Some(p) = xml {
+        let bytes = fs::read(&p).with_context(|| format!("read {}", p.display()))?;
+        andromeda_sound::parse(std::str::from_utf8(&bytes).context("tuning file is not UTF-8")?)?
     } else {
         let stem = codec_stem()?;
-        let mut roots = windows.map_or_else(mounted_windows_roots, |w| vec![w]);
-        let ours =
-            if roots.iter().any(|r| find_driver_file(r, &stem).is_some()) { Vec::new() } else { mount_ntfs_ro() };
-        roots.extend(ours.iter().map(|(_, at)| at.clone()));
-        let read = roots
-            .iter()
-            .find_map(|r| find_driver_file(r, &stem))
-            .map(|f| fs::read(&f).with_context(|| format!("read {}", f.display())));
-        for (dev, _) in &ours {
-            let _ = Command::new("udisksctl").args(["unmount", "-b", dev, "--no-user-interaction"]).output();
-        }
-        read.with_context(|| format!("no Windows partition with a Dolby tuning file ({stem}*.xml)"))??
+        let found = with_windows(windows, |roots| roots.iter().find_map(|r| find_tuning(r, &stem)));
+        found.with_context(|| {
+            format!("no Windows partition with a speaker tuning (Dolby {stem}*.xml or Equalizer APO config)")
+        })??
     };
-    let tuning = andromeda_sound::parse(std::str::from_utf8(&bytes).context("tuning file is not UTF-8")?)?;
-    let out = match out {
-        Some(o) => o,
-        None => data_dir()?.join(format!("{}.toml", tuning.subsystem)),
+    write_tuning(&tuning, args_out(out))
+}
+
+fn args_out(out: Option<PathBuf>) -> std::vec::IntoIter<String> {
+    out.map(|o| vec!["-o".to_owned(), o.display().to_string()]).unwrap_or_default().into_iter()
+}
+
+/// Writes `tuning` as TOML (to `-o FILE`, else the data dir) and returns the path.
+fn write_tuning(tuning: &andromeda_sound::Tuning, mut args: impl Iterator<Item = String>) -> Result<PathBuf> {
+    let out = match (args.next().as_deref(), args.next()) {
+        (Some("-o"), Some(o)) => PathBuf::from(o),
+        (None, _) => data_dir()?.join(format!("{}.toml", tuning.subsystem)),
+        _ => bail!(USAGE),
     };
     if let Some(dir) = out.parent() {
         fs::create_dir_all(dir)?;
     }
-    fs::write(&out, toml::to_string(&tuning)?)?;
+    fs::write(&out, toml::to_string(tuning)?)?;
     println!("{}", out.display());
     Ok(out)
+}
+
+/// Runs `f` on the Windows roots: the given one, else mounted ones, else internal NTFS partitions
+/// mounted read-only for the call when the mounted ones give nothing.
+fn with_windows<T>(given: Option<PathBuf>, f: impl Fn(&[PathBuf]) -> Option<T>) -> Option<T> {
+    if let Some(w) = given {
+        return f(&[w]);
+    }
+    if let Some(found) = f(&mounted_windows_roots()) {
+        return Some(found);
+    }
+    let ours = mount_ntfs_ro();
+    let roots: Vec<PathBuf> = ours.iter().map(|(_, at)| at.clone()).filter(|p| p.join("Windows").is_dir()).collect();
+    let found = f(&roots);
+    for (dev, _) in &ours {
+        let _ = Command::new("udisksctl").args(["unmount", "-b", dev, "--no-user-interaction"]).output();
+    }
+    found
+}
+
+/// The Dolby driver file for this codec, else the Equalizer APO config, parsed.
+fn find_tuning(root: &Path, stem: &str) -> Option<Result<andromeda_sound::Tuning>> {
+    if let Some(f) = find_driver_file(root, stem) {
+        return Some(
+            fs::read(&f)
+                .with_context(|| format!("read {}", f.display()))
+                .and_then(|b| andromeda_sound::parse(std::str::from_utf8(&b).context("tuning file is not UTF-8")?)),
+        );
+    }
+    let eqapo = root.join("Program Files/EqualizerAPO/config/config.txt");
+    eqapo.is_file().then(|| eqapo_file(&eqapo, Some(root), &subsystem_of(stem)))
+}
+
+/// An Equalizer APO config; `Include:` files resolve against its directory, `C:\…` paths against `root`.
+fn eqapo_file(path: &Path, root: Option<&Path>, subsystem: &str) -> Result<andromeda_sound::Tuning> {
+    let read =
+        |p: &Path| fs::read(p).ok().map(|b| String::from_utf8_lossy(&b).trim_start_matches('\u{feff}').to_owned());
+    let text = read(path).with_context(|| format!("read {}", path.display()))?;
+    let dir = path.parent().unwrap_or(Path::new("."));
+    let include = |name: &str| {
+        let name = name.replace('\\', "/");
+        let p = match (name.as_bytes(), root) {
+            ([_, b':', b'/', ..], Some(r)) => r.join(&name[3..]),
+            _ => dir.join(&name),
+        };
+        read(&p)
+    };
+    andromeda_sound::eqapo_tuning(subsystem, &text, &include)
+}
+
+fn subsystem() -> Result<String> {
+    Ok(subsystem_of(&codec_stem()?))
+}
+
+/// `DEV_0294_SUBSYS_10431A63` → `10431A63`, the name `apply` looks up.
+fn subsystem_of(stem: &str) -> String {
+    stem.rsplit('_').next().unwrap_or_default().to_owned()
+}
+
+/// Lists what a Windows install holds for audio tuning, for formats we do not read yet:
+/// vendor packages in the driver store and known vendor folders, with file sizes.
+fn probe(mut args: impl Iterator<Item = String>) -> Result<()> {
+    const VENDORS: [&str; 14] = [
+        "dax", "dolby", "dts", "waves", "maxx", "nahimic", "sonic", "realtek", "rtk", "hdx", "cirrus", "tas2",
+        "smartamp", "bang",
+    ];
+    let windows = match (args.next().as_deref(), args.next()) {
+        (Some("--windows"), Some(w)) => Some(PathBuf::from(w)),
+        (None, _) => None,
+        _ => bail!(USAGE),
+    };
+    let dmi = |f: &str| fs::read_to_string(Path::new("/sys/class/dmi/id").join(f)).unwrap_or_default();
+    println!("machine: {} {}", dmi("sys_vendor").trim(), dmi("product_name").trim());
+    println!("codec: {}", codec_stem().unwrap_or_else(|e| e.to_string()));
+    let lines = with_windows(windows, |roots| {
+        let root = roots.first()?;
+        let store = root.join("Windows/System32/DriverStore/FileRepository");
+        let mut dirs: Vec<PathBuf> = fs::read_dir(&store)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|d| d.path())
+            .filter(|p| {
+                let n = p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+                VENDORS.iter().any(|v| n.starts_with(v)) || (n.contains("audio") || n.contains("apo"))
+            })
+            .collect();
+        dirs.extend(
+            [
+                "Windows/System32/DTS",
+                "Program Files/Waves",
+                "Program Files/EqualizerAPO/config",
+                "ProgramData/A-Volute",
+            ]
+            .into_iter()
+            .map(|d| root.join(d))
+            .filter(|d| d.is_dir()),
+        );
+        dirs.sort();
+        let mut out = vec![format!("windows: {}", root.display())];
+        for d in dirs {
+            out.push(format!("{}/", d.strip_prefix(root).unwrap_or(&d).display()));
+            let mut files = Vec::new();
+            list_tuning_files(&d, 0, &mut files);
+            out.extend(
+                files.into_iter().map(|(p, size)| format!("  {} {size}", p.strip_prefix(&d).unwrap_or(&p).display())),
+            );
+        }
+        Some(out)
+    });
+    for l in lines.context("no Windows partition")? {
+        println!("{l}");
+    }
+    Ok(())
+}
+
+/// Data files up to 3 levels deep: the extensions vendors use for tunings, not code.
+fn list_tuning_files(dir: &Path, depth: u32, out: &mut Vec<(PathBuf, u64)>) {
+    for e in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let p = e.path();
+        if p.is_dir() && depth < 3 {
+            list_tuning_files(&p, depth + 1, out);
+        } else if p.extension().is_some_and(|x| {
+            ["xml", "ini", "dat", "bin", "json", "cfg", "txt", "preset", "wvs", "xmc"]
+                .iter()
+                .any(|k| x.eq_ignore_ascii_case(k))
+        }) {
+            out.push((p.clone(), e.metadata().map_or(0, |m| m.len())));
+        }
+    }
 }
 
 /// Mounts every unmounted internal NTFS partition read-only through udisks; polkit may ask for the
