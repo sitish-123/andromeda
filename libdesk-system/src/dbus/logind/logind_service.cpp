@@ -164,58 +164,89 @@ void LogindService::setSessionLockedHint(bool locked) {
     m_pendingLockedHint = locked;
     return;
   }
-  try {
-    m_sessionProxy->callMethod("SetLockedHint").onInterface(kLogindSessionInterface).withArguments(locked);
-    kLog.debug("logind session locked hint set to {}", locked);
-  } catch (const sdbus::Error& e) {
-    kLog.warn("failed to set logind session locked hint to {}: {}", locked, e.what());
-  }
+  m_sessionProxy->callMethodAsync("SetLockedHint")
+      .onInterface(kLogindSessionInterface)
+      .withArguments(locked)
+      .uponReplyInvoke([locked](std::optional<sdbus::Error> e) {
+        if (e.has_value()) {
+          kLog.warn("failed to set logind session locked hint to {}: {}", locked, e->what());
+        } else {
+          kLog.debug("logind session locked hint set to {}", locked);
+        }
+      });
 }
 
 bool LogindService::supportsIdleInhibit() const noexcept { return m_managerProxy != nullptr; }
 
-bool LogindService::hasIdleInhibit() const noexcept { return m_idleInhibitFd >= 0; }
+void LogindService::setIdleInhibitCallback(IdleInhibitCallback callback) {
+  m_idleInhibitCallback = std::move(callback);
+}
 
-bool LogindService::acquireIdleInhibit() {
-  if (m_idleInhibitFd >= 0) {
-    return true;
+void LogindService::acquireIdleInhibit() {
+  switch (m_idleInhibit) {
+  case IdleInhibit::Held:
+  case IdleInhibit::Pending:
+    return;
+  case IdleInhibit::PendingCancelled:
+    m_idleInhibit = IdleInhibit::Pending;
+    return;
+  case IdleInhibit::None:
+    break;
   }
   if (m_managerProxy == nullptr) {
-    return false;
+    return;
   }
+  m_idleInhibit = IdleInhibit::Pending;
 
-  try {
-    sdbus::UnixFd fd;
-    m_managerProxy->callMethod("Inhibit")
-        .onInterface(kLogindManagerInterface)
-        .withArguments(std::string("idle"), std::string("noctalia"), std::string("Caffeine"), std::string("block"))
-        .storeResultsTo(fd);
-    m_idleInhibitFd = fd.release();
-    if (m_idleInhibitFd < 0) {
-      kLog.warn("logind idle inhibit returned invalid fd");
-      return false;
-    }
-    if (!setCloexec(m_idleInhibitFd)) {
-      kLog.warn("failed to set CLOEXEC on logind idle inhibit fd");
-      ::close(m_idleInhibitFd);
-      m_idleInhibitFd = -1;
-      return false;
-    }
-    kLog.info("logind idle inhibit acquired");
-    return true;
-  } catch (const sdbus::Error& e) {
-    kLog.warn("failed to acquire logind idle inhibit: {}", e.what());
-    return false;
-  }
+  const std::weak_ptr<int> aliveToken = m_aliveToken;
+  m_managerProxy->callMethodAsync("Inhibit")
+      .onInterface(kLogindManagerInterface)
+      .withArguments(std::string("idle"), std::string("noctalia"), std::string("Caffeine"), std::string("block"))
+      .uponReplyInvoke([this, aliveToken](std::optional<sdbus::Error> e, sdbus::UnixFd fd) {
+        if (aliveToken.expired()) {
+          return;
+        }
+        const bool cancelled = m_idleInhibit == IdleInhibit::PendingCancelled;
+        m_idleInhibit = IdleInhibit::None;
+        const int rawFd = e.has_value() ? -1 : fd.release();
+        if (e.has_value()) {
+          kLog.warn("failed to acquire logind idle inhibit: {}", e->what());
+        } else if (cancelled) {
+          if (rawFd >= 0) {
+            ::close(rawFd);
+          }
+          return;
+        } else if (rawFd < 0) {
+          kLog.warn("logind idle inhibit returned invalid fd");
+        } else if (!setCloexec(rawFd)) {
+          kLog.warn("failed to set CLOEXEC on logind idle inhibit fd");
+          ::close(rawFd);
+        } else {
+          m_idleInhibitFd = rawFd;
+          m_idleInhibit = IdleInhibit::Held;
+          kLog.info("logind idle inhibit acquired");
+          if (m_idleInhibitCallback) {
+            m_idleInhibitCallback();
+          }
+        }
+      });
 }
 
 void LogindService::releaseIdleInhibit() {
-  if (m_idleInhibitFd < 0) {
+  switch (m_idleInhibit) {
+  case IdleInhibit::Pending:
+    m_idleInhibit = IdleInhibit::PendingCancelled;
+    return;
+  case IdleInhibit::Held:
+    ::close(m_idleInhibitFd);
+    m_idleInhibitFd = -1;
+    m_idleInhibit = IdleInhibit::None;
+    kLog.debug("logind idle inhibit released");
+    return;
+  case IdleInhibit::None:
+  case IdleInhibit::PendingCancelled:
     return;
   }
-  ::close(m_idleInhibitFd);
-  m_idleInhibitFd = -1;
-  kLog.debug("logind idle inhibit released");
 }
 
 // The lock is async: a suspend that starts while Pending runs without the delay. logind ignores lid

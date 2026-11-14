@@ -19,6 +19,9 @@ IdleInhibitor::IdleInhibitor() = default;
 IdleInhibitor::~IdleInhibitor() {
   destroyWaylandInhibitors(false);
   releaseLogindInhibit();
+  if (m_logind != nullptr) {
+    m_logind->setIdleInhibitCallback(nullptr);
+  }
 }
 
 bool IdleInhibitor::initialize(WaylandConnection& wayland) {
@@ -32,7 +35,16 @@ bool IdleInhibitor::initialize(WaylandConnection& wayland) {
   return true;
 }
 
-void IdleInhibitor::setLogindService(LogindService* logind) { m_logind = logind; }
+void IdleInhibitor::setLogindService(LogindService* logind) {
+  m_logind = logind;
+  if (m_logind != nullptr) {
+    m_logind->setIdleInhibitCallback([this] {
+      if (m_enabled) {
+        syncInhibitor();
+      }
+    });
+  }
+}
 
 void IdleInhibitor::setAnchorSurfacesProvider(AnchorSurfacesProvider provider) {
   m_anchorSurfacesProvider = std::move(provider);
@@ -124,7 +136,8 @@ void IdleInhibitor::syncLogindInhibit(bool logTransitions) {
     return;
   }
 
-  if (m_logind->acquireIdleInhibit() && logTransitions && !m_loggedLogindEnable) {
+  m_logind->acquireIdleInhibit();
+  if (m_logind->hasIdleInhibit() && logTransitions && !m_loggedLogindEnable) {
     kLog.info("idle inhibitor enabled via logind");
     m_loggedLogindEnable = true;
   }
@@ -159,7 +172,6 @@ void IdleInhibitor::notifyChanged() {
 
 void IdleInhibitor::onOutputChange() {
   destroyWaylandInhibitors(false);
-  releaseLogindInhibit();
   if (m_enabled) {
     syncInhibitor(false);
   }
