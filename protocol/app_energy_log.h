@@ -88,18 +88,26 @@ public:
     std::erase_if(m_last, [&live](const auto& entry) { return !live.contains(entry.first); });
   }
 
-  // CPU seconds per unit over the last `seconds`.
+  // The app id of a unit's windows: launch scopes (app-andromeda-<pid>-<n>.scope) carry none in their name.
+  void name(const std::string& unit, const std::string& appId) {
+    if (!appId.empty()) {
+      m_names[unit] = appId;
+    }
+  }
+
+  // CPU seconds per app id, else per unit, over the last `seconds`.
   [[nodiscard]] std::map<std::string, double> cpuSeconds(std::int64_t now, std::int64_t seconds) const {
     std::map<std::string, double> out;
     for (auto it = m_cpu.lower_bound(bucket(now - seconds) + 1); it != m_cpu.end(); ++it) {
       for (const auto& [unit, s] : it->second) {
-        out[unit] += s;
+        out[label(unit)] += s;
       }
     }
     return out;
   }
 
-  // Wh per unit over the last `seconds`, from the hours that have package energy and all-CPU time; empty without.
+  // Wh per app id, else per unit, over the last `seconds`, from the hours that have package energy and all-CPU time;
+  // empty without.
   [[nodiscard]] std::map<std::string, double> wattHours(std::int64_t now, std::int64_t seconds) const {
     std::map<std::string, double> out;
     for (auto it = m_cpu.lower_bound(bucket(now - seconds) + 1); it != m_cpu.end(); ++it) {
@@ -115,11 +123,11 @@ public:
           && uncore->second <= joules->second;
       const double gpuJoules = split ? uncore->second : 0.0;
       for (const auto& [unit, s] : it->second) {
-        out[unit] += (joules->second - gpuJoules) * std::min(s / total->second, 1.0) / 3600.0;
+        out[label(unit)] += (joules->second - gpuJoules) * std::min(s / total->second, 1.0) / 3600.0;
       }
       if (split && gpu != m_gpu.end()) {
         for (const auto& [unit, s] : gpu->second) {
-          out[unit] += gpuJoules * std::min(s / gpuTotal->second, 1.0) / 3600.0;
+          out[label(unit)] += gpuJoules * std::min(s / gpuTotal->second, 1.0) / 3600.0;
         }
       }
     }
@@ -154,6 +162,14 @@ public:
     for (const auto& [client, ns] : m_lastGpu) {
       out << "ug " << ns << ' ' << client << '\n';
     }
+    for (const auto& [unit, appId] : m_names) {
+      const auto booked = [&unit, from](const auto& hours) {
+        return std::any_of(hours.lower_bound(from), hours.end(), [&unit](const auto& h) { return h.second.contains(unit); });
+      };
+      if (m_last.contains(unit) || booked(m_cpu) || booked(m_gpu)) {
+        out << "n " << unit << ' ' << appId << '\n';
+      }
+    }
     if (m_lastUncore.has_value()) {
       out << "leu " << *m_lastUncore << '\n';
     }
@@ -170,7 +186,7 @@ public:
   }
 
   // Lines "d <hour> <s> <unit>", "t <hour> <s>", "e <hour> <J>", "u <usec> <unit>", "lt <usec>", "le <J>", and for the
-  // GPU "g <hour> <s> <unit>", "gt <hour> <s>", "eu <hour> <J>", "ug <ns> <client>", "leu <J>"; an hour is UNIX
+  // GPU "g <hour> <s> <unit>", "gt <hour> <s>", "eu <hour> <J>", "ug <ns> <client>", "leu <J>", and "n <unit> <app id>"; an hour is UNIX
   // time / 3600.
   void parse(std::string_view text) {
     std::istringstream in{std::string(text)};
@@ -202,6 +218,10 @@ public:
         m_lastGpu[unit] = usage;
       } else if (kind == "leu" && in >> value) {
         m_lastUncore = value;
+      } else if (kind == "n" && in >> unit) {
+        std::string appId;
+        std::getline(in >> std::ws, appId);
+        name(unit, appId);
       } else {
         in.clear();
         std::getline(in, unit);
@@ -211,6 +231,10 @@ public:
 
 private:
   static std::int64_t bucket(std::int64_t t) { return t / kBucket; }
+  const std::string& label(const std::string& unit) const {
+    const auto it = m_names.find(unit);
+    return it == m_names.end() ? unit : it->second;
+  }
 
   std::map<std::int64_t, std::map<std::string, double>> m_cpu;
   std::map<std::int64_t, double> m_total;
@@ -223,6 +247,7 @@ private:
   std::map<std::int64_t, double> m_uncore;
   std::map<std::string, std::uint64_t> m_lastGpu; // by client
   std::optional<double> m_lastUncore;
+  std::map<std::string, std::string> m_names; // unit -> app id
 };
 
 // $XDG_STATE_HOME/andromeda/app-energy: written by the compositor only.

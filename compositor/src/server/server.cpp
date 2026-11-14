@@ -1618,7 +1618,8 @@ namespace andromeda {
                      && (m_desktopShell == nullptr
                          || !m_desktopShell->boundBy(wl_resource_get_client(view->rootSurface()->resource))),
                  .thawShown = m_windowSwitchers > 0
-                     || (view->workspace() != nullptr && view->workspace()->group()->slideShows(view->workspace()))}
+                     || (view->workspace() != nullptr && view->workspace()->group()->slideShows(view->workspace())),
+                 .appId = view->appId() != nullptr ? view->appId() : ""}
             );
           }
         }

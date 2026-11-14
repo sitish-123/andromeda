@@ -310,7 +310,11 @@ namespace andromeda::qos {
         continue;
       }
       const auto addWindow = [&](const Cgroup& scope) -> Gathered& {
-        m_scopes.try_emplace(scope.unit, m_delays).first->second.dir = scope.dir;
+        Scope& tracked = m_scopes.try_emplace(scope.unit, m_delays).first->second;
+        tracked.dir = scope.dir;
+        if (tracked.appId.empty()) {
+          tracked.appId = window.appId;
+        }
         Gathered& app = gathered[scope.unit];
         ++app.windows;
         app.inputs.visible = app.inputs.visible || !window.hidden;
@@ -404,7 +408,7 @@ namespace andromeda::qos {
           : Decision{};
       const Decision decision = registry().holds.apply(unit, policy, exempt || inputs.focused);
       registry().apps[unit] = AppState{
-          .dir = scope.dir, .visible = inputs.visible, .focused = inputs.focused, .exempt = exempt,
+          .dir = scope.dir, .appId = scope.appId, .visible = inputs.visible, .focused = inputs.focused, .exempt = exempt,
           .tier = decision.tier, .frozen = decision.frozen,
       };
       if (decision.tier != scope.tier || decision.frozen != scope.frozen) {

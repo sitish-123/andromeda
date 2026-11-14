@@ -52,6 +52,7 @@ namespace andromeda::qos {
   // One app scope as the controller last evaluated it.
   struct AppState {
     std::string dir; // cgroup directory
+    std::string appId; // of its first window; empty when it set none
     bool visible = false;
     bool focused = false;
     bool exempt = false;

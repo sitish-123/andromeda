@@ -281,10 +281,17 @@ namespace andromeda {
       usage.total = readUsageUsec("/sys/fs/cgroup");
       return usage;
     };
-    auto book = [this, now](Usage usage) {
+    std::map<std::string, std::string> names; // unit -> app id
+    for (const auto& [unit, app] : qos::registry().apps) {
+      names.emplace(unit, app.appId);
+    }
+    auto book = [this, now, names = std::move(names)](Usage usage) {
       std::set<std::string> live;
       for (const auto& [unit, value] : usage.units) {
         m_energy.book(unit, value, now);
+        if (const auto name = names.find(unit); name != names.end()) {
+          m_energy.name(unit, name->second);
+        }
         live.insert(unit);
       }
       m_energy.keepUnits(live);

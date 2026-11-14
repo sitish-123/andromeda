@@ -40,5 +40,15 @@ int main() {
   TEST_CHECK(near(again.wattHours(t1, 3600).at("app-game.scope"), 0.425));
   again.bookGpu("pdev/1", "app-game.scope", 30'000'000'000, t1 + 60);
   TEST_CHECK(near(again.wattHours(t1 + 60, 3600).at("app-game.scope"), 0.425)); // no growth, no new GPU time
+
+  // A launch scope's name holds no app id: the log keeps the one its windows gave, across a restart.
+  AppEnergyLog launched;
+  launched.book("app-andromeda-1363-14.scope", 0, t0);
+  launched.book("app-andromeda-1363-14.scope", 20'000'000, t1);
+  launched.name("app-andromeda-1363-14.scope", "vivaldi-stable");
+  AppEnergyLog restarted;
+  restarted.parse(launched.serialize(t1));
+  TEST_CHECK(near(restarted.cpuSeconds(t1, 3600).at("vivaldi-stable"), 20.0));
+  TEST_CHECK(!restarted.cpuSeconds(t1, 3600).contains("app-andromeda-1363-14.scope"));
   return 0;
 }

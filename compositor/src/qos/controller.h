@@ -35,6 +35,7 @@ namespace andromeda::qos {
       // May get its own scope: a native Wayland client that is not the shell. An X11 pid is the client's own claim.
       bool adoptable = false;
       bool thawShown = false; // the running workspace slide or the open app switcher can show it
+      std::string appId;      // xdg app_id or X11 class; empty when the client sets none
     };
     struct Activity {
       pid_t pid = 0;
@@ -83,6 +84,7 @@ namespace andromeda::qos {
       ScopePolicy policy;
       std::string dir;
       Rule rule = Rule::Normal; // from its windows; kept while it has none
+      std::string appId;        // from its windows; kept while it has none
       Tier tier = Tier::Visible;
       bool frozen = false;
     };
