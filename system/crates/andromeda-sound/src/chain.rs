@@ -59,7 +59,7 @@ pub fn filter_chain_conf(t: Option<&Tuning>, s: &Settings) -> Result<String> {
     let limiter = ladspa(
         "lim",
         "limiter",
-        format!(" \"Input gain\" = {:.1} \"Ceiling\" = -1.0 \"Release\" = 80.0", s.loudness_db),
+        format!(" \"Input gain\" = {:.1} \"Ceiling\" = -1.0 \"Release\" = 80.0 \"Split\" = 200.0", s.loudness_db),
     );
     let (source, nodes) = match t {
         None => (GENERIC.to_owned(), vec![bass, limiter]),

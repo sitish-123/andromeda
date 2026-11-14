@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+use crate::biquad::{Biquad, Coeffs};
 use crate::{coef, db_to_lin};
 
 pub const LOOKAHEAD_MS: f32 = 5.0;
@@ -23,6 +24,9 @@ pub struct Limiter {
     pub input_gain_db: f32,
     pub ceiling_db: f32,
     pub release_ms: f32,
+    /// Crossover in Hz for the two-band compressor ahead of the limiter; 0 turns it off.
+    pub split_hz: f32,
+    split: SplitComp,
 }
 
 impl Limiter {
@@ -43,6 +47,8 @@ impl Limiter {
             input_gain_db: 0.0,
             ceiling_db: -1.0,
             release_ms: 80.0,
+            split_hz: 0.0,
+            split: SplitComp::new(fs),
         }
     }
 
@@ -58,8 +64,14 @@ impl Limiter {
         let window = self.len as u64 + 1;
         #[allow(clippy::cast_precision_loss)]
         let len = self.len as f64;
+        if self.split_hz > 0.0 {
+            self.split.set_split(self.split_hz);
+        }
         for (xl, xr) in l.iter_mut().zip(r.iter_mut()) {
-            let x = [*xl * gin, *xr * gin];
+            let mut x = [*xl * gin, *xr * gin];
+            if self.split_hz > 0.0 {
+                x = self.split.run(x, ceil);
+            }
             let peak = x[0].abs().max(x[1].abs());
             let need = if peak > ceil { ceil / peak } else { 1.0 };
             while self.minq.back().is_some_and(|&(_, g)| g >= need) {
@@ -82,6 +94,93 @@ impl Limiter {
             self.pos = (self.pos + 1) % self.len;
             self.n += 1;
         }
+    }
+}
+
+/// One band of [`SplitComp`]: stereo-linked peak compressor, soft knee.
+struct Band {
+    env: f32,
+    att: f32,
+    rel: f32,
+    threshold_db: f32,
+}
+
+const RATIO: f32 = 3.0;
+const KNEE_DB: f32 = 6.0;
+
+impl Band {
+    fn new(fs: f32, attack_ms: f32, release_ms: f32, threshold_db: f32) -> Self {
+        Self { env: 0.0, att: coef(attack_ms, fs), rel: coef(release_ms, fs), threshold_db }
+    }
+
+    fn gain(&mut self, peak: f32, ceil: f32) -> f32 {
+        let c = if peak > self.env { self.att } else { self.rel };
+        self.env = peak + (self.env - peak) * c;
+        // Below the knee the band needs no log: most samples of normal program take this path.
+        let knee_start = ceil * db_to_lin(self.threshold_db - KNEE_DB / 2.0);
+        if self.env <= knee_start {
+            return 1.0;
+        }
+        let over = 20.0 * (self.env / ceil).log10() - self.threshold_db;
+        let cut = if over < KNEE_DB / 2.0 {
+            (1.0 - 1.0 / RATIO) * (over + KNEE_DB / 2.0).powi(2) / (2.0 * KNEE_DB)
+        } else {
+            (1.0 - 1.0 / RATIO) * over
+        };
+        db_to_lin(-cut)
+    }
+}
+
+/// Linkwitz-Riley crossover (low and high sum flat) with one compressor per band, so bass
+/// peaks no longer pull the mids and highs down in the broadband limiter. Thresholds are dB
+/// under the limiter ceiling.
+struct SplitComp {
+    fs: f32,
+    hz: f32,
+    lp: [[Biquad; 2]; 2],
+    hp: [[Biquad; 2]; 2],
+    low: Band,
+    high: Band,
+}
+
+impl SplitComp {
+    fn new(fs: f32) -> Self {
+        let id = Biquad::new(Coeffs::lowpass(fs, 200.0, std::f32::consts::FRAC_1_SQRT_2));
+        Self {
+            fs,
+            hz: 0.0,
+            lp: [[id; 2]; 2],
+            hp: [[id; 2]; 2],
+            low: Band::new(fs, 10.0, 150.0, -9.0),
+            high: Band::new(fs, 2.0, 100.0, -1.0),
+        }
+    }
+
+    fn set_split(&mut self, hz: f32) {
+        #[allow(clippy::float_cmp)]
+        if hz == self.hz {
+            return;
+        }
+        self.hz = hz;
+        let q = std::f32::consts::FRAC_1_SQRT_2;
+        let (lp, hp) = (Coeffs::lowpass(self.fs, hz, q), Coeffs::highpass(self.fs, hz, q));
+        self.lp.iter_mut().flatten().for_each(|b| b.set(lp));
+        self.hp.iter_mut().flatten().for_each(|b| b.set(hp));
+    }
+
+    #[inline]
+    fn run(&mut self, x: [f32; 2], ceil: f32) -> [f32; 2] {
+        let mut lo = [0.0; 2];
+        let mut hi = [0.0; 2];
+        for ch in 0..2 {
+            let [a, b] = &mut self.lp[ch];
+            lo[ch] = b.run(a.run(x[ch]));
+            let [a, b] = &mut self.hp[ch];
+            hi[ch] = b.run(a.run(x[ch]));
+        }
+        let gl = self.low.gain(lo[0].abs().max(lo[1].abs()), ceil);
+        let gh = self.high.gain(hi[0].abs().max(hi[1].abs()), ceil);
+        [lo[0] * gl + hi[0] * gh, lo[1] * gl + hi[1] * gh]
     }
 }
 
@@ -108,6 +207,41 @@ mod tests {
         let peak = l.iter().chain(&r).fold(0f32, |m, s| m.max(s.abs()));
         assert!(peak <= ceil * 1.0001, "peak {peak} over ceiling {ceil}");
         assert!(peak > ceil * 0.9, "limiter squashed too far: peak {peak}");
+    }
+
+    /// Level of `hz` in `x` (amplitude), by single-bin DFT over whole cycles.
+    fn amp_at(x: &[f32], hz: f32) -> f32 {
+        let (mut re, mut im) = (0f32, 0f32);
+        for (i, s) in x.iter().enumerate() {
+            #[allow(clippy::cast_precision_loss)]
+            let ph = std::f32::consts::TAU * hz * i as f32 / 48_000.0;
+            re += s * ph.cos();
+            im += s * ph.sin();
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let n = x.len() as f32;
+        2.0 * re.hypot(im) / n
+    }
+
+    #[test]
+    fn loud_bass_does_not_duck_the_mids_with_split() {
+        let mids = |split_hz: f32| {
+            let mut lim = Limiter::new(48_000.0);
+            lim.split_hz = split_hz;
+            let bass = tone(2.0, 60.0, 96_000);
+            let mid = tone(0.1, 1000.0, 96_000);
+            let mut l: Vec<f32> = bass.iter().zip(&mid).map(|(a, b)| a + b).collect();
+            let mut r = l.clone();
+            for (cl, cr) in l.chunks_mut(256).zip(r.chunks_mut(256)) {
+                lim.process(cl, cr);
+            }
+            let peak = l[48_000..].iter().fold(0f32, |m, s| m.max(s.abs()));
+            assert!(peak <= db_to_lin(-1.0) * 1.0001);
+            amp_at(&l[48_000..96_000], 1000.0)
+        };
+        let (plain, split) = (mids(0.0), mids(200.0));
+        assert!(plain < 0.06, "broadband limiter should duck the 1 kHz tone: {plain}");
+        assert!(split > 0.09, "split limiter kept 1 kHz at {split}, want ~0.1");
     }
 
     #[test]

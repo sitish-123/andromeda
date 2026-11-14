@@ -90,6 +90,7 @@ impl Kind {
                 control("Input gain", -24.0, 24.0, 0.0),
                 control("Ceiling", -24.0, 0.0, -1.0),
                 control("Release", 1.0, 1000.0, 80.0),
+                control("Split", 0.0, 1000.0, 0.0),
             ],
             Kind::Regulator => (0..BANDS)
                 .map(|i| control(&format!("High {i}"), -96.0, 0.0, 0.0))
@@ -111,7 +112,7 @@ impl Kind {
 }
 
 enum Dsp {
-    Limiter(Limiter),
+    Limiter(Box<Limiter>),
     Regulator(Box<Regulator>),
     Leveler(Leveler),
     Bass(Box<VirtualBass>),
@@ -120,7 +121,7 @@ enum Dsp {
 impl Dsp {
     fn new(kind: Kind, fs: f32) -> Self {
         match kind {
-            Kind::Limiter => Dsp::Limiter(Limiter::new(fs)),
+            Kind::Limiter => Dsp::Limiter(Box::new(Limiter::new(fs))),
             Kind::Regulator => Dsp::Regulator(Box::new(Regulator::new(fs))),
             Kind::Leveler => Dsp::Leveler(Leveler::new(fs)),
             Kind::Bass => Dsp::Bass(Box::new(VirtualBass::new(fs))),
@@ -130,7 +131,7 @@ impl Dsp {
     fn run(&mut self, c: &[f32], l: &mut [f32], r: &mut [f32]) {
         match self {
             Dsp::Limiter(d) => {
-                (d.input_gain_db, d.ceiling_db, d.release_ms) = (c[0], c[1], c[2]);
+                (d.input_gain_db, d.ceiling_db, d.release_ms, d.split_hz) = (c[0], c[1], c[2], c[3]);
                 d.process(l, r);
             }
             Dsp::Regulator(d) => {
@@ -326,6 +327,8 @@ mod tests {
             connect(h, 4, &raw mut gain);
             connect(h, 5, &raw mut ceiling);
             connect(h, 6, &raw mut release);
+            let mut split = 0.0f32;
+            connect(h, 7, &raw mut split);
             (d.activate.unwrap_or_else(|| unreachable!()))(h);
             (d.run.unwrap_or_else(|| unreachable!()))(h, 1024);
             (d.cleanup.unwrap_or_else(|| unreachable!()))(h);
