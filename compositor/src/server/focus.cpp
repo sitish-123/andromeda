@@ -5,6 +5,7 @@
 #include "input/cursor.h"
 #include "input/seat.h"
 #include "layer/layer_surface.h"
+#include "layout/layout.h"
 #include "output/output.h"
 #include "overview/overview.h"
 #include "scene/node.h"
@@ -455,6 +456,55 @@ namespace andromeda {
 
   View*
   FocusManager::viewAt(double lx, double ly, wlr_surface** surface, double* sx, double* sy, LayerSurface** layer) {
+    *surface = nullptr;
+    LayerSurface* hitLayer = nullptr;
+    View* view = sceneViewAt(lx, ly, surface, sx, sy, &hitLayer);
+    if (layer != nullptr) {
+      *layer = hitLayer;
+    }
+    if (view != nullptr || hitLayer != nullptr || *surface != nullptr || m_server.sessionLocked()
+        || (m_server.overview() != nullptr && m_server.overview()->active()) || ssdFrameAt(lx, ly).has_value()) {
+      return view;
+    }
+    // A point in the layout gap between a usable-area edge and a window probes again just inside the edge pad, so a
+    // pointer pushed against the screen edge reaches the window there (auto-hide sidebars, edge scrolling).
+    Output* output = m_server.outputFromWlr(wlr_output_layout_output_at(m_server.outputLayout(), lx, ly));
+    if (output == nullptr || output->workspaceGroup() == nullptr || output->workspaceGroup()->active() == nullptr) {
+      return nullptr;
+    }
+    const ResolvedLayoutConfig& layout = output->workspaceGroup()->active()->layoutConfig();
+    const wlr_box usable = output->usableArea();
+    const wlr_box inside = applyLayoutStruts(usable, layout.struts);
+    const double left = inside.x + layout.edgePad;
+    const double right = inside.x + inside.width - layout.edgePad;
+    const double top = inside.y + layout.edgePad;
+    const double bottom = inside.y + inside.height - layout.edgePad;
+    double px = lx;
+    double py = ly;
+    if (lx >= usable.x && lx < left) {
+      px = left + 0.5;
+    } else if (lx < usable.x + usable.width && lx >= right) {
+      px = right - 0.5;
+    }
+    if (ly >= usable.y && ly < top) {
+      py = top + 0.5;
+    } else if (ly < usable.y + usable.height && ly >= bottom) {
+      py = bottom - 0.5;
+    }
+    if (px == lx && py == ly) {
+      return nullptr;
+    }
+    View* edgeView = sceneViewAt(px, py, surface, sx, sy, &hitLayer);
+    if (edgeView == nullptr || hitLayer != nullptr || *surface == nullptr) {
+      *surface = nullptr;
+      return nullptr;
+    }
+    return edgeView;
+  }
+
+  View* FocusManager::sceneViewAt(
+      double lx, double ly, wlr_surface** surface, double* sx, double* sy, LayerSurface** layer
+  ) {
     if (layer != nullptr) {
       *layer = nullptr;
     }

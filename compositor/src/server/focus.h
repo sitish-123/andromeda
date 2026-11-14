@@ -87,6 +87,7 @@ namespace andromeda {
     View* viewAt(double lx, double ly, wlr_surface** surface, double* sx, double* sy, LayerSurface** layer = nullptr);
 
   private:
+    View* sceneViewAt(double lx, double ly, wlr_surface** surface, double* sx, double* sy, LayerSurface** layer);
     [[nodiscard]] bool retainCurrentKeyboardFocus();
     void refocusFallback(Output* preferred);
 
