@@ -31,7 +31,7 @@ for all of them. Debian 13 (trixie) is not supported: it lacks libglycin-2.
 Run this one command. It detects your system, adds the Andromeda repository and installs the desktop:
 
 ```sh
-curl -fsSL https://github.com/Andromeda-Desktop/link/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/Andromeda-Desktop/desktop/releases/latest/download/install.sh | bash
 ```
 
 To read the script before you run it, download it with `curl -fsSLO` and run `bash install.sh`.
