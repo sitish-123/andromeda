@@ -1,4 +1,4 @@
-//! LADSPA 1.1 ABI. Plugins (labels): `limiter`, `regulator`, `leveler`; each has ports
+//! LADSPA 1.1 ABI. Plugins (labels): `limiter`, `regulator`, `leveler`, `bass`; each has ports
 //! `In L`, `In R`, `Out L`, `Out R`, then its controls.
 #![allow(unsafe_code)]
 
@@ -6,6 +6,7 @@ use std::ffi::{CString, c_char, c_int, c_ulong, c_void};
 use std::ptr;
 use std::sync::OnceLock;
 
+use crate::bass::VirtualBass;
 use crate::leveler::Leveler;
 use crate::limiter::Limiter;
 use crate::regulator::{BANDS, Regulator};
@@ -68,9 +69,10 @@ enum Kind {
     Limiter,
     Regulator,
     Leveler,
+    Bass,
 }
 
-const KINDS: [Kind; 3] = [Kind::Limiter, Kind::Regulator, Kind::Leveler];
+const KINDS: [Kind; 4] = [Kind::Limiter, Kind::Regulator, Kind::Leveler, Kind::Bass];
 
 impl Kind {
     fn label(self) -> &'static str {
@@ -78,6 +80,7 @@ impl Kind {
             Kind::Limiter => "limiter",
             Kind::Regulator => "regulator",
             Kind::Leveler => "leveler",
+            Kind::Bass => "bass",
         }
     }
 
@@ -102,6 +105,7 @@ impl Kind {
                 control("Amount", 0.0, 10.0, 0.0),
                 control("Max gain", 0.0, 24.0, 12.0),
             ],
+            Kind::Bass => vec![control("Amount", 0.0, 10.0, 0.0), control("Highpass", 0.0, 200.0, 0.0)],
         }
     }
 }
@@ -110,6 +114,7 @@ enum Dsp {
     Limiter(Limiter),
     Regulator(Box<Regulator>),
     Leveler(Leveler),
+    Bass(Box<VirtualBass>),
 }
 
 impl Dsp {
@@ -118,6 +123,7 @@ impl Dsp {
             Kind::Limiter => Dsp::Limiter(Limiter::new(fs)),
             Kind::Regulator => Dsp::Regulator(Box::new(Regulator::new(fs))),
             Kind::Leveler => Dsp::Leveler(Leveler::new(fs)),
+            Kind::Bass => Dsp::Bass(Box::new(VirtualBass::new(fs))),
         }
     }
 
@@ -135,6 +141,10 @@ impl Dsp {
             }
             Dsp::Leveler(d) => {
                 (d.target_db, d.amount, d.max_gain_db) = (c[0], c[1], c[2]);
+                d.process(l, r);
+            }
+            Dsp::Bass(d) => {
+                (d.amount, d.highpass_hz) = (c[0], c[1]);
                 d.process(l, r);
             }
         }

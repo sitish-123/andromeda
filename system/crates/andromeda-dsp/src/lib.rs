@@ -1,7 +1,9 @@
 //! Speaker DSP for the `PipeWire` filter-chain, as a LADSPA library: a lookahead limiter,
-//! a multiband regulator (per-band speaker protection) and a volume leveler.
+//! a multiband regulator (per-band speaker protection), a volume leveler
+//! and psychoacoustic bass.
 //! Every processor works in place on one stereo block and allocates only in `new`.
 
+pub mod bass;
 mod biquad;
 pub mod ladspa;
 pub mod leveler;

@@ -6,8 +6,11 @@ use andromeda_sound::chain;
 use anyhow::{Context, Result, bail};
 
 const USAGE: &str = "usage: andromeda-sound import-dolby [--xml FILE | --windows DIR] [-o FILE]
-       andromeda-sound apply [--profile NAME] [--tuning FILE] [--dsp FILE] [--target SINK] [-o FILE]
+       andromeda-sound apply [--profile NAME] [--tuning FILE] [--dsp FILE] [--target SINK] [--loudness DB] [--bass 0-10] [-o FILE]
        andromeda-sound off";
+/// Defaults that make laptop speakers sound fuller and louder than the flat Dolby curve.
+const DEFAULT_LOUDNESS_DB: f32 = 4.0;
+const DEFAULT_BASS: f32 = 5.0;
 const DSP_PATH: &str = "/usr/lib/ladspa/andromeda-dsp.so";
 
 fn main() -> Result<()> {
@@ -33,6 +36,7 @@ fn main() -> Result<()> {
 
 fn apply(mut args: impl Iterator<Item = String>) -> Result<()> {
     let (mut profile, mut tuning, mut dsp, mut target, mut out) = ("music".to_owned(), None, default_dsp(), None, None);
+    let (mut loudness, mut bass) = (DEFAULT_LOUDNESS_DB, DEFAULT_BASS);
     while let Some(a) = args.next() {
         let v = args.next().context(USAGE)?;
         match a.as_str() {
@@ -40,6 +44,8 @@ fn apply(mut args: impl Iterator<Item = String>) -> Result<()> {
             "--tuning" => tuning = Some(PathBuf::from(v)),
             "--dsp" => dsp = v,
             "--target" => target = Some(v),
+            "--loudness" => loudness = v.parse().context("--loudness takes dB")?,
+            "--bass" => bass = v.parse().context("--bass takes 0-10")?,
             "-o" => out = Some(PathBuf::from(v)),
             _ => bail!(USAGE),
         }
@@ -57,7 +63,16 @@ fn apply(mut args: impl Iterator<Item = String>) -> Result<()> {
         Some(t) => t,
         None => speaker_sink()?,
     };
-    let conf = chain::filter_chain_conf(&t, &chain::Settings { profile: &profile, dsp_path: &dsp, target: &target })?;
+    let conf = chain::filter_chain_conf(
+        &t,
+        &chain::Settings {
+            profile: &profile,
+            dsp_path: &dsp,
+            target: &target,
+            loudness_db: loudness.clamp(0.0, 12.0),
+            bass: bass.clamp(0.0, 10.0),
+        },
+    )?;
     if let Some(out) = out {
         return Ok(fs::write(out, conf)?);
     }

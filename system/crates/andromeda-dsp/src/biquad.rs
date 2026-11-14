@@ -22,6 +22,17 @@ impl Coeffs {
         Self::norm(alpha, 0.0, -alpha, 1.0 + alpha, -2.0 * cos, 1.0 - alpha)
     }
 
+    pub fn highpass(fs: f32, f: f32, q: f32) -> Self {
+        let (cos, alpha) = Self::w(fs, f, q);
+        let b = f64::midpoint(1.0, cos);
+        Self::norm(b, -2.0 * b, b, 1.0 + alpha, -2.0 * cos, 1.0 - alpha)
+    }
+
+    pub fn lowpass(fs: f32, f: f32, q: f32) -> Self {
+        let (cos, alpha) = Self::w(fs, f, q);
+        Self::norm((1.0 - cos) / 2.0, 1.0 - cos, (1.0 - cos) / 2.0, 1.0 + alpha, -2.0 * cos, 1.0 - alpha)
+    }
+
     fn w(fs: f32, f: f32, q: f32) -> (f64, f64) {
         let w0 = 2.0 * PI * f64::from(f) / f64::from(fs);
         (w0.cos(), w0.sin() / (2.0 * f64::from(q)))
