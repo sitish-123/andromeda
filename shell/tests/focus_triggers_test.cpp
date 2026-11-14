@@ -43,6 +43,21 @@ int main() {
                 "overnight: next change in 60 min");
   }
 
+  // Config tables: a bad kind, day or time is skipped; days and HH:MM become the mask and minutes.
+  {
+    const std::vector<FocusTriggerConfig> config{
+        {.name = "sleep", .focus = "sleep", .days = {"mon", "tue"}, .start = "22:00", .end = "07:30"},
+        {.name = "bad-kind", .focus = "x", .kind = "moon"},
+        {.name = "bad-day", .focus = "x", .days = {"monday"}, .start = "09:00", .end = "10:00"},
+        {.name = "bad-time", .focus = "x", .start = "9:00", .end = "10:00"},
+        {.name = "cast", .focus = "present", .kind = "screencast"},
+    };
+    const auto t = focus::triggersFromConfig(config);
+    ok &= check(t.size() == 2 && t[0].days == 0b110 && t[0].startMinute == 22 * 60 && t[0].endMinute == 7 * 60 + 30
+                    && t[1].kind == TriggerKind::Screencast,
+                "config: two valid tables parsed, three skipped");
+  }
+
   // Overlapping schedules: the later start wins.
   {
     const std::vector t{schedule("work", "work", 9 * 60, 17 * 60), schedule("meet", "meet", 14 * 60, 15 * 60)};

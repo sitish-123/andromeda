@@ -264,6 +264,10 @@ bool ShellWaylandConnection::hasFullscreenToplevel(wl_output* output) const {
   return m_toplevelsHandler.anyFullscreen(output);
 }
 
+std::optional<std::string> ShellWaylandConnection::fullscreenAppId() const {
+  return m_toplevelsHandler.fullscreenAppId();
+}
+
 std::vector<std::string> ShellWaylandConnection::runningAppIds(wl_output* outputFilter) const {
   return m_toplevelsHandler.allAppIds(outputFilter);
 }

@@ -78,6 +78,8 @@ public:
   [[nodiscard]] wl_output* currentOutput() const;
   // On `outputFilter` when set (matchesOutputFilter), else on any output.
   [[nodiscard]] bool anyFullscreen(wl_output* outputFilter = nullptr) const;
+  // The app id of a fullscreen, unminimized window on any output; nullopt when none.
+  [[nodiscard]] std::optional<std::string> fullscreenAppId() const;
   [[nodiscard]] std::optional<ActiveToplevel>
   matchByTitleAndAppId(std::string_view title, std::string_view appId, wl_output* preferredOutput) const;
   [[nodiscard]] std::vector<std::string> allAppIds(wl_output* outputFilter = nullptr) const;

@@ -1,12 +1,56 @@
 #include "notification/focus_triggers.h"
 
+#include "core/log.h"
+
 #include <algorithm>
+#include <array>
+#include <charconv>
 
 namespace focus {
 
   namespace {
 
     constexpr int kDay = 24 * 60;
+    constexpr Logger kLog("focus");
+
+    std::optional<int> parseMinute(std::string_view hhmm) {
+      int h = 0;
+      int m = 0;
+      if (hhmm.size() != 5 || hhmm[2] != ':'
+          || std::from_chars(hhmm.data(), hhmm.data() + 2, h).ptr != hhmm.data() + 2
+          || std::from_chars(hhmm.data() + 3, hhmm.data() + 5, m).ptr != hhmm.data() + 5 || h > 23 || m > 59) {
+        return std::nullopt;
+      }
+      return h * 60 + m;
+    }
+
+    std::optional<TriggerKind> parseKind(std::string_view kind) {
+      constexpr std::array<std::pair<std::string_view, TriggerKind>, 5> kKinds{{
+          {"schedule", TriggerKind::Schedule},
+          {"fullscreen", TriggerKind::Fullscreen},
+          {"screencast", TriggerKind::Screencast},
+          {"output", TriggerKind::Output},
+          {"wifi", TriggerKind::Wifi},
+      }};
+      const auto* it = std::ranges::find(kKinds, kind, &std::pair<std::string_view, TriggerKind>::first);
+      return it != kKinds.end() ? std::optional(it->second) : std::nullopt;
+    }
+
+    std::optional<std::uint8_t> parseDays(const std::vector<std::string>& days) {
+      constexpr std::array<std::string_view, 7> kDays{"sun", "mon", "tue", "wed", "thu", "fri", "sat"};
+      if (days.empty()) {
+        return 0x7F;
+      }
+      std::uint8_t mask = 0;
+      for (const std::string& day : days) {
+        const auto* it = std::ranges::find(kDays, day);
+        if (it == kDays.end()) {
+          return std::nullopt;
+        }
+        mask |= static_cast<std::uint8_t>(1U << (it - kDays.begin()));
+      }
+      return mask;
+    }
 
     bool onDay(std::uint8_t days, int weekday) { return (days >> (((weekday % 7) + 7) % 7) & 1U) != 0; }
 
@@ -47,6 +91,26 @@ namespace focus {
 
   } // namespace
 
+  std::vector<Trigger> triggersFromConfig(std::span<const FocusTriggerConfig> config) {
+    std::vector<Trigger> out;
+    for (const FocusTriggerConfig& c : config) {
+      const auto kind = parseKind(c.kind);
+      const auto days = parseDays(c.days);
+      const bool schedule = kind == TriggerKind::Schedule;
+      const auto start = schedule ? parseMinute(c.start) : std::optional(0);
+      const auto end = schedule ? parseMinute(c.end) : std::optional(0);
+      if (c.focus.empty() || !kind || !days || !start || !end || (kind == TriggerKind::Output && c.match.empty())
+          || (kind == TriggerKind::Wifi && c.match.empty())) {
+        kLog.warn("focus trigger \"{}\" skipped: needs focus, a known kind, days sun..sat, start/end HH:MM, match",
+                  c.name);
+        continue;
+      }
+      out.push_back({.name = c.name, .focusId = c.focus, .kind = *kind, .days = *days, .startMinute = *start,
+                     .endMinute = *end, .match = c.match});
+    }
+    return out;
+  }
+
   std::optional<TriggerMatch> wanted(std::span<const Trigger> triggers, const TriggerInputs& in) {
     for (const Trigger& t : triggers) {
       if (t.kind != TriggerKind::Schedule && eventOn(t, in)) {
@@ -77,7 +141,10 @@ namespace focus {
         in.minute = 0;
         in.weekday = (in.weekday + 1) % 7;
       }
-      if (wanted(triggers, in) != now) {
+      const bool edge = std::ranges::any_of(triggers, [&in](const Trigger& t) {
+        return t.kind == TriggerKind::Schedule && (t.startMinute == in.minute || t.endMinute == in.minute);
+      });
+      if (edge && wanted(triggers, in) != now) {
         return step;
       }
     }

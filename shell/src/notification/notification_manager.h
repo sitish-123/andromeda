@@ -196,6 +196,7 @@ public:
   using FocusEndedCallback = std::function<void(const focus::Focus&, const std::vector<std::pair<std::string, int>>&)>;
   void setFocusEndedCallback(FocusEndedCallback callback) { m_focusEndedCallback = std::move(callback); }
   void setFocusChangedCallback(std::function<void()> callback) { m_focus.setChangedCallback(std::move(callback)); }
+  void setScreenShared(bool shared) noexcept { m_screenShared = shared; }
   void setStateCallback(StateCallback callback);
   // Runs whenever the unread count changes, not only when the any-unread flag flips.
   int addUnreadCountCallback(std::function<void()> callback);
@@ -290,6 +291,7 @@ private:
   focus::FocusService m_focus;
   Timer m_focusEndTimer;
   std::string m_lastFocusId = "dnd";
+  bool m_screenShared = false;
   std::unordered_map<std::string, int> m_held; // by app name, while the Focus is on
   FocusEndedCallback m_focusEndedCallback;
   std::uint64_t m_doNotDisturbRevision = 0;

@@ -294,6 +294,13 @@ bool WaylandToplevels::anyFullscreen(wl_output* outputFilter) const {
   });
 }
 
+std::optional<std::string> WaylandToplevels::fullscreenAppId() const {
+  const auto it = std::ranges::find_if(m_handles, [](const auto& entry) {
+    return entry.second.fullscreen && !entry.second.minimized;
+  });
+  return it != m_handles.end() ? std::optional(it->second.appId) : std::nullopt;
+}
+
 wl_output* WaylandToplevels::currentOutput() const {
   if (m_currentHandle == nullptr) {
     return nullptr;

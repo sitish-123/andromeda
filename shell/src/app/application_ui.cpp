@@ -1047,6 +1047,12 @@ void Application::initNotificationAndOsd() {
   };
   applyDismissedHistory();
   m_configService.addReloadCallback(applyDismissedHistory);
+  auto applyFocusTriggerConfig = [this] {
+    m_focusTriggers = focus::triggersFromConfig(m_configService.config().notification.focusTriggers);
+    applyFocusTriggers();
+  };
+  applyFocusTriggerConfig();
+  m_configService.addReloadCallback(applyFocusTriggerConfig);
   applyHistoryRetention();
   m_configService.addReloadCallback(applyHistoryRetention);
   applyNotificationFilterConfig();
@@ -1503,6 +1509,7 @@ void Application::initWidgetControllersAndCallbacks() {
       if (m_pipewireSpectrum != nullptr) {
         m_pipewireSpectrum->handleAudioStateChanged();
       }
+      applyFocusTriggers();
       m_bar.refresh();
       m_liveActivity.refresh();
       m_settingsWindow.onAudioChanged();

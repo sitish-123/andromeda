@@ -38,6 +38,7 @@
 #include "launcher/dmenu_ipc.h"
 #include "net/http_client.h"
 #include "net/http_client_poll_source.h"
+#include "notification/focus_triggers.h"
 #include "notification/notification_manager.h"
 #include "pipewire/hdmi_audio_switch.h"
 #include "render/core/async_texture_cache.h"
@@ -406,6 +407,8 @@ private:
   void applyAmbientLight(double lux);
   void applyBrightnessStep();
   void applyRuleDoNotDisturb();
+  // Reads the trigger inputs, starts or ends the trigger Focus, and arms the timer for the next schedule edge.
+  void applyFocusTriggers();
   // After an unlock: the wrong passwords typed while locked, with their times (docs/system-health.md §12.4).
   void notifyFailedUnlocks(const std::vector<std::int64_t>& rejectedAtMs);
   // The idle "dim" action: per display the brightness before the dim and the dimmed level.
@@ -577,6 +580,9 @@ private:
   CalendarPollSource m_calendarPollSource{m_calendarService};
   CalendarReminderPollSource m_calendarReminderPollSource{m_calendarReminderMonitor};
   Timer m_polkitInitTimer;
+  std::vector<focus::Trigger> m_focusTriggers;
+  focus::TriggerState m_focusTriggerState;
+  Timer m_focusTriggerTimer;
   Timer m_speakerOfferTimer;
   Timer m_handoffTimer;
   Timer m_polkitIdleCloseTimer;

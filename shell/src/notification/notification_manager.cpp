@@ -336,11 +336,13 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
   // The Focus decides before Do Not Disturb (docs/focus.md §3): Show breaks through, Hold keeps history only. A rule
   // or caller that bypasses DND also bypasses the Focus.
   bool held = false;
+  bool hideContent = m_screenShared;
   if (const focus::Focus* active = m_focus.current(std::time(nullptr)); active != nullptr) {
     const focus::Incoming incoming{
         .app = focus::identity(desktopEntry.value_or(""), "", "", appName), .critical = urgency == Urgency::Critical
     };
-    const focus::Decision decision = focus::decide(active, incoming, false);
+    const focus::Decision decision = focus::decide(active, incoming, m_screenShared);
+    hideContent = decision.hideContent;
     if (decision.verdict == focus::Verdict::Show) {
       dndPolicy = NotificationDndPolicy::Bypass;
     } else if (decision.verdict == focus::Verdict::Hold && dndPolicy != NotificationDndPolicy::Bypass) {
@@ -390,6 +392,7 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
       n.origin = origin;
       n.transient = transient;
       n.persistInHistory = persistInHistory;
+      n.hideContent = hideContent;
       n.appName = std::move(appName);
       n.dndPolicy = dndPolicy;
       n.summary = std::move(summary);
@@ -454,6 +457,7 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
           .dndPolicy = dndPolicy,
           .transient = transient,
           .persistInHistory = persistInHistory,
+          .hideContent = hideContent,
           .appName = std::move(appName),
           .summary = std::move(summary),
           .body = std::move(body),

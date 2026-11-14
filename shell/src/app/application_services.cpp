@@ -120,6 +120,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <ctime>
 #include <cmath>
 #include <csignal>
 #include <cstdint>
@@ -1164,6 +1165,7 @@ void Application::initWaylandCallbacks() {
   auto shouldRefreshControlCenter = [this] { return m_panelManager.isOpenPanel("control-center"); };
 
   m_wayland.setOutputChangeCallback([this] {
+    applyFocusTriggers();
     if (m_syncScriptApiOutputs) {
       m_syncScriptApiOutputs();
     }
@@ -1221,6 +1223,7 @@ void Application::initWaylandCallbacks() {
       }
     }
     m_liveActivity.setFullscreenOutputs(std::move(fullscreen));
+    applyFocusTriggers();
     if (m_backgroundPortal != nullptr) {
       m_backgroundPortal->onToplevelsChanged();
     }
@@ -1688,6 +1691,7 @@ void Application::initSystemBusServices() {
                     onNetworkStateChangedForEvents(state, origin);
                   }
                   m_settingsWindow.onConnectivityChanged();
+                  applyFocusTriggers();
                   m_bar.refresh();
                   if (shouldRefreshControlCenter()) {
                     m_panelManager.refresh();
@@ -1991,6 +1995,45 @@ void Application::applyBrightnessStep() {
 
 // notifications.dnd (the Presenting mode): Do Not Disturb while the hold lasts. It turns off again only if the rule
 // turned it on and the user left it on.
+void Application::applyFocusTriggers() {
+  const bool screencast = pipewire() != nullptr
+      && std::ranges::any_of(pipewire()->privacyState().captures, [](const PrivacyCapture& capture) {
+           return capture.kind == PrivacyCaptureKind::Screen;
+         });
+  m_notificationManager.setScreenShared(screencast);
+  m_focusTriggerTimer.stop();
+  if (m_focusTriggers.empty() && !m_focusTriggerState.applied.has_value()) {
+    return;
+  }
+  const std::time_t now = std::time(nullptr);
+  std::tm local{};
+  localtime_r(&now, &local);
+  focus::TriggerInputs in{
+      .weekday = local.tm_wday,
+      .minute = local.tm_hour * 60 + local.tm_min,
+      .fullscreenApp = m_wayland.fullscreenAppId(),
+      .screencast = screencast,
+  };
+  for (const auto& output : m_wayland.outputs()) {
+    in.outputs.push_back(output.connectorName);
+  }
+  if (network() != nullptr) {
+    in.ssid = network()->state().ssid;
+  }
+  const focus::TriggerStep step = focus::arbitrate(
+      m_focusTriggerState, focus::wanted(m_focusTriggers, in), m_notificationManager.focus().active()
+  );
+  if (step.action == focus::TriggerAction::Start
+      && !m_notificationManager.startFocus(step.match.focusId, std::nullopt, step.match.startedBy)) {
+    m_focusTriggerState.applied.reset();
+  } else if (step.action == focus::TriggerAction::End) {
+    m_notificationManager.endFocus();
+  }
+  if (const auto minutes = focus::minutesToScheduleChange(m_focusTriggers, in); minutes.has_value()) {
+    m_focusTriggerTimer.start(std::chrono::seconds(*minutes * 60 - local.tm_sec), [this] { applyFocusTriggers(); });
+  }
+}
+
 void Application::applyRuleDoNotDisturb() {
   const bool hold = m_systemHealthService != nullptr
       && m_systemHealthService->knob("notifications.dnd").value_or(0.0) > 0.0;

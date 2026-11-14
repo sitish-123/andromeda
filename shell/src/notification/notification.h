@@ -55,6 +55,7 @@ struct Notification {
   // Opt-in for internal notifications that must survive being missed. External notifications are
   // already kept; internal ones are toast-only unless they set this.
   bool persistInHistory = false;
+  bool hideContent = false; // the screen was shared when it arrived: the banner shows no summary, body or image
   std::string appName;
   std::string summary;
   std::string body;

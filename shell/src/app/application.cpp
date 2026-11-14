@@ -276,7 +276,8 @@ Application::Application()
   // rule's Focus (Presenting) is not saved: its rule starts it again.
   m_notificationManager.setFocusChangedCallback([this] {
     auto active = m_notificationManager.focus().active();
-    if (active.has_value() && active->startedBy == "rule") {
+    // A rule or trigger Focus comes back from its own source, not from saved state.
+    if (active.has_value() && (active->startedBy == "rule" || active->startedBy.starts_with("trigger:"))) {
       active.reset();
     }
     (void)m_configService.setStateString("focus", "active", active.has_value() ? active->focusId : "");
@@ -285,6 +286,8 @@ Application::Application()
     );
     (void)m_configService.setStateString("focus", "started_by", active.has_value() ? active->startedBy : "");
     (void)m_configService.setStateString("focus", "last", m_notificationManager.lastFocusId());
+    // Deferred: startFocus ends the old Focus first, and that interim change must not read as a dismissal.
+    m_focusTriggerTimer.start(std::chrono::milliseconds(0), [this] { applyFocusTriggers(); });
   });
   m_notificationManager.setLastFocusId(m_configService.stateString("focus", "last").value_or("dnd"));
   if (const auto id = m_configService.stateString("focus", "active"); id.has_value() && !id->empty()) {

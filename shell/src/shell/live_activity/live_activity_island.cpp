@@ -345,14 +345,14 @@ bool LiveActivityIsland::showBanner(const Notification& n, NotificationEvent eve
   const auto item = [&n] {
     return BannerItem{
         .id = n.id,
-        .title = n.summary.empty() ? notificationDisplayAppName(n) : n.summary,
-        .body = n.body,
+        .title = n.summary.empty() || n.hideContent ? notificationDisplayAppName(n) : n.summary,
+        .body = n.hideContent ? std::string{} : n.body,
         .defaultAction = hasDefaultAction(n.actions),
         .appName = notificationDisplayAppName(n),
         .time = timeText(),
         .icon = n.icon.value_or(std::string{}),
         .desktopEntry = n.desktopEntry.value_or(std::string{}),
-        .imageData = n.imageData,
+        .imageData = n.hideContent ? std::nullopt : n.imageData,
         .actions = bannerActions(n.actions),
         .sticky = n.urgency == Urgency::Critical || n.timeout == 0,
         .critical = n.urgency == Urgency::Critical,

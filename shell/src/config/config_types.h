@@ -327,6 +327,19 @@ struct NotificationFilterConfig {
   bool operator==(const NotificationFilterConfig&) const = default;
 };
 
+// [notification.focus_trigger.<name>] (docs/focus.md §1): what turns a Focus on without the user.
+struct FocusTriggerConfig {
+  std::string name;
+  std::string focus;
+  std::string kind = "schedule"; // schedule | fullscreen | screencast | output | wifi
+  std::vector<std::string> days; // "sun".."sat"; empty: every day
+  std::string start;             // "HH:MM", local time
+  std::string end;               // "HH:MM"; at or before start: ends the next day
+  std::string match;             // fullscreen app id (empty: any), output connector, or Wi-Fi SSID
+
+  bool operator==(const FocusTriggerConfig&) const = default;
+};
+
 struct IdleConfig {
   std::vector<IdleBehaviorConfig> behaviors;
   /// When > 0, after the compositor reports idle the shell fades a fullscreen overlay (surface color)
@@ -889,6 +902,7 @@ struct NotificationConfig {
   int historyRetentionHours = 0;
 
   std::vector<NotificationFilterConfig> filters;
+  std::vector<FocusTriggerConfig> focusTriggers;
 
   bool operator==(const NotificationConfig&) const = default;
 };

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "config/config_types.h"
 #include "notification/focus.h"
 
 #include <cstdint>
@@ -37,6 +38,9 @@ namespace focus {
     std::string startedBy;
     bool operator==(const TriggerMatch&) const = default;
   };
+
+  // A table with an unknown kind, day or time is skipped with a warning.
+  [[nodiscard]] std::vector<Trigger> triggersFromConfig(std::span<const FocusTriggerConfig> config);
 
   // The Focus the triggers want on. Event triggers (fullscreen, screencast, output, Wi-Fi) win over schedules, in
   // config order; among schedules the later start wins (docs/focus.md §1).
