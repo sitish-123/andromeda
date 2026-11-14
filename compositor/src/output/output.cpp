@@ -241,15 +241,6 @@ namespace andromeda {
 
     applyCursorConfig();
     m_desktopEnabled = m_server->initialOutputEnabled(*this);
-    if (m_heldFrame != nullptr) {
-      // The first commit renders the scene before the output joins the layout; placed only after it, the held frame
-      // missed that frame and the hand-off showed one black frame. The layout box below corrects the placement.
-      const double scale = m_output->scale > 0.0F ? m_output->scale : 1.0;
-      m_heldFrame->setBox(
-          m_sceneOutput->x, m_sceneOutput->y, static_cast<int>(std::lround(m_heldFrame->bufferWidth() / scale)),
-          static_cast<int>(std::lround(m_heldFrame->bufferHeight() / scale))
-      );
-    }
     // Do not advertise a logical output whose initial backend enable failed.
     // Keeping it disabled lets a later output-enable action retry the commit.
     (void)applyConfiguredState({.desktopEnabled = false, .dpmsOff = m_dpmsOff});
@@ -928,6 +919,18 @@ namespace andromeda {
         if (!wlr_output_state_copy(&frameState, &state)) {
           wlr_output_state_finish(&frameState);
           return FormatCommitResult::Retry;
+        }
+
+        if (m_heldFrame != nullptr) {
+          // This frame renders at the staged scale, which the output does not have yet (1.0 before the first commit):
+          // a box from the old scale draws the held frame zoomed for one frame.
+          const float stagedScale = (frameState.committed & WLR_OUTPUT_STATE_SCALE) != 0 ? frameState.scale
+                                                                                          : m_output->scale;
+          const double scale = stagedScale > 0.0F ? stagedScale : 1.0;
+          m_heldFrame->setBox(
+              m_sceneOutput->x, m_sceneOutput->y, static_cast<int>(std::lround(m_heldFrame->bufferWidth() / scale)),
+              static_cast<int>(std::lround(m_heldFrame->bufferHeight() / scale))
+          );
         }
 
         wlr_scene_rect* secureMask = nullptr;
