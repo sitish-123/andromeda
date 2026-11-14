@@ -129,7 +129,8 @@ namespace settings {
     }
 
     std::unique_ptr<Flex> twoLines(std::string text, std::string sub, float scale) {
-      auto lines = ui::column({.align = FlexAlign::Start, .gap = Style::spaceXs * scale, .flexGrow = 1.0F});
+      auto lines = ui::column({.align = FlexAlign::Start, .justify = FlexJustify::Center, .flexGrow = 1.0F});
+      lines->setMinHeight(Tokens::sizeRowTwo * scale);
       lines->addChild(ui::label({
           .text = std::move(text), .fontSize = Style::fontSizeBody * scale, .color = colorSpecFromRole(ColorRole::Label1),
           .maxLines = 1,
