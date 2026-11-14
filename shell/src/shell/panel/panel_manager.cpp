@@ -1814,12 +1814,7 @@ void PanelManager::togglePanel(const std::string& panelId, PanelOpenRequest requ
         closePanel();
         return;
       }
-      // Panels placed near the clicked widget must fully reopen so geometry
-      // and bar decoration track the new anchor.
-      if (request.hasAnchorPosition && openNearClickEnabled(m_activePanel, panelId, m_config)) {
-        openPanel(panelId, request);
-        return;
-      }
+      // The open sheet keeps its place and morphs to the new page; a reopen would restart the open morph from zero.
       m_activePanel->onOpen(request.context);
       refresh();
       return;
