@@ -1,15 +1,101 @@
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::{env, fs};
 
+use andromeda_sound::chain;
 use anyhow::{Context, Result, bail};
 
-const USAGE: &str = "usage: andromeda-sound import-dolby [--xml FILE | --windows DIR] [-o FILE]";
+const USAGE: &str = "usage: andromeda-sound import-dolby [--xml FILE | --windows DIR] [-o FILE]
+       andromeda-sound apply [--profile NAME] [--tuning FILE] [--dsp FILE] [--target SINK] [-o FILE]
+       andromeda-sound off";
+const DSP_PATH: &str = "/usr/lib/ladspa/andromeda-dsp.so";
 
 fn main() -> Result<()> {
     let mut args = env::args().skip(1);
-    if args.next().as_deref() != Some("import-dolby") {
-        bail!(USAGE);
+    match args.next().as_deref() {
+        Some("import-dolby") => import(args),
+        Some("apply") => apply(args),
+        Some("off") => {
+            let conf = conf_path()?;
+            if conf.exists() {
+                fs::remove_file(&conf)?;
+            }
+            systemctl(&["restart", "filter-chain.service"])
+        }
+        _ => bail!(USAGE),
     }
+}
+
+fn apply(mut args: impl Iterator<Item = String>) -> Result<()> {
+    let (mut profile, mut tuning, mut dsp, mut target, mut out) =
+        ("music".to_owned(), None, DSP_PATH.to_owned(), None, None);
+    while let Some(a) = args.next() {
+        let v = args.next().context(USAGE)?;
+        match a.as_str() {
+            "--profile" => profile = v,
+            "--tuning" => tuning = Some(PathBuf::from(v)),
+            "--dsp" => dsp = v,
+            "--target" => target = Some(v),
+            "-o" => out = Some(PathBuf::from(v)),
+            _ => bail!(USAGE),
+        }
+    }
+    let tuning = if let Some(t) = tuning {
+        t
+    } else {
+        let stem = codec_stem()?;
+        data_dir()?.join(format!("{}.toml", stem.rsplit('_').next().unwrap_or_default()))
+    };
+    let t: andromeda_sound::Tuning = toml::from_str(
+        &fs::read_to_string(&tuning).with_context(|| format!("read {}; run import-dolby first", tuning.display()))?,
+    )?;
+    let target = match target {
+        Some(t) => t,
+        None => speaker_sink()?,
+    };
+    let conf = chain::filter_chain_conf(&t, &chain::Settings { profile: &profile, dsp_path: &dsp, target: &target })?;
+    if let Some(out) = out {
+        return Ok(fs::write(out, conf)?);
+    }
+    let path = conf_path()?;
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    fs::write(&path, conf)?;
+    systemctl(&["enable", "filter-chain.service"])?;
+    systemctl(&["restart", "filter-chain.service"])?;
+    println!("{}", path.display());
+    Ok(())
+}
+
+/// The internal speaker sink; UCM names it `…__Speaker__sink`.
+fn speaker_sink() -> Result<String> {
+    let out = Command::new("pactl").args(["list", "short", "sinks"]).output().context("run pactl")?;
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| l.split('\t').nth(1))
+        .find(|n| n.to_ascii_lowercase().contains("speaker"))
+        .map(str::to_owned)
+        .context("no speaker sink; pass --target")
+}
+
+fn systemctl(args: &[&str]) -> Result<()> {
+    let st = Command::new("systemctl").arg("--user").args(args).status().context("run systemctl")?;
+    if !st.success() {
+        bail!("systemctl --user {} failed", args.join(" "));
+    }
+    Ok(())
+}
+
+fn conf_path() -> Result<PathBuf> {
+    let base = env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
+        .context("no HOME")?;
+    Ok(base.join("pipewire/filter-chain.conf.d/andromeda-speakers.conf"))
+}
+
+fn import(mut args: impl Iterator<Item = String>) -> Result<()> {
     let (mut xml, mut windows, mut out) = (None, None, None);
     while let Some(a) = args.next() {
         let v = args.next().context(USAGE)?;

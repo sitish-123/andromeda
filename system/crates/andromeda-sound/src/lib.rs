@@ -1,6 +1,8 @@
 //! Imports a Dolby DAX3 speaker tuning file (from the user's own Windows driver) into a
 //! profile that the `PipeWire` filter-chain generator reads.
 
+pub mod chain;
+
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result, bail};
@@ -64,6 +66,7 @@ struct Pending {
     preset: String,
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn parse(xml: &str) -> Result<Tuning> {
     if xml.len() > MAX_XML_BYTES {
         bail!("tuning file is {} bytes, limit {MAX_XML_BYTES}", xml.len());
