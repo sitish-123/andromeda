@@ -2,15 +2,17 @@
 
 #include <cstddef>
 #include <string>
+#include <string.h>
 
 namespace util {
 
-  // Writes through a volatile pointer so the compiler cannot drop the stores.
+  // explicit_bzero: the compiler cannot drop the stores.
+  inline void secureWipe(void* data, std::size_t len) { explicit_bzero(data, len); }
+
+  // Wipes the whole buffer, also the bytes between size() and capacity().
   inline void secureWipe(std::string& value) {
-    volatile char* ptr = value.empty() ? nullptr : value.data();
-    for (std::size_t i = 0; i < value.size(); ++i) {
-      ptr[i] = '\0';
-    }
+    value.resize(value.capacity());
+    explicit_bzero(value.data(), value.size());
     value.clear();
   }
 

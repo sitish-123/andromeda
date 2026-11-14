@@ -5,6 +5,7 @@
 #include "render/core/texture_manager.h"
 #include "render/text/font_registry.h"
 #include "render/text/font_weight_catalog.h"
+#include "util/secure_wipe.h"
 
 #include <algorithm>
 #include <bit>
@@ -902,6 +903,25 @@ void CairoTextRenderer::rasterizeLayout(
   const int bytesPerPixel = tinted ? 1 : 4;
   const int tightRowBytes = pxWidth * bytesPerPixel;
   std::vector<unsigned char> tight;
+  // Caching is off only for sensitive text: its pixels show the text, so no copy may outlive the upload.
+  const bool wipe = !m_caching;
+  struct WipeOnExit {
+    std::vector<unsigned char>& bytes;
+    bool on;
+    ~WipeOnExit() {
+      if (on) {
+        bytes.resize(bytes.capacity());
+        util::secureWipe(bytes.data(), bytes.size());
+      }
+    }
+  } wipeTight{tight, wipe};
+  if (wipe) {
+    int maxTileH = 0;
+    for (const auto& tilePlan : plan) {
+      maxTileH = std::max(maxTileH, tilePlan.heightPx);
+    }
+    tight.reserve(static_cast<std::size_t>(tightRowBytes) * static_cast<std::size_t>(maxTileH));
+  }
 
   for (const auto& tilePlan : plan) {
     const int tileH = tilePlan.heightPx;
@@ -966,6 +986,9 @@ void CairoTextRenderer::rasterizeLayout(
     tight.resize(static_cast<std::size_t>(tightRowBytes) * static_cast<std::size_t>(tileH));
     for (int y = 0; y < tileH; ++y) {
       std::memcpy(tight.data() + y * tightRowBytes, data + y * stride, static_cast<std::size_t>(tightRowBytes));
+    }
+    if (wipe) {
+      util::secureWipe(data, static_cast<std::size_t>(stride) * static_cast<std::size_t>(tileH));
     }
     cairo_surface_destroy(surface);
 

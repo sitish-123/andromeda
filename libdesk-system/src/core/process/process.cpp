@@ -254,7 +254,8 @@ namespace {
 
     try {
       (*callback)(std::string_view(data, len));
-    } catch (...) {
+    } catch (const std::exception& e) {
+      kLog.warn("output callback threw: {}", e.what());
     }
   }
 
@@ -1198,7 +1199,8 @@ namespace process {
     for (auto& item : finished) {
       try {
         item.callbacks.onExit(std::move(item.result));
-      } catch (...) {
+      } catch (const std::exception& e) {
+        kLog.warn("exit callback threw: {}", e.what());
       }
     }
   }
