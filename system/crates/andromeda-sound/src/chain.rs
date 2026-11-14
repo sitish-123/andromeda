@@ -1,5 +1,5 @@
 //! Turns one imported profile into a `PipeWire` filter-chain config:
-//! speaker EQ (`param_eq`) → bass → leveler → regulator → limiter (andromeda-dsp); without
+//! speaker EQ (`param_eq`) → bass → leveler → limiter (andromeda-dsp); without
 //! an imported profile only bass → limiter.
 
 use std::f64::consts::PI;
@@ -54,7 +54,7 @@ pub fn filter_chain_conf(t: Option<&Tuning>, s: &Settings) -> Result<String> {
         ),
         ports: ("L", "R"),
     };
-    let highpass = if s.bass > 0.0 { 100.0 } else { 0.0 };
+    let highpass = if s.bass > 0.0 { 60.0 } else { 0.0 };
     let bass = ladspa("vb", "bass", format!(" \"Amount\" = {:.1} \"Highpass\" = {highpass:.1}", s.bass));
     let limiter = ladspa(
         "lim",
@@ -83,17 +83,6 @@ pub fn filter_chain_conf(t: Option<&Tuning>, s: &Settings) -> Result<String> {
             let leveler_amount = if cp("volume-leveler-enable") > 0.0 { cp("volume-leveler-amount") } else { 0.0 };
             let leveler_target =
                 p.cp.get("volume-leveler-in-target").and_then(|v| v.first()).map_or(-20.0, |v| v / DAX);
-            // Our reading of DAX3: the relaxation amount caps how deep the regulator cuts (1/16 dB).
-            let max_cut = p.cp.get("regulator-relaxation-amount").and_then(|v| v.first()).map_or(6.0, |v| v / DAX);
-            let mut reg = format!(" \"Max cut\" = {max_cut:.2}");
-            for (name, key) in [("High", "regulator-tuning.threshold_high"), ("Low", "regulator-tuning.threshold_low")]
-            {
-                if let Some(v) = p.vlldp.get(key) {
-                    for (i, x) in v.iter().take(20).enumerate() {
-                        let _ = write!(reg, " \"{name} {i}\" = {:.4}", x / DAX);
-                    }
-                }
-            }
             let eq = Node {
                 name: "eq",
                 text: format!(
@@ -106,10 +95,9 @@ pub fn filter_chain_conf(t: Option<&Tuning>, s: &Settings) -> Result<String> {
                 "leveler",
                 format!(" \"Target\" = {leveler_target:.2} \"Amount\" = {leveler_amount:.1} \"Max gain\" = 6.0"),
             );
-            let reg = ladspa("reg", "regulator", reg);
             (
                 format!("{} profile \"{}\" (tuned {})", t.subsystem, s.profile, t.tuning_date),
-                vec![eq, bass, lev, reg, limiter],
+                vec![eq, bass, lev, limiter],
             )
         }
     };

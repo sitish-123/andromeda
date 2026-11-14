@@ -83,7 +83,7 @@ fn apply(mut args: impl Iterator<Item = String>) -> Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    // The user's volume must sit before the regulator, as with Dolby: the chain's sink carries it
+    // The user's volume must sit before the limiter: the chain's sink carries it
     // and the hardware stays at 100 %. On a profile switch the chain already holds it.
     let vol = sink_volume(chain::SINK_NAME).or_else(|| sink_volume(&target)).unwrap_or_else(|| "50%".to_owned());
     fs::write(&path, conf)?;
