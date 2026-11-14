@@ -43,6 +43,9 @@ public:
   WindowSwitcherTile(float contentScale, AsyncTextureCache* asyncTextures);
 
   void setCardSize(float width, float height);
+  // The glass parts of the tile (preview frame, caption plate); the switcher blurs only these, not the tile bounds.
+  [[nodiscard]] const Box* frame() const noexcept { return m_frame; }
+  [[nodiscard]] const Box* captionBadge() const noexcept { return m_captionBadge; }
   void setShadowStyle(const RoundedRectStyle& style);
   void setShowCaption(bool show);
   void setShowAppIcon(bool show);

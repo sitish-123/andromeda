@@ -1843,21 +1843,42 @@ void WindowSwitcher::positionPanel(Instance& instance, float screenW, float scre
         Surface::tessellateRoundedRect(blurX, blurY, blurW, blurH, Style::scaledRadiusXl(instance.uiLayoutScale));
     blurRects.insert(blurRects.end(), strips.begin(), strips.end());
   }
+  // The compositor draws the blur region as separate rounded shapes; overlapping parts merge into one shape it cannot
+  // read, and it then covers the whole region with one sheet. A part that touches a part of a tile in front drops out.
+  struct BlurPart {
+    int x0, y0, x1, y1;
+    std::int32_t z;
+  };
+  std::vector<BlurPart> parts;
   for (const WindowSwitcherTile* tile : instance.tiles) {
     if (tile == nullptr || !tile->visible() || tile->opacity() <= kVisibleOpacityThreshold) {
       continue;
     }
-    float left = 0.0F;
-    float top = 0.0F;
-    float right = 0.0F;
-    float bottom = 0.0F;
-    Node::transformedBounds(tile, left, top, right, bottom);
-    const int blurX = static_cast<int>(std::floor(left));
-    const int blurY = static_cast<int>(std::floor(top));
-    const int blurW = std::max(1, static_cast<int>(std::ceil(right) - std::floor(left)));
-    const int blurH = std::max(1, static_cast<int>(std::ceil(bottom) - std::floor(top)));
-    auto strips =
-        Surface::tessellateRoundedRect(blurX, blurY, blurW, blurH, Style::scaledRadiusXl(instance.uiLayoutScale));
+    for (const Node* part : {static_cast<const Node*>(tile->frame()), static_cast<const Node*>(tile->captionBadge())}) {
+      if (part == nullptr || !part->visible()) {
+        continue;
+      }
+      float left = 0.0F;
+      float top = 0.0F;
+      float right = 0.0F;
+      float bottom = 0.0F;
+      Node::transformedBounds(part, left, top, right, bottom);
+      const int x0 = static_cast<int>(std::floor(left));
+      const int y0 = static_cast<int>(std::floor(top));
+      parts.push_back({x0, y0, std::max(x0 + 1, static_cast<int>(std::ceil(right))),
+                       std::max(y0 + 1, static_cast<int>(std::ceil(bottom))), tile->zIndex()});
+    }
+  }
+  for (const BlurPart& part : parts) {
+    const bool covered = std::ranges::any_of(parts, [&part](const BlurPart& other) {
+      return other.z > part.z && other.x0 <= part.x1 && part.x0 <= other.x1 && other.y0 <= part.y1 && part.y0 <= other.y1;
+    });
+    if (covered) {
+      continue;
+    }
+    auto strips = Surface::tessellateRoundedRect(
+        part.x0, part.y0, part.x1 - part.x0, part.y1 - part.y0, Style::scaledRadiusXl(instance.uiLayoutScale)
+    );
     blurRects.insert(blurRects.end(), strips.begin(), strips.end());
   }
   if (instance.countBackground != nullptr) {
