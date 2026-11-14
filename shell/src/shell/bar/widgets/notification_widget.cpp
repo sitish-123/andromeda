@@ -65,7 +65,7 @@ void NotificationWidget::doLayout(Renderer& renderer, float /*containerWidth*/, 
   }
 
   m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
-  m_glyph->setGlyph(m_dndEnabled ? "bell-off" : "bell");
+  m_glyph->setGlyph(m_glyphName);
   m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
   m_glyph->measure(renderer);
   m_glyph->setPosition(0.0F, 0.0F);
@@ -97,13 +97,21 @@ void NotificationWidget::refreshIndicatorState() {
     }
   }
 
-  if (hasNotifications == m_hasNotifications && dndEnabled == m_dndEnabled) {
+  // The bell shows the glyph of the Focus that is on (docs/focus.md §6 F2).
+  std::string glyph = "bell";
+  if (const auto& active = m_manager->focus().active(); dndEnabled && active.has_value()) {
+    if (const focus::Focus* on = m_manager->focus().find(active->focusId); on != nullptr) {
+      glyph = on->glyph;
+    }
+  }
+  if (hasNotifications == m_hasNotifications && dndEnabled == m_dndEnabled && glyph == m_glyphName) {
     return;
   }
   m_hasNotifications = hasNotifications;
   m_dndEnabled = dndEnabled;
+  m_glyphName = glyph;
   if (m_glyph != nullptr) {
-    m_glyph->setGlyph(m_dndEnabled ? "bell-off" : "bell");
+    m_glyph->setGlyph(m_glyphName);
     m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
   }
   if (m_dot != nullptr) {

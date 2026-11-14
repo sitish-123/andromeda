@@ -248,7 +248,7 @@ namespace {
     bool active() const override { return m_svc != nullptr && m_svc->doNotDisturb(); }
     void onClick() override {
       if (m_svc != nullptr) {
-        (void)m_svc->toggleDoNotDisturb();
+        (void)m_svc->toggleFocus();
       }
     }
     void onRightClick() override { openTab("detail-notifications"); }

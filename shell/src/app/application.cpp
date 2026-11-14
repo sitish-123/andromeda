@@ -284,7 +284,9 @@ Application::Application()
         "focus", "until", active.has_value() && active->untilEpochSec.has_value() ? std::to_string(*active->untilEpochSec) : ""
     );
     (void)m_configService.setStateString("focus", "started_by", active.has_value() ? active->startedBy : "");
+    (void)m_configService.setStateString("focus", "last", m_notificationManager.lastFocusId());
   });
+  m_notificationManager.setLastFocusId(m_configService.stateString("focus", "last").value_or("dnd"));
   if (const auto id = m_configService.stateString("focus", "active"); id.has_value() && !id->empty()) {
     const std::string until = m_configService.stateString("focus", "until").value_or("");
     std::int64_t untilSec = 0;

@@ -935,9 +935,26 @@ bool NotificationManager::startFocus(
   if (m_focus.active().has_value() && m_focus.active()->focusId != id) {
     endFocus();
   }
+  if (startedBy == "user") {
+    m_lastFocusId = std::string(id);
+  }
   (void)m_focus.start(id, untilEpochSec, std::move(startedBy));
   focusChanged();
   return true;
+}
+
+void NotificationManager::setLastFocusId(std::string id) {
+  if (m_focus.find(id) != nullptr) {
+    m_lastFocusId = std::move(id);
+  }
+}
+
+bool NotificationManager::toggleFocus() {
+  if (m_focus.active().has_value()) {
+    endFocus();
+    return false;
+  }
+  return startFocus(m_lastFocusId, std::nullopt, "user");
 }
 
 void NotificationManager::endFocus() {

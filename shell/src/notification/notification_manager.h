@@ -183,6 +183,11 @@ public:
   // Ends the Focus on now first (its summary posts); false for an unknown id. The manager ends it at `untilEpochSec`.
   bool startFocus(std::string_view id, std::optional<std::int64_t> untilEpochSec, std::string startedBy);
   void endFocus();
+  // The Focus the user started last ("dnd" before any); the tile and the page switch toggle it.
+  [[nodiscard]] const std::string& lastFocusId() const noexcept { return m_lastFocusId; }
+  void setLastFocusId(std::string id);
+  // Ends the Focus that is on, else starts the last one with no end time; true when a Focus is on after.
+  bool toggleFocus();
   // A saved Focus from the last session; one whose end time passed is dropped.
   void restoreFocus(focus::Active active);
   // Notifications a Focus held, per app name, most first; reset when the Focus ends.
@@ -284,6 +289,7 @@ private:
 
   focus::FocusService m_focus;
   Timer m_focusEndTimer;
+  std::string m_lastFocusId = "dnd";
   std::unordered_map<std::string, int> m_held; // by app name, while the Focus is on
   FocusEndedCallback m_focusEndedCallback;
   std::uint64_t m_doNotDisturbRevision = 0;

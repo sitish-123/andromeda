@@ -1017,121 +1017,130 @@ namespace control_center {
 
   // ---- Focus ----
 
+  namespace {
+
+    // The next 8:00 local time: the "Until 8:00" choice.
+    std::int64_t nextEightOClock(std::time_t now) {
+      std::tm local{};
+      localtime_r(&now, &local);
+      if (local.tm_hour >= 8) {
+        local.tm_mday += 1;
+      }
+      local.tm_hour = 8;
+      local.tm_min = 0;
+      local.tm_sec = 0;
+      local.tm_isdst = -1;
+      return std::mktime(&local);
+    }
+
+    std::string clockTime(std::int64_t epoch) {
+      const auto t = static_cast<std::time_t>(epoch);
+      std::tm local{};
+      localtime_r(&t, &local);
+      return std::format("{}:{:02}", local.tm_hour, local.tm_min);
+    }
+
+  } // namespace
+
   std::unique_ptr<Flex> FocusDetailPage::createHeaderActions() {
     const bool on = m_notifications != nullptr && m_notifications->doNotDisturb();
     return headerToggle(m_toggle, on, contentScale(), [this](bool enabled) {
-      if (enabled) {
-        enable(Until::Manual);
-      } else {
-        disable();
+      if (m_notifications != nullptr && enabled != m_notifications->doNotDisturb()) {
+        (void)m_notifications->toggleFocus();
       }
+      requestRebuild();
     });
   }
 
-  void FocusDetailPage::enable(Until until) {
-    if (m_notifications == nullptr) {
-      return;
-    }
-    m_timer.stop();
-    m_until = until;
-    if (until != Until::OneHour && until != Until::Tomorrow) {
-      (void)m_notifications->startFocus("dnd", std::nullopt, "user");
-      m_revision = m_notifications->doNotDisturbRevision();
-    } else {
-      auto end = std::chrono::system_clock::now() + std::chrono::hours(1);
-      if (until == Until::Tomorrow) {
-        std::time_t now = std::time(nullptr);
-        std::tm local{};
-        localtime_r(&now, &local);
-        local.tm_mday += 1;
-        local.tm_hour = 8;
-        local.tm_min = 0;
-        local.tm_sec = 0;
-        local.tm_isdst = -1;
-        end = std::chrono::system_clock::from_time_t(std::mktime(&local));
-      }
-      m_endsAt = end;
-      // The manager ends the Focus at `end`; this timer only redraws the page.
-      (void)m_notifications->startFocus("dnd", std::chrono::system_clock::to_time_t(end), "user");
-      m_revision = m_notifications->doNotDisturbRevision();
-      m_timer.start(std::chrono::duration_cast<std::chrono::milliseconds>(end - std::chrono::system_clock::now()),
-                    [this] {
-                      m_until = Until::None;
-                      if (PanelManager::instance().isOpenPanel("control-center")) {
-                        requestRebuild();
-                      }
-                    });
-    }
-    requestRebuild();
-  }
-
-  void FocusDetailPage::disable() {
-    m_timer.stop();
-    m_until = Until::None;
-    if (m_notifications != nullptr) {
-      m_notifications->setDoNotDisturb(false);
-    }
-    if (PanelManager::instance().isOpenPanel("control-center")) {
-      requestRebuild();
-    }
-  }
-
   void FocusDetailPage::sync() {
-    if (m_notifications == nullptr) {
-      return;
-    }
-    const bool on = m_notifications->doNotDisturb();
-    if (!on && m_until != Until::None) {
-      m_timer.stop();
-      m_until = Until::None;
-    }
-    if (m_toggle != nullptr) {
-      m_toggle->setChecked(on);
+    if (m_toggle != nullptr && m_notifications != nullptr) {
+      m_toggle->setChecked(m_notifications->doNotDisturb());
     }
   }
 
   std::string FocusDetailPage::structureKey() const {
-    const bool on = m_notifications != nullptr && m_notifications->doNotDisturb();
-    return std::format("{}|{}", on, static_cast<int>(m_until));
+    if (m_notifications == nullptr || !m_notifications->focus().active().has_value()) {
+      return "off";
+    }
+    const auto& active = *m_notifications->focus().active();
+    int held = 0;
+    for (const auto& [app, count] : m_notifications->heldByApp()) {
+      held += count;
+    }
+    return std::format("{}|{}|{}", active.focusId, active.untilEpochSec.value_or(0), held);
   }
 
   void FocusDetailPage::build() {
     if (m_notifications == nullptr) {
       return;
     }
-    const bool on = m_notifications->doNotDisturb();
-    const Until current = on && m_until == Until::None ? Until::Manual : m_until;
-    Flex* mode = addGroup();
-    DetailRow dnd;
-    dnd.glyph = "moon";
-    dnd.title = tr("control-center.detail.focus.dnd");
-    dnd.selected = on;
-    dnd.onClick = [this, on] {
-      if (on) {
-        disable();
-      } else {
-        enable(Until::Manual);
-      }
-    };
-    addRow(*mode, dnd);
-    Flex* card = addGroup(tr("control-center.detail.focus.until"));
-    const auto add = [&](Until until, const char* key) {
+    const auto& active = m_notifications->focus().active();
+    const std::time_t now = std::time(nullptr);
+    const float scale = contentScale();
+    Flex* card = addGroup();
+    for (const focus::Focus& f : m_notifications->focus().focuses()) {
+      const bool on = active.has_value() && active->focusId == f.id;
       DetailRow row;
-      row.glyph = "moon";
-      row.title = tr(key);
-      row.selected = on && current == until;
-      row.onClick = [this, until] { enable(until); };
+      row.glyph = f.glyph;
+      row.title = f.id == "dnd" ? tr("control-center.detail.focus.dnd") : f.name;
+      row.selected = on;
+      if (!on) {
+        row.onClick = [this, id = f.id] {
+          (void)m_notifications->startFocus(id, std::nullopt, "user");
+          requestRebuild();
+        };
+        addRow(*card, row);
+        continue;
+      }
+      std::vector<std::string> parts;
+      if (active->untilEpochSec.has_value()) {
+        parts.push_back(i18n::tr("control-center.detail.focus.until-time", "time", clockTime(*active->untilEpochSec)));
+      }
+      int held = 0;
+      for (const auto& [app, count] : m_notifications->heldByApp()) {
+        held += count;
+      }
+      if (held > 0) {
+        parts.push_back(i18n::trp("control-center.detail.focus.held", held));
+      }
+      for (std::size_t i = 0; i < parts.size(); ++i) {
+        row.secondary += (i == 0 ? "" : " · ") + parts[i];
+      }
+      row.action = tr("control-center.detail.focus.end");
+      row.onAction = [this] {
+        m_notifications->endFocus();
+        requestRebuild();
+      };
       addRow(*card, row);
-    };
-    add(Until::OneHour, "control-center.detail.focus.one-hour");
-    add(Until::Tomorrow, "control-center.detail.focus.tomorrow");
-    add(Until::Manual, "control-center.detail.focus.manual");
-    if (on && (m_until == Until::OneHour || m_until == Until::Tomorrow)) {
-      const std::time_t end = std::chrono::system_clock::to_time_t(m_endsAt);
-      std::tm local{};
-      localtime_r(&end, &local);
-      addGroupFooter(*card, i18n::tr("control-center.detail.focus.active-until", "time",
-                                     std::format("{:02}:{:02}", local.tm_hour, local.tm_min)));
+      const std::int64_t eight = nextEightOClock(now);
+      const std::size_t selected = !active->untilEpochSec.has_value() ? 2 : *active->untilEpochSec == eight ? 1 : 0;
+      // Indented to the row text: glyph column plus its gap.
+      auto durations = ui::row({.flexGrow = 1.0F});
+      durations->setPadding(0.0F, 0.0F, Tokens::spaceP8 * scale, (Tokens::sizeControlS + Tokens::spaceP12) * scale);
+      durations->addChild(ui::segmented({
+          .options =
+              std::vector<ui::SegmentedOption>{
+                  ui::SegmentedOption{.label = tr("control-center.detail.focus.one-hour")},
+                  ui::SegmentedOption{
+                      .label = i18n::tr("control-center.detail.focus.until-time", "time", clockTime(eight))
+                  },
+                  ui::SegmentedOption{.label = tr("control-center.detail.focus.until-off")},
+              },
+          .selectedIndex = selected,
+          .scale = scale,
+          .compact = true,
+          .flexGrow = 1.0F,
+          .onChange =
+              [this, id = f.id](std::size_t index) {
+                const std::time_t at = std::time(nullptr);
+                const std::optional<std::int64_t> until = index == 0 ? std::optional<std::int64_t>(at + 3600)
+                    : index == 1                                     ? std::optional(nextEightOClock(at))
+                                                                     : std::nullopt;
+                (void)m_notifications->startFocus(id, until, "user");
+                requestRebuild();
+              },
+      }));
+      card->addChild(std::move(durations));
     }
   }
 

@@ -157,29 +157,21 @@ namespace control_center {
     std::function<void()> m_firstResult;
   };
 
-  // Only Do Not Disturb, with "Until" choices. The timer lives in the shell; a restart drops it.
+  // Every Focus in one card; the Focus on now shows its end, held count, End and its duration choices.
   class FocusDetailPage final : public DetailPage {
   public:
     explicit FocusDetailPage(NotificationManager* notifications) : m_notifications(notifications) {}
     std::unique_ptr<Flex> createHeaderActions() override;
 
   private:
-    enum class Until : std::uint8_t { None, OneHour, Tomorrow, Manual };
-
     [[nodiscard]] std::string structureKey() const override;
     void build() override;
     [[nodiscard]] std::vector<FooterButton> footerButtons() override;
     void sync() override;
     void releaseControls() override { m_toggle = nullptr; }
-    void enable(Until until);
-    void disable();
 
     NotificationManager* m_notifications = nullptr;
     Toggle* m_toggle = nullptr;
-    Until m_until = Until::None;
-    std::chrono::system_clock::time_point m_endsAt;
-    std::uint64_t m_revision = 0; // DND revision right after this page set the timed choice
-    Timer m_timer;
   };
 
   // The paired phone (Link): status chips, actions and its latest notifications. Link has no connect call, so the

@@ -590,13 +590,14 @@
         "title": "Display"
       },
       "focus": {
-        "active-until": "Do Not Disturb until {time}",
         "dnd": "Do Not Disturb",
-        "manual": "Until I turn it off",
+        "end": "End",
+        "held": "{count} held",
+        "held-plural": "{count} held",
         "one-hour": "1 hour",
         "settings": "Notification Settings...",
-        "tomorrow": "Until tomorrow",
-        "until": "Until"
+        "until-off": "Until off",
+        "until-time": "Until {time}"
       },
       "media": {
         "empty": "Nothing playing",

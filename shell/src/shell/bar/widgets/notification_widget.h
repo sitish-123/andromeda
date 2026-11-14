@@ -29,5 +29,6 @@ private:
   bool m_hideWhenNoUnread = false;
   bool m_hasNotifications = false;
   bool m_dndEnabled = false;
+  std::string m_glyphName = "bell";
   bool m_openedPanelByClick = false;
 };
