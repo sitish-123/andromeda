@@ -388,6 +388,7 @@ _noctalia_sources = files(
   'src/app/modules/power_modules.cpp',
   'src/app/service_host.cpp',
   'src/app/application_ui.cpp',
+  'src/app/greeter_sync.cpp',
   'src/app/lock_app.cpp',
   'src/app/main_loop.cpp',
   'src/app/single_instance_lock.cpp',

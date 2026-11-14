@@ -1362,7 +1362,7 @@ void Application::initAuxServicesAndHooks() {
     if (m_panelManager.isOpenPanel("control-center")) {
       m_panelManager.refresh();
     }
-    scheduleGreeterAutoSync();
+    m_greeterSync.scheduleAuto();
     const auto fireWallpaperChangedHook = [this](const std::string& path, const std::string& connector) {
       m_hookManager.fire(
           HookKind::WallpaperChanged, {{"ANDROMEDA_WALLPAPER_PATH", path}, {"ANDROMEDA_WALLPAPER_CONNECTOR", connector}}
@@ -1385,7 +1385,7 @@ void Application::initAuxServicesAndHooks() {
     m_settingsWindow.onThemeChanged();
     m_activityWindow.onThemeChanged();
     m_wallpaperWindow.onThemeChanged();
-    scheduleGreeterAutoSync();
+    m_greeterSync.scheduleAuto();
   });
 
   if (const auto distro = DistroDetector::detect(); distro.has_value()) {

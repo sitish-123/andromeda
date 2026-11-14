@@ -2,6 +2,7 @@
 
 #include "app/app_poll_sources.h"
 #include "app/graphics_recovery.h"
+#include "app/greeter_sync.h"
 #include "app/lock_before_sleep.h"
 #include "app/modules/bluetooth_module.h"
 #include "app/modules/mpris_module.h"
@@ -258,8 +259,6 @@ private:
   void syncClipboardService();
   void syncStorageKeyProvider();
   void syncScreenTimeService();
-  void performGreeterSync(bool quiet = false);
-  void scheduleGreeterAutoSync();
   void refreshWallpaperAccent(bool forSettingsRow = false);
   bool runShellCommandBlocking(const std::string& command);
   bool runIdleAction(const IdleActionRequest& action);
@@ -560,15 +559,19 @@ private:
   Timer m_speakerOfferTimer;
   Timer m_handoffTimer;
   Timer m_polkitIdleCloseTimer;
-  Timer m_greeterSyncTimeoutTimer;
-  Timer m_greeterAutoSyncTimer;
-  // The lock screen look the greeter last saw; a change syncs it (the greeter draws the same look).
-  LockscreenConfig m_greeterLockscreen;
+  GreeterSync m_greeterSync{
+      m_configService, m_themeService, m_compositorPlatform,
+      GreeterSync::Hooks{
+          .logindOnSystemBus = [this] { return m_logindService != nullptr; },
+          .polkitAgentActive = [this] { return m_configService.config().shell.polkitAgent && m_polkitAgent != nullptr; },
+          .inSessionPolkit = [this] { return likelySupportsInSessionPolkit(); },
+          .settingsError = [this](const std::string& message) { m_settingsWindow.markSettingsWriteError(message); },
+      }
+  };
   Timer m_clipboardAutoPasteTimer;
   Timer m_launcherAutoPasteTimer;
   Timer m_pluginAutoUpdateTimer;
   GraphicsRecovery m_graphicsRecovery{[this] { recoverGraphicsAfterReset(); }};
-  std::uint64_t m_greeterSyncGeneration = 0;
 
   std::unique_ptr<MainLoop> m_mainLoop;
 };
