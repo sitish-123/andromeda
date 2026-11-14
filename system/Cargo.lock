@@ -76,6 +76,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "andromeda-dsp"
+version = "0.1.0"
+
+[[package]]
 name = "andromeda-fileops"
 version = "0.1.0"
 dependencies = [
