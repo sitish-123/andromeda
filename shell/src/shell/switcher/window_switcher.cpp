@@ -1173,9 +1173,10 @@ void WindowSwitcher::closeWindowAt(std::size_t index) {
       }
     }
   }
-  if (handle != nullptr) {
-    m_platform->closeToplevel(handle);
-  }
+  // A window with no wlr handle closes through its compositor-issued ID.
+  m_platform->closeToplevelInfo(
+      ToplevelInfo{.identifier = entry.windowId, .handle = handle, .exactIdentity = !entry.windowId.empty()}
+  );
 
   const std::size_t previousCount = m_windows.size();
   refreshWindows();
