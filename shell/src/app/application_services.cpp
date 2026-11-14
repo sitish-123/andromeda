@@ -365,7 +365,7 @@ void Application::scheduleNotificationShellRefresh() {
 
 void Application::syncNotificationDaemon() {
   if (m_bus == nullptr) {
-    m_notificationPollSource.setDbusService(nullptr);
+    m_poll.notification.setDbusService(nullptr);
     m_notificationDbus.reset();
     m_notificationDaemonMode = NotificationDaemonMode::Unset;
     return;
@@ -375,7 +375,7 @@ void Application::syncNotificationDaemon() {
     if (m_notificationDaemonMode == NotificationDaemonMode::Owner) {
       kLog.info("notification daemon disabled by config");
     }
-    m_notificationPollSource.setDbusService(nullptr);
+    m_poll.notification.setDbusService(nullptr);
     m_notificationDbus.reset();
     m_notificationDaemonMode = NotificationDaemonMode::Disabled;
     return;
@@ -386,7 +386,7 @@ void Application::syncNotificationDaemon() {
       return;
     }
     kLog.info("notification daemon connection lost; re-registering");
-    m_notificationPollSource.setDbusService(nullptr);
+    m_poll.notification.setDbusService(nullptr);
     m_notificationDbus.reset();
   }
 
@@ -396,13 +396,13 @@ void Application::syncNotificationDaemon() {
 
   try {
     m_notificationDbus = std::make_unique<NotificationService>(*m_bus, m_notificationManager);
-    m_notificationPollSource.setDbusService(m_notificationDbus.get());
+    m_poll.notification.setDbusService(m_notificationDbus.get());
     m_notificationDaemonMode = NotificationDaemonMode::Owner;
     kLog.info("listening on org.freedesktop.Notifications");
   } catch (const std::exception& ownerError) {
     kLog.warn("notifications disabled: {}", ownerError.what());
     m_notificationDbus.reset();
-    m_notificationPollSource.setDbusService(nullptr);
+    m_poll.notification.setDbusService(nullptr);
     m_notificationDaemonMode = NotificationDaemonMode::Failed;
     m_notificationManager.addInternal(
         "Noctalia", i18n::tr("notifications.internal.dbus-disabled"), ownerError.what(), Urgency::Low
@@ -600,7 +600,7 @@ void Application::syncAuthPanel() {
 }
 
 void Application::dropPolkitAgent() {
-  m_polkitPollSource.reset();
+  m_poll.polkit.reset();
   m_polkitAgent.reset();
   handleAuthDialog(AuthDialogEvent::PolkitAgentRemoved);
 }
@@ -664,7 +664,7 @@ void Application::syncPolkitAgent() {
     const bool hasContent = m_polkitAgent->isResponseRequired() || !m_polkitAgent->supplementaryMessage().empty();
     handleAuthDialog(hasContent ? AuthDialogEvent::PolkitReady : AuthDialogEvent::PolkitWaiting);
   });
-  m_polkitPollSource = std::make_unique<PolkitPollSource>(*m_polkitAgent);
+  m_poll.polkit = std::make_unique<PolkitPollSource>(*m_polkitAgent);
   m_polkitAgent->start();
 }
 

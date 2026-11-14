@@ -1,6 +1,6 @@
 #pragma once
 
-#include "app/deferred_call_poll_source.h"
+#include "app/app_poll_sources.h"
 #include "app/lock_before_sleep.h"
 #include "app/modules/bluetooth_module.h"
 #include "app/modules/mpris_module.h"
@@ -9,20 +9,14 @@
 #include "app/modules/power_modules.h"
 #include "app/modules/ui_modules.h"
 #include "app/service_host.h"
-#include "app/timer_poll_source.h"
-#include "calendar/calendar_poll_source.h"
 #include "calendar/calendar_reminder_monitor.h"
-#include "calendar/calendar_reminder_poll_source.h"
 #include "calendar/calendar_service.h"
 #include "capture/screenshot_service.h"
 #include "compositors/compositor_platform.h"
 #include "compositors/workspace_alert_service.h"
-#include "config/config_poll_source.h"
 #include "config/config_service.h"
 #include "core/files/file_watcher.h"
-#include "core/process/process_poll_source.h"
 #include "core/timer_manager.h"
-#include "dbus/notification/notification_poll_source.h"
 #include "dbus/secret/secret_collection_probe.h"
 #include "hooks/battery_hook_state.h"
 #include "hooks/hook_manager.h"
@@ -30,14 +24,12 @@
 #include "idle/idle_inhibitor.h"
 #include "idle/idle_manager.h"
 #include "idle/plugin_idle_watches.h"
-#include "ipc/ipc_poll_source.h"
 #include "shell/polkit/askpass_broker.h"
 #include "shell/polkit/auth_dialog_state.h"
 #include "ipc/ipc_service.h"
 #include "ipc/pixel_stream_service.h"
 #include "launcher/dmenu_ipc.h"
 #include "net/http_client.h"
-#include "net/http_client_poll_source.h"
 #include "notification/focus_triggers.h"
 #include "notification/notification_manager.h"
 #include "pipewire/hdmi_audio_switch.h"
@@ -88,33 +80,23 @@
 #include "system/background_warning_state.h"
 #include "system/battery_warning_monitor.h"
 #include "system/dependency_service.h"
-#include "system/desktop_entry_poll_source.h"
 #include "system/gamma_service.h"
-#include "system/icon_theme_poll_source.h"
-#include "system/location_poll_source.h"
 #include "system/location_service.h"
-#include "system/lock_keys_poll_source.h"
 #include "system/lock_keys_service.h"
 #include "system/screen_time_service.h"
-#include "system/weather_poll_source.h"
 #include "system/weather_service.h"
 #include "theme/live_appearance_sync.h"
 #include "theme/theme_service.h"
-#include "time/time_poll_source.h"
 #include "time/time_service.h"
 #include "ui/dialogs/color_picker_dialog_popup.h"
 #include "ui/dialogs/file_dialog_popup.h"
 #include "ui/dialogs/glyph_picker_dialog_popup.h"
 #include "ui/dialogs/layer_popup_host.h"
 #include "ui/dialogs/search_picker_popup.h"
-#include "clipboard/clipboard_poll_source.h"
 #include "clipboard/clipboard_service.h"
-#include "wayland/key_repeat_poll_source.h"
-#include "compositors/keyboard_layout_poll_source.h"
 #include "wayland/text_input_service.h"
 #include "compositors/virtual_keyboard_service.h"
 #include "compositors/shell_wayland_connection.h"
-#include "compositors/workspace_poll_source.h"
 
 #include <atomic>
 #include <cstdint>
@@ -133,8 +115,6 @@ class LauncherPanel;
 class AccountsService;
 class BluetoothAgent;
 class BluetoothService;
-class BrightnessPollSource;
-class MemoryPressurePollSource;
 class BrightnessService;
 class KeyboardBacklightService;
 class DebugService;
@@ -154,25 +134,19 @@ class ModemManagerService;
 class MprisService;
 class NetworkSecretAgent;
 class NotificationDBusHost;
-class PipeWirePollSource;
 class PipeWireService;
 class WirePlumberMixer;
 namespace compositors::andromeda {
   class AndromedaAudioProvider;
 }
 class PipeWireSpectrum;
-class PipeWireSpectrumPollSource;
 class PolkitAgent;
-class PolkitPollSource;
 class PowerProfilesService;
-class ScreenSaverPollSource;
 class ScreenSaverService;
 class FilesProvider;
 class SessionBus;
-class SessionBusPollSource;
 class SoundPlayer;
 class SystemBus;
-class SystemBusPollSource;
 class SystemMonitorService;
 class TrayService;
 class UPowerService;
@@ -374,7 +348,6 @@ private:
   LockBeforeSleep m_lockBeforeSleep{lockBeforeSleepHooks()};
   std::uint64_t m_outputPowerRequestGeneration = 0;
   std::unique_ptr<AccountsService> m_accountsService;
-  std::unique_ptr<ScreenSaverPollSource> m_screenSaverPollSource;
   std::unique_ptr<SystemMonitorService> m_systemMonitor;
   // Created on the first Activity request; samples only under a lease.
   std::unique_ptr<ActivityMonitor> m_activityMonitor;
@@ -555,37 +528,29 @@ private:
   SearchPickerPopup m_searchPickerDialogPopup;
 
   // Poll sources (must outlive MainLoop)
-  std::unique_ptr<SessionBusPollSource> m_busPollSource;
-  std::unique_ptr<SystemBusPollSource> m_systemBusPollSource;
-  NotificationPollSource m_notificationPollSource{m_notificationManager};
-  DeferredCallPollSource m_deferredCallPollSource;
-  ProcessPollSource m_processPollSource{process::AsyncProcessManager::instance()};
-  TimePollSource m_timePollSource{m_timeService};
-  ConfigPollSource m_configPollSource{m_configService};
-  DesktopEntryPollSource m_desktopEntryPollSource;
-  IconThemePollSource m_iconThemePollSource;
-  ClipboardPollSource m_clipboardPollSource{m_clipboardService};
-  TimerPollSource m_timerPollSource;
-  KeyRepeatPollSource m_keyRepeatPollSource{m_wayland};
-  WorkspacePollSource m_workspacePollSource{m_compositorPlatform};
-  KeyboardLayoutPollSource m_keyboardLayoutPollSource{m_compositorPlatform};
-  LockKeysPollSource m_lockKeysPollSource{m_lockKeysService};
-  std::unique_ptr<BrightnessPollSource> m_brightnessPollSource;
-  std::unique_ptr<MemoryPressurePollSource> m_memoryPressurePollSource;
-  std::unique_ptr<PipeWirePollSource> m_pipewirePollSource;
-  std::unique_ptr<PipeWireSpectrumPollSource> m_pipewireSpectrumPollSource;
-  std::unique_ptr<PolkitPollSource> m_polkitPollSource;
   IpcService m_ipcService;
-  IpcPollSource m_ipcPollSource{m_ipcService};
   DmenuIpcService m_dmenuIpc;
   LocationService m_locationService;
   WeatherService m_weatherService;
-  HttpClientPollSource m_httpClientPollSource{m_httpClient};
-  FileWatchPollSource m_fileWatchPollSource{m_fileWatcher};
-  LocationPollSource m_locationPollSource{m_locationService};
-  WeatherPollSource m_weatherPollSource{m_weatherService};
-  CalendarPollSource m_calendarPollSource{m_calendarService};
-  CalendarReminderPollSource m_calendarReminderPollSource{m_calendarReminderMonitor};
+  AppPollSources m_poll{
+      .notification{m_notificationManager},
+      .process{process::AsyncProcessManager::instance()},
+      .time{m_timeService},
+      .config{m_configService},
+      .clipboard{m_clipboardService},
+      .keyRepeat{m_wayland},
+      .workspace{m_compositorPlatform},
+      .keyboardLayout{m_compositorPlatform},
+      .lockKeys{m_lockKeysService},
+      .ipc{m_ipcService},
+      .httpClient{m_httpClient},
+      .fileWatch{m_fileWatcher},
+      .location{m_locationService},
+      .weather{m_weatherService},
+      .calendar{m_calendarService},
+      .calendarReminder{m_calendarReminderMonitor},
+  };
+
   Timer m_polkitInitTimer;
   std::vector<focus::Trigger> m_focusTriggers;
   focus::TriggerState m_focusTriggerState;

@@ -1424,7 +1424,7 @@ void Application::initWidgetControllersAndCallbacks() {
   };
   m_desktopWidgetsController.setOnExitEditCallback(restoreSettingsAfterWidgetEditor);
   m_lockscreenWidgetsController.setOnExitEditCallback(restoreSettingsAfterWidgetEditor);
-  m_iconThemePollSource.setChangeCallback([this] { onIconThemeChanged(); });
+  m_poll.iconTheme.setChangeCallback([this] { onIconThemeChanged(); });
 
   std::string lastShellFontFamily = m_configService.config().shell.fontFamily;
   float lastTextScale = m_configService.config().accessibility.textScale;
