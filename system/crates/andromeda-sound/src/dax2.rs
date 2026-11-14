@@ -116,7 +116,7 @@ fn strip_comment(line: &str) -> &str {
 }
 
 /// Comma-separated fields, unquoted; a quoted comma stays inside.
-fn fields(value: &str) -> Vec<String> {
+pub(crate) fn fields(value: &str) -> Vec<String> {
     let (mut out, mut cur, mut quoted) = (Vec::new(), String::new(), false);
     for c in value.chars() {
         match c {
@@ -129,11 +129,11 @@ fn fields(value: &str) -> Vec<String> {
     out
 }
 
-type Sections = HashMap<String, Vec<String>>;
+pub(crate) type Sections = HashMap<String, Vec<String>>;
 
 /// (hardware ID, install section) for each model entry whose hardware ID carries all `parts`.
 /// Walks [Manufacturer] to the model sections Windows reads on x64.
-fn bound_installs(s: &Sections, parts: &HashSet<String>) -> Vec<(String, String)> {
+pub(crate) fn bound_installs(s: &Sections, parts: &HashSet<String>) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for line in s.get("manufacturer").into_iter().flatten() {
         let Some((_, value)) = line.split_once('=') else { continue };
@@ -179,7 +179,7 @@ fn directive(s: &Sections, section: &str, key: &str) -> Vec<String> {
 }
 
 /// The `AddReg` sections of the x64 install section and of the interfaces it adds.
-fn addreg_sections(s: &Sections, install: &str) -> Vec<String> {
+pub(crate) fn addreg_sections(s: &Sections, install: &str) -> Vec<String> {
     let Some(section) =
         [".ntamd64", ".nt", ""].iter().map(|x| format!("{install}{x}").to_lowercase()).find(|n| s.contains_key(n))
     else {

@@ -4,6 +4,7 @@
 pub mod chain;
 pub mod dax2;
 pub mod sonitude;
+pub mod surface;
 
 use std::collections::BTreeMap;
 
@@ -43,6 +44,16 @@ pub struct Profile {
     pub vlldp: BTreeMap<String, Vec<f64>>,
     /// Enabled filters only.
     pub speaker_peq: Vec<PeqFilter>,
+    /// Fixed vendor biquads (Surface APO) that the fitted EQ also follows.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub biquads: Vec<Biquad>,
+}
+
+/// One biquad at 48 kHz as (b0, b1, b2, a1, a2): the denominator is 1 + a1 z^-1 + a2 z^-2.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Biquad {
+    pub speaker: u32,
+    pub coeffs: [f64; 5],
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]

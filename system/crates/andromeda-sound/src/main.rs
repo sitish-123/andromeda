@@ -387,11 +387,16 @@ fn find_vendor(
     vendor_id: u32,
 ) -> Option<Result<andromeda_sound::Tuning>> {
     if let Some(f) = find_driver_file(packages, layout, stem) {
-        return Some(
-            fs::read(&f)
-                .with_context(|| format!("read {}", f.display()))
-                .and_then(|b| andromeda_sound::parse(std::str::from_utf8(&b).context("tuning file is not UTF-8")?)),
-        );
+        let parsed = fs::read(&f)
+            .with_context(|| format!("read {}", f.display()))
+            .and_then(|b| andromeda_sound::parse(std::str::from_utf8(&b).context("tuning file is not UTF-8")?));
+        return Some(parsed.map(|mut t| {
+            // A Surface EQ that fails to read leaves the Dolby tuning as it is.
+            if let Err(e) = andromeda_sound::surface::stack(&mut t, f.parent().unwrap_or(Path::new(".")), vendor_id) {
+                eprintln!("Surface speaker EQ not added: {e:#}");
+            }
+            t
+        }));
     }
     find_sonitude(packages, layout, vendor_id, &subsystem_of(stem))
         .or_else(|| find_dax2(packages, layout, vendor_id, &subsystem_of(stem)))

@@ -207,7 +207,11 @@ pub fn channel_eq(t: &Tuning, p: &Profile, ch: usize) -> Vec<Band> {
     let qs: Vec<f64> = (0..n).map(|i| 0.3 * band_q(&freqs, i)).collect();
     let grid: Vec<f64> =
         (0..GRID).map(|k| 60.0 * (20_000f64 / 60.0).powf(f64::from(k) / f64::from(GRID - 1))).collect();
-    let target: Vec<f64> = grid.iter().map(|&f| interp_log(centres, &curve, f)).collect();
+    let fixed: Vec<&[f64; 5]> = p.biquads.iter().filter(|b| b.speaker == ch_u32).map(|b| &b.coeffs).collect();
+    let target: Vec<f64> = grid
+        .iter()
+        .map(|&f| interp_log(centres, &curve, f) + fixed.iter().map(|c| biquad_db(c, f)).sum::<f64>())
+        .collect();
     let mut gains: Vec<f64> = freqs.iter().map(|&f| interp_log(centres, &curve, f)).collect();
     for _ in 0..10 {
         let jac: Vec<Vec<f64>> = grid
@@ -245,6 +249,16 @@ pub fn channel_eq(t: &Tuning, p: &Profile, ch: usize) -> Vec<Band> {
 }
 
 const GRID: u32 = 400;
+
+/// Magnitude in dB of a (b0, b1, b2, a1, a2) biquad at `f` Hz.
+fn biquad_db(c: &[f64; 5], f: f64) -> f64 {
+    let w = 2.0 * std::f64::consts::PI * f / FS;
+    let mag = |k0: f64, k1: f64, k2: f64| {
+        let (re, im) = (k0 + k1 * w.cos() + k2 * (2.0 * w).cos(), -k1 * w.sin() - k2 * (2.0 * w).sin());
+        re.hypot(im)
+    };
+    20.0 * (mag(c[0], c[1], c[2]) / mag(1.0, c[3], c[4])).log10()
+}
 
 fn interp_log(xs: &[f64], ys: &[f64], x: f64) -> f64 {
     let i = xs.partition_point(|&v| v < x);
