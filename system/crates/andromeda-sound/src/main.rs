@@ -56,15 +56,18 @@ fn apply(mut args: impl Iterator<Item = String>) -> Result<()> {
         let stem = codec_stem()?;
         data_dir()?.join(format!("{}.toml", stem.rsplit('_').next().unwrap_or_default()))
     };
-    let t: andromeda_sound::Tuning = toml::from_str(
-        &fs::read_to_string(&tuning).with_context(|| format!("read {}; run import-dolby first", tuning.display()))?,
-    )?;
+    // No imported tuning (no Windows, or no Dolby driver): the generic chain still adds bass and loudness.
+    let t: Option<andromeda_sound::Tuning> = match fs::read_to_string(&tuning) {
+        Ok(text) => Some(toml::from_str(&text).with_context(|| format!("parse {}", tuning.display()))?),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e).with_context(|| format!("read {}", tuning.display())),
+    };
     let target = match target {
         Some(t) => t,
         None => speaker_sink()?,
     };
     let conf = chain::filter_chain_conf(
-        &t,
+        t.as_ref(),
         &chain::Settings {
             profile: &profile,
             dsp_path: &dsp,
@@ -168,16 +171,23 @@ fn import(mut args: impl Iterator<Item = String>) -> Result<()> {
             _ => bail!(USAGE),
         }
     }
-    let xml = if let Some(p) = xml {
-        p
+    let bytes = if let Some(p) = xml {
+        fs::read(&p).with_context(|| format!("read {}", p.display()))?
     } else {
         let stem = codec_stem()?;
-        let roots = windows.map_or_else(mounted_windows_roots, |w| vec![w]);
-        roots.iter().find_map(|r| find_driver_file(r, &stem)).with_context(|| {
-            format!("no {stem}*.xml in a Windows driver store; mount the Windows partition or pass --xml")
-        })?
+        let mut roots = windows.map_or_else(mounted_windows_roots, |w| vec![w]);
+        let ours =
+            if roots.iter().any(|r| find_driver_file(r, &stem).is_some()) { Vec::new() } else { mount_ntfs_ro() };
+        roots.extend(ours.iter().map(|(_, at)| at.clone()));
+        let read = roots
+            .iter()
+            .find_map(|r| find_driver_file(r, &stem))
+            .map(|f| fs::read(&f).with_context(|| format!("read {}", f.display())));
+        for (dev, _) in &ours {
+            let _ = Command::new("udisksctl").args(["unmount", "-b", dev, "--no-user-interaction"]).output();
+        }
+        read.with_context(|| format!("no Windows partition with a Dolby tuning file ({stem}*.xml)"))??
     };
-    let bytes = fs::read(&xml).with_context(|| format!("read {}", xml.display()))?;
     let tuning = andromeda_sound::parse(std::str::from_utf8(&bytes).context("tuning file is not UTF-8")?)?;
     let out = match out {
         Some(o) => o,
@@ -189,6 +199,25 @@ fn import(mut args: impl Iterator<Item = String>) -> Result<()> {
     fs::write(&out, toml::to_string(&tuning)?)?;
     println!("{}", out.display());
     Ok(())
+}
+
+/// Mounts every unmounted NTFS partition read-only through udisks; polkit may ask for the
+/// password through the session's agent. Returns (device, mount point) for the caller to unmount.
+fn mount_ntfs_ro() -> Vec<(String, PathBuf)> {
+    let Ok(out) = Command::new("lsblk").args(["-rno", "PATH,FSTYPE,MOUNTPOINT"]).output() else { return Vec::new() };
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split(' ').collect();
+            (f.len() >= 2 && f[1] == "ntfs" && f.get(2).is_none_or(|m| m.is_empty())).then(|| f[0].to_owned())
+        })
+        .filter_map(|dev| {
+            let out = Command::new("udisksctl").args(["mount", "-b", &dev, "-o", "ro"]).output().ok()?;
+            let text = String::from_utf8_lossy(&out.stdout);
+            let at = text.trim().rsplit_once(" at ")?.1.trim_end_matches('.').to_owned();
+            Some((dev, PathBuf::from(at)))
+        })
+        .collect()
 }
 
 /// The analog codec: Intel (0x8086) entries are HDMI.

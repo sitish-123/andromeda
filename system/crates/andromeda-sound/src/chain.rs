@@ -1,5 +1,6 @@
 //! Turns one imported profile into a `PipeWire` filter-chain config:
-//! speaker EQ (`param_eq`) → leveler → regulator → limiter (andromeda-dsp).
+//! speaker EQ (`param_eq`) → bass → leveler → regulator → limiter (andromeda-dsp); without
+//! an imported profile only bass → limiter.
 
 use std::f64::consts::PI;
 use std::fmt::Write as _;
@@ -33,37 +34,102 @@ pub struct Band {
     pub gain_db: f64,
 }
 
-pub fn filter_chain_conf(t: &Tuning, s: &Settings) -> Result<String> {
-    let ep = t.endpoints.iter().find(|e| e.kind == "internal_speaker").context("no internal_speaker endpoint")?;
-    let p = ep.profiles.get(s.profile).with_context(|| format!("no profile {:?}", s.profile))?;
-    let mut eq = String::new();
-    for ch in 0..2 {
-        let _ = write!(eq, "\n              filters{} = [", ch + 1);
-        for b in channel_eq(t, p, ch) {
+/// Profile name written for a speaker with no imported tuning: bass, loudness and limiter only.
+pub const GENERIC: &str = "generic";
+
+/// One chain node: its config text and its stereo input/output port names.
+struct Node {
+    name: &'static str,
+    text: String,
+    ports: (&'static str, &'static str),
+}
+
+#[allow(clippy::too_many_lines)]
+pub fn filter_chain_conf(t: Option<&Tuning>, s: &Settings) -> Result<String> {
+    let dsp = s.dsp_path;
+    let ladspa = |name: &'static str, label: &str, control: String| Node {
+        name,
+        text: format!(
+            "{{ type = ladspa name = {name} plugin = \"{dsp}\" label = {label}\n            control = {{{control} }} }}"
+        ),
+        ports: ("L", "R"),
+    };
+    let highpass = if s.bass > 0.0 { 100.0 } else { 0.0 };
+    let bass = ladspa("vb", "bass", format!(" \"Amount\" = {:.1} \"Highpass\" = {highpass:.1}", s.bass));
+    let limiter = ladspa(
+        "lim",
+        "limiter",
+        format!(" \"Input gain\" = {:.1} \"Ceiling\" = -1.0 \"Release\" = 80.0", s.loudness_db),
+    );
+    let (source, nodes) = match t {
+        None => (GENERIC.to_owned(), vec![bass, limiter]),
+        Some(t) => {
+            let ep =
+                t.endpoints.iter().find(|e| e.kind == "internal_speaker").context("no internal_speaker endpoint")?;
+            let p = ep.profiles.get(s.profile).with_context(|| format!("no profile {:?}", s.profile))?;
+            let mut eq = String::new();
+            for ch in 0..2 {
+                let _ = write!(eq, "\n              filters{} = [", ch + 1);
+                for b in channel_eq(t, p, ch) {
+                    let _ = write!(
+                        eq,
+                        "\n                {{ type = {} freq = {:.1} q = {:.4} gain = {:.3} }}",
+                        b.kind, b.freq, b.q, b.gain_db
+                    );
+                }
+                eq.push_str("\n              ]");
+            }
+            let cp = |k: &str| p.cp.get(k).and_then(|v| v.first()).copied().unwrap_or(0.0);
+            let leveler_amount = if cp("volume-leveler-enable") > 0.0 { cp("volume-leveler-amount") } else { 0.0 };
+            let leveler_target =
+                p.cp.get("volume-leveler-in-target").and_then(|v| v.first()).map_or(-20.0, |v| v / DAX);
+            // Our reading of DAX3: the relaxation amount caps how deep the regulator cuts (1/16 dB).
+            let max_cut = p.cp.get("regulator-relaxation-amount").and_then(|v| v.first()).map_or(6.0, |v| v / DAX);
+            let mut reg = format!(" \"Max cut\" = {max_cut:.2}");
+            for (name, key) in [("High", "regulator-tuning.threshold_high"), ("Low", "regulator-tuning.threshold_low")]
+            {
+                if let Some(v) = p.vlldp.get(key) {
+                    for (i, x) in v.iter().take(20).enumerate() {
+                        let _ = write!(reg, " \"{name} {i}\" = {:.4}", x / DAX);
+                    }
+                }
+            }
+            let eq = Node {
+                name: "eq",
+                text: format!(
+                    "{{ type = builtin name = eq label = param_eq\n            config = {{{eq}\n            }}\n          }}"
+                ),
+                ports: ("1", "2"),
+            };
+            let lev = ladspa(
+                "lev",
+                "leveler",
+                format!(" \"Target\" = {leveler_target:.2} \"Amount\" = {leveler_amount:.1} \"Max gain\" = 6.0"),
+            );
+            let reg = ladspa("reg", "regulator", reg);
+            (
+                format!("{} profile \"{}\" (tuned {})", t.subsystem, s.profile, t.tuning_date),
+                vec![eq, bass, lev, reg, limiter],
+            )
+        }
+    };
+    let port =
+        |n: &Node, dir: &str, ch: usize| format!("{}:{dir} {}", n.name, if ch == 0 { n.ports.0 } else { n.ports.1 });
+    let node_text: Vec<&str> = nodes.iter().map(|n| n.text.as_str()).collect();
+    let mut links = String::new();
+    for w in nodes.windows(2) {
+        for ch in 0..2 {
             let _ = write!(
-                eq,
-                "\n                {{ type = {} freq = {:.1} q = {:.4} gain = {:.3} }}",
-                b.kind, b.freq, b.q, b.gain_db
+                links,
+                "\n          {{ output = \"{}\" input = \"{}\" }}",
+                port(&w[0], "Out", ch),
+                port(&w[1], "In", ch)
             );
         }
-        eq.push_str("\n              ]");
     }
-    let cp = |k: &str| p.cp.get(k).and_then(|v| v.first()).copied().unwrap_or(0.0);
-    let leveler_amount = if cp("volume-leveler-enable") > 0.0 { cp("volume-leveler-amount") } else { 0.0 };
-    let leveler_target = p.cp.get("volume-leveler-in-target").and_then(|v| v.first()).map_or(-20.0, |v| v / DAX);
-    // Our reading of DAX3: the relaxation amount caps how deep the regulator cuts (1/16 dB).
-    let max_cut = p.cp.get("regulator-relaxation-amount").and_then(|v| v.first()).map_or(6.0, |v| v / DAX);
-    let mut reg = format!(" \"Max cut\" = {max_cut:.2}");
-    for (name, key) in [("High", "regulator-tuning.threshold_high"), ("Low", "regulator-tuning.threshold_low")] {
-        if let Some(v) = p.vlldp.get(key) {
-            for (i, x) in v.iter().take(20).enumerate() {
-                let _ = write!(reg, " \"{name} {i}\" = {:.4}", x / DAX);
-            }
-        }
-    }
-    let dsp = s.dsp_path;
+    let (first, last) = (&nodes[0], &nodes[nodes.len() - 1]);
     Ok(format!(
-        r#"# Generated by andromeda-sound from {subsys} profile "{profile}" loudness {loudness} bass {bass} (tuned {date}). Do not edit.
+        r#"# Generated by andromeda-sound: profile "{profile}" loudness {loudness} bass {bass}; source {source}. Do not edit.
 context.modules = [
   {{ name = libpipewire-module-filter-chain
     args = {{
@@ -71,47 +137,30 @@ context.modules = [
       media.name = "Speakers"
       filter.graph = {{
         nodes = [
-          {{ type = builtin name = eq label = param_eq
-            config = {{{eq}
-            }}
-          }}
-          {{ type = ladspa name = vb plugin = "{dsp}" label = bass
-            control = {{ "Amount" = {bass:.1} "Highpass" = {highpass:.1} }} }}
-          {{ type = ladspa name = lev plugin = "{dsp}" label = leveler
-            control = {{ "Target" = {leveler_target:.2} "Amount" = {leveler_amount:.1} "Max gain" = 6.0 }} }}
-          {{ type = ladspa name = reg plugin = "{dsp}" label = regulator
-            control = {{{reg} }} }}
-          {{ type = ladspa name = lim plugin = "{dsp}" label = limiter
-            control = {{ "Input gain" = {loudness:.1} "Ceiling" = -1.0 "Release" = 80.0 }} }}
+          {nodes}
         ]
-        links = [
-          {{ output = "eq:Out 1" input = "vb:In L" }}
-          {{ output = "eq:Out 2" input = "vb:In R" }}
-          {{ output = "vb:Out L" input = "lev:In L" }}
-          {{ output = "vb:Out R" input = "lev:In R" }}
-          {{ output = "lev:Out L" input = "reg:In L" }}
-          {{ output = "lev:Out R" input = "reg:In R" }}
-          {{ output = "reg:Out L" input = "lim:In L" }}
-          {{ output = "reg:Out R" input = "lim:In R" }}
+        links = [{links}
         ]
-        inputs = [ "eq:In 1" "eq:In 2" ]
-        outputs = [ "lim:Out L" "lim:Out R" ]
+        inputs = [ "{in0}" "{in1}" ]
+        outputs = [ "{out0}" "{out1}" ]
       }}
       audio.rate = 48000
       audio.channels = 2
       audio.position = [ FL FR ]
-      capture.props = {{ node.name = "{SINK_NAME}" media.class = Audio/Sink priority.session = {SINK_PRIORITY} priority.driver = {SINK_PRIORITY} device.icon-name = "audio-speakers" }}
+      capture.props = {{ node.name = "{SINK_NAME}" andromeda.enhances = "{target}" media.class = Audio/Sink priority.session = {SINK_PRIORITY} priority.driver = {SINK_PRIORITY} device.icon-name = "audio-speakers" }}
       playback.props = {{ node.name = "{SINK_NAME}.out" node.passive = true target.object = "{target}" node.dont-reconnect = true stream.dont-remix = true }}
     }}
   }}
 ]
 "#,
-        subsys = t.subsystem,
-        profile = s.profile,
+        profile = if t.is_some() { s.profile } else { GENERIC },
         loudness = s.loudness_db,
         bass = s.bass,
-        highpass = if s.bass > 0.0 { 100.0 } else { 0.0 },
-        date = t.tuning_date,
+        nodes = node_text.join("\n          "),
+        in0 = port(first, "In", 0),
+        in1 = port(first, "In", 1),
+        out0 = port(last, "Out", 0),
+        out1 = port(last, "Out", 1),
         target = s.target,
     ))
 }
